@@ -1,0 +1,565 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Hospital {
+
+  id                    String   @id @default(uuid())
+  name                  String
+  address               String
+  logo                  String?
+  phone                 String[]
+  email                 String
+  city                  String
+  state                 String
+  country               String
+  zipCode               String
+  website               String?
+  slogan                String?
+  pobox                 String?
+  nfcCardFee            Decimal @default(1000.00)
+  registrationFee       Decimal @default(0.00)
+  paymentPlan           PaymentPlan?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  deletedAt             DateTime? @updatedAt
+  deletedBy             String?
+
+
+  staffs                 HospitalStaff[]
+  patients               Patient[]
+
+}
+
+model InsuranceScheme {
+  id                    String   @id @default(uuid()) // Unique ID for the insurance scheme
+  name                  String   // Name of the insurance scheme (e.g., "ABC Health Insurance")
+  description           String?  // A description of the insurance scheme (optional)
+  address               String?  // Address of the insurance provider
+  phone                 String[] // Contact numbers for the scheme
+  email                 String   // Email for communication with the scheme
+  website               String?  // Website for the insurance scheme
+  registrationFee       Decimal  @default(0.00) // Registration fee for users
+  createdAt             DateTime @default(now()) // Timestamp for when the scheme was created
+  updatedAt             DateTime @updatedAt // Timestamp for when the scheme was last updated
+
+  // Relating users (staff members) who work for this insurance scheme
+  staffs                NHISWorker[]   // Relation to the User model (staff members)
+  patients              Patient[]
+}
+
+
+model Role {
+  id             String           @id @default(uuid())
+  name           String           @unique // e.g. "DOCTOR", "LAB_ADMIN" all roles, including nhis staffs
+  description    String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  updatedBy   String?         // userId of the user who updated this role
+  deletedAt      DateTime?       // soft delete
+  deletedBy    String?         // userId of the user who deleted this role
+
+  @@index([name])
+  rolePermissions   RolePermission[]
+  users             User[]
+}
+
+
+model Resource {
+  id              String       @id @default(uuid())
+  name            String       @unique
+  description     String?
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  updatedBy       String?         // userId of the user who updated this role
+  deletedAt      DateTime?       // soft delete
+  deletedBy     String?         // userId of the user who updated this role
+
+  rolePermissions   RolePermission[]
+
+}
+
+
+model RolePermission {
+  id              String       @id @default(uuid())
+  roleId          String
+  resourceId      String
+  action          PermissionAction
+  path            String?    // e.g. "/api/v1/users", "/api/v1/users/:id"
+  description     String?
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  updatedBy       String?         // userId of the user who updated this role
+  deletedAt      DateTime?       // soft delete
+  deletedBy     String?         // userId of the user who updated this role
+
+  role            Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  resource        Resource     @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, resourceId])
+}
+
+model User {
+  id                    String   @id @default(uuid())
+  email                 String   @unique
+  password              String
+  firstName             String
+  middleName            String?
+  lastName              String
+  phone                 String[]
+  type                  UserType
+  status                UserStatus @default(ACTIVE)
+  loginAttempts         Int       @default(0)
+  refreshToken          String?
+  lastLogin             DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  updatedBy             String?         // userId of the user who updated this role
+  deletedAt             DateTime?       // soft delete
+  deletedBy             String?         // userId of the user who updated this role
+  roleId                String?
+  balance               Decimal @default(0.00) // for patients, this is the amount they have paid
+
+
+  role                  Role? @relation(fields: [roleId], references: [id]) // 👈 relation to Role
+  personalAccessTokens  PersonalAccessToken[]
+  passwordHistory       PasswordHistory[]
+  address              Address[]
+  transaction           Transaction[]
+
+  staff                 HospitalStaff?
+  patient               Patient?
+  nhisWorker            NHISWorker?
+  publicHealthWorker    PublicHealthWorker?
+
+  @@index([id, balance], name: "patient_balance_index")
+  @@index([email, lastName], name: "email_lastname_index")
+  @@index([phone, lastName], name: "phone_lastname_index")
+}
+
+model Transaction {
+  id              String    @id @default(uuid())
+  userId          String
+  amount          Decimal
+  type            TransactionType
+  status          TransactionStatus
+  description     String?
+  reference       String?
+  modeOfPayment   TransactionMode// e.g. "Payment for service", "Refund", "Transfer"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  updatedBy       String?
+  deletedAt       DateTime?
+  deletedBy       String?
+
+  // relations
+  user            User     @relation(fields: [id], references: [id], onDelete: Cascade )
+
+}
+
+model PasswordHistory{
+  id          String @id @default(uuid())
+  userId      String
+  password    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/* PersonalAccessToken - for all types of code verification*/
+model PersonalAccessToken {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  token      String    @unique
+  type       TokenType
+  expiry     DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, type])
+}
+
+
+// ------------ STAFF ------------
+model HospitalStaff {
+  id                    String   @id @default(uuid())  @map("user_id")
+  user                  User    @relation(fields: [id], references: [id], onDelete: Cascade)
+  department            String?
+  hospitalId            String?
+  role                   HospitalStaffRole?
+  createdAt               DateTime @default(now())
+
+  // relationships
+  hospital              Hospital? @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+
+}
+
+// ------------ PATIENT ------------
+
+model Address {
+  id                    String      @id @default(uuid())
+  street                String
+  city                  String
+  state                 String
+  country               String
+  postalCode            String?
+  type                  AddressType
+  userId                String?     // If tied to User
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+  updatedBy             String?         // userId of the user who updated this role
+  deletedAt             DateTime?       // soft delete
+  deletedBy             String?
+
+
+  user                  User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([userId, type]) // 👈 ensures 1 address per type per patient
+}
+
+model Patient {
+  id                    String  @id @default(uuid())  @map("user_id")
+  patientId             Int     @default(autoincrement())
+  nfcId                 String @unique     // the NFC card’s UID or token
+  nfcLinkedAt           DateTime?          // when the card was linked to the patient
+  nfcLinkedBy           String?          // who did the linking
+  dateOfBirth           DateTime?
+  sex                   Gender?
+  maritalStatus         MaritalStatus?
+  nationality           String?
+  occupation            String?
+  religion              String?
+  ethnicity             String?
+  spokenLanguages       String[]
+  bloodGroup            BloodGroup?
+  genotype              Genotype?
+  emergencyContactId    String?
+  emergencyContact       NextOfKin[]
+  hospitalId             String  @map("hospital_id")
+  insuranceSchemeId      String?
+  billingtype            BillingType @default(SELF_PAYING) // e.g. "Insurance", "Self-paying", "Staff Insurance"
+
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  user                      User    @relation(fields: [id], references: [id], onDelete: Cascade)
+  hospital                  Hospital    @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  insuranceScheme           InsuranceScheme? @relation(fields: [insuranceSchemeId], references: [id])
+
+}
+
+model NextOfKin {
+  id              String   @id @default(uuid())
+  patientId       String
+  firstName       String
+  middleName      String
+  lastName        String
+  relationship    String   // e.g. "Mother", "Brother", "Spouse"
+  phone           String[]
+  email           String?
+  address         String?
+  isEmergencyContact Boolean @default(false)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  patient       Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  @@index([patientId, isEmergencyContact], name: "emergency_contact_index")
+  @@index([patientId], name: "patient_contact_index")
+  @@unique([patientId, isEmergencyContact])
+}
+
+
+// ------------ NHIS WORKER ------------
+// insurance works account
+model NHISWorker {
+  id                    String   @id @default(uuid()) @map("user_id")
+  user                  User     @relation(fields: [id], references: [id], onDelete: Cascade)
+  role                  NHISRole?
+  insuranceSchemeId      String
+
+  insuranceScheme       InsuranceScheme? @relation(fields: [insuranceSchemeId], references: [id])
+
+}
+
+
+// ------------ PUBLIC HEALTH WORKER ------------
+
+model PublicHealthWorker {
+  id              String   @id @default(uuid()) @map("user_id")
+  user            User     @relation(fields: [id], references: [id], onDelete: Cascade)
+  role            PublicHealthRole?
+}
+
+
+// ------------ NOTIFICATIONS ------------
+
+model Notification {
+  id          String @id @default(uuid())
+  userId      String
+  message     String
+  type        NotificationType
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+  deletedBy   String?
+
+}
+
+
+// ------------ APPOINTMENTS ------------
+
+// gastroenterology, oncology, peadiatrics, cardiology
+model Clinic {
+  id              String     @id @default(uuid())
+  name            String     @unique
+  description     String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  updatedBy             String?         // userId of the user who updated this role
+  deletedAt             DateTime?       // soft delete
+  deletedBy             String?
+}
+
+model ConsultationType {
+  id              String     @id @default(uuid())
+  name            String     @unique
+  description     String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  updatedBy             String?         // userId of the user who updated this role
+  deletedAt             DateTime?       // soft delete
+  deletedBy             String?
+
+  appointments          Appointment[]
+}
+
+// doctors and front desk can schedule appointment
+model Appointment {
+  id                          String     @id @default(uuid())
+  hospitalId                  String
+  date                        DateTime
+  appointmentStartedAt        DateTime?
+  appointmentEndedAt          DateTime?
+  checkin                     Boolean? @default(false)
+  checkinAt                   DateTime?
+  status                      AppointmentStatus @default(SCHEDULED)
+  reason                      ConsultationReason
+  consultationTypeId          String
+  patientId                   String
+  doctorId                    String
+  referralNote                String?
+  referredById                String?
+
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime   @updatedAt
+  updatedBy                   String?         // userId of the user who updated this role
+  deletedAt                   DateTime?       // soft delete
+  deletedBy                   String?
+  consultationType            ConsultationType @relation(fields: [consultationTypeId], references: [id], onDelete: NoAction)
+
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([date])
+  @@index([checkinAt])
+  @@index([status])
+  @@index([doctorId])
+}
+
+
+// ============ ENUMS ============
+
+enum PermissionAction {
+  READ
+  WRITE
+  DELETE
+  UPDATE
+}
+
+enum PublicHealthRole {
+  INSPECTOR
+  DATA_ANALYST
+  SUPERVISOR
+  OTHER
+}
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+
+enum NHISRole {
+  ADMIN
+  VERIFIER
+  CLAIMS_PROCESSOR
+  OTHER
+}
+
+
+enum PaymentPlan {
+  EPIC
+  PREMIUM
+  EXQUISITE
+}
+
+enum UserStatus {
+  ACTIVE
+  NOTAPPROVED //admin account
+  RESTRICTED
+  DELETED
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DIVORCED
+  WIDOWED
+}
+
+enum AddressType {
+  RESIDENCE
+  WORK
+  ORIGIN
+}
+
+enum TokenType {
+  SESSION
+  API
+  PASSWORDRESET
+  DELETEACCOUNT
+  VERIFYACCOUNT
+}
+enum HospitalStaffRole {
+  ADMIN
+  SUPERADMIN
+  MANAGER
+  DOCTOR
+  NURSE
+  LAB_ADMIN
+  PHARMACIST
+  RECEPTIONIST
+  ACCOUNTANT
+  LAB_TECHNICIAN
+  PHARMACY_TECHNICIAN
+  RADIOLOGIST
+  PHLEBOTOMIST
+  OPTOMETRIST
+  DENTIST
+  OTHER
+}
+
+enum UserType {
+  SUPERADMIN
+  ADMIN
+  HOSPITAL_STAFF
+  PATIENT
+  NHIS_WORKER
+  PUBLIC_HEALTH_WORKER
+}
+
+enum BloodGroup {
+  A_POS
+  A_NEG
+  B_POS
+  B_NEG
+  AB_POS
+  AB_NEG
+  O_POS
+  O_NEG
+}
+
+enum Genotype {
+  AA
+  AS
+  SS
+  AC
+  SC
+  CC
+  AE
+  EE
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+  DISPUTED
+  CANCELLED
+  CHARGEBACK
+}
+
+enum TransactionMode {
+  CASH
+  CARD
+  TRANSFER
+  ONLINE
+  SYSTEM_DEBIT
+  SYSTEM_CREDIT
+}
+
+enum BillingType {
+  SELF_PAYING
+  INSURANCE
+  STAFF_INSURANCE
+}
+
+enum NotificationType {
+  INFO
+  WARNING
+  ERROR
+  SUCCESS
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  STARTED
+  IN_PROGRESS
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum ConsultationReason {
+  FOLLOW_UP
+  TEST_REVIEW
+  EMERGENCY
+  ROUTINE
+  REFERRAL
+  CHECKUP
+  ANTENATAL
+  POSTNATAL
+  VACCINATION
+  MEDICATION
+  PHYSICAL_EXAMINATION
+  LAB_TEST
+  IMAGING
+  PROCEDURE
+  SURGERY
+  REHABILITATION
+  THERAPY
+  COUNSELING
+  EDUCATION
+  MONITORING
+  SCREENING
+  PREVENTION
+  OTHER
+}

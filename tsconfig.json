@@ -9,33 +9,13 @@
     "target": "ES2023",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false,
-    "paths": {
-      "@shared/contracts": [
-        "libs/contracts/src"
-      ],
-      "@shared/contracts/*": [
-        "libs/contracts/src/*"
-      ],
-      "@shared/enums": [
-        "libs/enums/src"
-      ],
-      "@shared/enums/*": [
-        "libs/enums/src/*"
-      ],
-      "@shared/interfaces": [
-        "libs/interfaces/src"
-      ],
-      "@shared/interfaces/*": [
-        "libs/interfaces/src/*"
-      ]
-    }
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "strict": true,
   }
 }
