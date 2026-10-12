@@ -1,5 +1,5 @@
 {
-  "name": "carefusion",
+  "name": "carefusion-api",
   "version": "0.0.1",
   "description": "",
   "author": "Virtue E. Egerega",
@@ -94,9 +94,9 @@
       "<rootDir>/libs/"
     ],
     "moduleNameMapper": {
-      "^@shared/contracts(|/.*)$": "<rootDir>/libs/contracts/src/$1",
-      "^@shared/enums(|/.*)$": "<rootDir>/libs/enums/src/$1",
-      "^@shared/interfaces(|/.*)$": "<rootDir>/libs/interfaces/src/$1"
+      "^@shared/contracts(|/.*)$": "<rootDir>/src/shared/contracts/$1",
+      "^@shared/enums(|/.*)$": "<rootDir>/src/shared/enums/$1",
+      "^@shared/interfaces(|/.*)$": "<rootDir>/src/shared/interfaces/$1"
     }
   }
 }

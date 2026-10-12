@@ -1,0 +1,28 @@
+import { BusinessType, OrgType, PaymentPlan } from "@shared/enums/organizations/organization.enums";
+
+export interface OrganizationDto {
+  id: string;
+  name: string;
+  address: string;
+  logo?: string;
+  phone: string[];
+  email: string;
+  city: string;
+  state: string;
+  country: string;
+  zipCode: string;
+  website?: string;
+  slogan?: string;
+  pobox?: string;
+  nfcCardFee: number;
+  registrationFee: number;
+  paymentPlan?: PaymentPlan;
+  businessType: BusinessType;
+  orgType: OrgType;
+  healthcareNetworkId?: string;
+  healthcareNetworkName?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+  deletedBy?: string | null;
+}

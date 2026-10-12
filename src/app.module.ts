@@ -5,12 +5,15 @@ import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { UsersModule } from './users/users.module';
+import { OrganizationsModule } from './organizations/organizations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { BillingModule } from './billing/billing.module';
 import { ConsultationsModule } from './consultations/consultations.module';
 import { LaboratoryModule } from './laboratory/laboratory.module';
 import { PharmacyModule } from './pharmacy/pharmacy.module';
+import { EnumsModule } from './enums/enums.module';
+import { DepartmentsModule } from './departments/departments.module';
 
 @Module({
     imports: [
@@ -18,12 +21,15 @@ import { PharmacyModule } from './pharmacy/pharmacy.module';
         DatabaseModule,
         CloudinaryModule,
         UsersModule,
+        OrganizationsModule,
         NotificationsModule,
         AppointmentsModule,
         BillingModule,
         ConsultationsModule,
         LaboratoryModule,
         PharmacyModule,
+        EnumsModule,
+        DepartmentsModule,
     ],
     controllers: [AppController],
     providers: [AppService],

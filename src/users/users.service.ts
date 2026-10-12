@@ -1,15 +1,14 @@
 import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { JwtService } from '@nestjs/jwt';
-import { CreateHospitalDto, CreateUserDto } from '@shared/contracts/users/create-user.dto';
-import { HospitalDto, LoginUserDto, UpdateHospitalDto, UpdateUserDto, UpdateUserPasswordDto, UserDto } from '@shared/contracts/users';
-import { $Enums, Prisma,} from '../../generated/prisma';
+import { CreateUserDto } from '@shared/contracts/users/create-user.dto';
+import { LoginUserDto, UserDto } from '@shared/contracts/users';
+import { $Enums, Prisma } from '../../generated/prisma/client';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-import { HospitalFilter, PaymentPlan, UserStatus, UserType } from '@shared/enums/users/user.enums';
+import { UserStatus, UserType } from '@shared/enums/users/user.enums';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Express } from 'express';
 import { UploadOptions } from '@shared/interfaces';
 
 @Injectable()
@@ -40,9 +39,9 @@ export class UsersService {
 
         try {
             // Start a transaction - for an all or fail process of creating a user
-            const account = await this.databaseService.$transaction(async (prisma) => {
+            const account = await this.databaseService.client.$transaction(async (prisma) => {
 
-                const existingUser = await this.databaseService.user.findFirst({
+                const existingUser = await this.databaseService.client.user.findFirst({
                     where: {
                       OR: [
                         // Spread the mapped array into the OR array
@@ -95,7 +94,7 @@ export class UsersService {
                         return superAdmin;
 
                     case $Enums.UserType.PATIENT:
-                        const hospital = await this.databaseService.hospital.findUnique({
+                        const hospital = await this.databaseService.client.organization.findUnique({
                             where: {
                               id: createUserDto.hospitalId
                             }
@@ -157,7 +156,7 @@ export class UsersService {
                         return userAccount;
 
                     case $Enums.UserType.NHIS_WORKER:
-                        const insuranceScheme = await this.databaseService.insuranceScheme.findUnique({
+                        const insuranceScheme = await this.databaseService.client.insuranceScheme.findUnique({
                             where: {
                               id: createUserDto.insuranceSchemeId
                             }
@@ -196,7 +195,7 @@ export class UsersService {
                         return publichealthAccount;
 
                     case $Enums.UserType.HOSPITAL_STAFF:
-                        const staffhospital = await this.databaseService.hospital.findUnique({
+                        const staffhospital = await this.databaseService.client.organization.findUnique({
                             where: {
                                 id: createUserDto.hospitalId
                             }
@@ -258,7 +257,7 @@ export class UsersService {
 
         const { email, password } = loginUserDto;
 
-        const user = await this.databaseService.user.findUnique({
+        const user = await this.databaseService.client.user.findUnique({
             where: {
                 email: email,
                 deletedAt: null
@@ -289,7 +288,7 @@ export class UsersService {
 
         if (!validatePassword) {
 
-            await this.databaseService.user.update({
+            await this.databaseService.client.user.update({
                 where: { email: email },
                 data: {
                     loginAttempts: user.loginAttempts + 1,
@@ -321,7 +320,7 @@ export class UsersService {
         });
 
         // reset login attempts to 0 once successful login
-        await this.databaseService.user.update({
+        await this.databaseService.client.user.update({
             where: { email: email },
             data: {
                 loginAttempts: 1,
@@ -349,7 +348,7 @@ export class UsersService {
                 whereClause.status = status;
             }
 
-            const users = await this.databaseService.user.findMany({
+            const users = await this.databaseService.client.user.findMany({
                 take: limit,
                 skip: offset,
                 where: whereClause,
@@ -364,7 +363,7 @@ export class UsersService {
 
     async findOne(id: string): Promise<UserDto> {
 
-        const user = await this.databaseService.user.findUnique({
+        const user = await this.databaseService.client.user.findUnique({
             where: {
                 id: id
             },
@@ -395,7 +394,7 @@ export class UsersService {
 
     async remove(id: string, updaterId: string): Promise<UserDto> {
 
-        const deletedUser = await this.databaseService.$transaction(async (prisma) => {
+        const deletedUser = await this.databaseService.client.$transaction(async (prisma) => {
             const user = await prisma.user.update({
                 where: { id },
                 data: {
@@ -419,7 +418,7 @@ export class UsersService {
 
     async permanentDelete(id: string): Promise<UserDto> {
 
-        const deletedUser = await this.databaseService.$transaction(async (prisma) => {
+        const deletedUser = await this.databaseService.client.$transaction(async (prisma) => {
             const user = await prisma.user.delete({
                 where: { id },
             });
@@ -441,6 +440,19 @@ export class UsersService {
      * Maps a raw event center from the database to EventCenterDto.
      *
      */
+    async assignDepartment(staffId: string, departmentId: string) {
+        const staff = await this.databaseService.client.hospitalStaff.findUnique({ where: { id: staffId } });
+        if (!staff) throw new NotFoundException('Staff member not found');
+
+        const dept = await this.databaseService.client.department.findUnique({ where: { id: departmentId } });
+        if (!dept) throw new NotFoundException('Department not found');
+
+        return this.databaseService.client.hospitalStaff.update({
+            where: { id: staffId },
+            data: { departmentId },
+        });
+    }
+
     private mapToUserDto(user: any): UserDto {
         return {
             ...user,
@@ -481,272 +493,4 @@ export class UploadService{
         }
 
     };
-}
-
-
-@Injectable()
-export class HospitalsService {
-    constructor(
-        private readonly databaseService: DatabaseService,
-        private readonly uploadService: UploadService
-    ) { }
-
-    async create(createUserDto: CreateHospitalDto): Promise<HospitalDto> {
-
-        const baseDirectory = `media/uploads/hospitals/${createUserDto.name.trim()}/`;
-        //  when app is online, data should sync to the cloud
-        // app should be able to work offline or online, if app works offline, it should sync data to the cloud when online
-        const appMode = process.env.IS_APP_ONLINE === 'true'
-
-        const newHospitalInput: Prisma.HospitalCreateInput = {
-            name: createUserDto.name,
-            address: createUserDto.address,
-            logo: createUserDto.logo,
-            phone: createUserDto.phone,
-            email: createUserDto.email,
-            city: createUserDto.city,
-            state: createUserDto.state,
-            country: createUserDto.country,
-            zipCode: createUserDto.zipCode,
-            website: createUserDto.website,
-            slogan: createUserDto.slogan,
-            pobox: createUserDto.pobox,
-            nfcCardFee: createUserDto.nfcCardFee,
-            registrationFee: createUserDto.registrationFee,
-            paymentPlan:  createUserDto.paymentPlan as $Enums.PaymentPlan
-        }
-
-        try {
-            // Start a transaction - for an all or fail process of creating a user
-            const hospital = await this.databaseService.$transaction(async (prisma) => {
-
-                const existingHospital = await this.databaseService.hospital.findFirst({
-                    where: {
-                        name: {
-                            equals: createUserDto.name,
-                            mode: 'insensitive',
-                        }
-                  }
-                });
-
-
-                if (existingHospital) {
-                    throw new ConflictException('This hospital already exist in our system. Kidly find account', {
-                        cause: new Error(),
-                        description: 'This hospital already exist in our system. Kidly find account'
-                    });
-
-                }
-
-                const hospital = await prisma.hospital.create({ data: newHospitalInput });
-              return hospital
-            }, {
-                timeout: 10000 // 10 seconds in ms
-            });
-
-            const hospitalData: HospitalDto = {
-                ...hospital,
-                logo: hospital.logo ?? undefined,
-                website: hospital.website ?? undefined,
-                slogan: hospital.slogan ?? undefined,
-                pobox: hospital.pobox ?? undefined,
-                paymentPlan: hospital.paymentPlan as unknown as PaymentPlan,
-                nfcCardFee:  hospital.nfcCardFee as unknown as number,
-                registrationFee: hospital.registrationFee as unknown as number,
-            };
-
-            return hospitalData;
-
-        } catch (error) {
-            console.log(error)
-            throw new ConflictException('sever error could not create hospital', {
-                cause: new Error(),
-                description: 'Hospital creation failed, please try again'
-            });
-        }
-    }
-
-
-    async findAll(limit: number, offset: number, search?: string, filter?: HospitalFilter): Promise<{ count: number; docs: HospitalDto[] }> {
-        try {
-            const whereClause: any = {};
-
-            if (search) {
-                whereClause.OR = [
-                    { name: { contains: search, mode: "insensitive" } },
-                    { address: { contains: search, mode: "insensitive" } },
-                    { email: { contains: search, mode: "insensitive" } },
-                    { city: { contains: search, mode: "insensitive" } },
-                    { website: { contains: search, mode: "insensitive" } },
-                    { slogan: { contains: search, mode: "insensitive" } },
-                ];
-            }
-            if (filter?.city) {
-                whereClause.city = filter.city;
-            }
-
-            if (filter?.state) {
-                whereClause.state = filter.state;
-            }
-
-            if (filter?.country) {
-                whereClause.country = filter.country;
-            }
-
-            if (filter?.paymentPlan) {
-                whereClause.paymentPlan = filter.paymentPlan;
-            }
-
-            const [hospitals, count] = await this.databaseService.$transaction([
-                this.databaseService.hospital.findMany({
-                    take: limit,
-                    skip: offset,
-                    where: whereClause,
-                    orderBy: { createdAt: 'asc' },
-                }),
-                this.databaseService.hospital.count({
-                    where: whereClause,
-                }),
-            ]);
-
-            return {
-                count,
-                docs: hospitals.map(hospital => this.mapToHospitalDto(hospital)),
-            };
-
-        } catch (error) {
-            throw new ConflictException(error);
-        }
-
-    }
-
-    async findOne(id: string): Promise<HospitalDto> {
-
-        const hospital = await this.databaseService.hospital.findUnique({
-            where: {
-                id: id
-            },
-            include: {
-                staffs: true
-            }
-        });
-        if (!hospital) {
-            throw new NotFoundException('sever error could not find this hospital', {
-                cause: new Error(),
-                description: 'no hospital found'
-            });
-        }
-
-        const hospitalAccount: HospitalDto = {
-             ...hospital,
-            logo: hospital.logo ?? undefined,
-            website: hospital.website ?? undefined,
-            slogan: hospital.slogan ?? undefined,
-            pobox: hospital.pobox ?? undefined,
-            paymentPlan: hospital.paymentPlan as unknown as PaymentPlan,
-            nfcCardFee:  hospital.nfcCardFee as unknown as number,
-            registrationFee: hospital.registrationFee as unknown as number,
-        };
-        return hospitalAccount;
-
-    }
-
-    async update(id: string, updateHospitalDto: UpdateHospitalDto): Promise<HospitalDto> {
-
-        try {
-            const updateHospitalInput: Prisma.HospitalUpdateInput = {
-                ...updateHospitalDto,
-                paymentPlan: updateHospitalDto.paymentPlan as $Enums.PaymentPlan ?? undefined,
-            };
-
-            const hospital = await this.databaseService.hospital.update({
-                where: { id },
-                data: { ...updateHospitalInput }
-            });
-
-           const hospitalAccount: HospitalDto = {
-             ...hospital,
-            logo: hospital.logo ?? undefined,
-            website: hospital.website ?? undefined,
-            slogan: hospital.slogan ?? undefined,
-            pobox: hospital.pobox ?? undefined,
-            paymentPlan: hospital.paymentPlan as unknown as PaymentPlan,
-            nfcCardFee:  hospital.nfcCardFee as unknown as number,
-            registrationFee: hospital.registrationFee as unknown as number,
-        };
-            return hospitalAccount;
-
-        } catch (error) {
-            throw new ConflictException(error);
-        }
-    }
-
-    async remove(id: string, updaterId: string): Promise<HospitalDto> {
-
-        const hospital = await this.databaseService.$transaction(async (prisma) => {
-            const hospital = await prisma.hospital.update({
-                where: { id },
-                data: {
-                    deletedAt: new Date(),
-                    deletedBy: updaterId
-                }
-            });
-
-            return hospital
-        });
-
-        const userAccount: HospitalDto = {
-             ...hospital,
-            logo: hospital.logo ?? undefined,
-            website: hospital.website ?? undefined,
-            slogan: hospital.slogan ?? undefined,
-            pobox: hospital.pobox ?? undefined,
-            paymentPlan: hospital.paymentPlan as unknown as PaymentPlan,
-            nfcCardFee:  hospital.nfcCardFee as unknown as number,
-            registrationFee: hospital.registrationFee as unknown as number,
-        };
-        return userAccount;
-
-    }
-
-    async permanentDelete(id: string): Promise<HospitalDto> {
-
-        const hospital = await this.databaseService.$transaction(async (prisma) => {
-            const hospital = await prisma.hospital.delete({
-                where: { id },
-            });
-
-            return hospital
-        });
-        const userAccount: HospitalDto = {
-             ...hospital,
-            logo: hospital.logo ?? undefined,
-            website: hospital.website ?? undefined,
-            slogan: hospital.slogan ?? undefined,
-            pobox: hospital.pobox ?? undefined,
-            paymentPlan: hospital.paymentPlan as unknown as PaymentPlan,
-            nfcCardFee:  hospital.nfcCardFee as unknown as number,
-            registrationFee: hospital.registrationFee as unknown as number,
-        };
-        return userAccount;
-
-    }
-
-    /**
-     *
-     * Maps a raw event center from the database to EventCenterDto.
-     *
-     */
-    private mapToHospitalDto(hospital: any): HospitalDto {
-        return {
-             ...hospital,
-            logo: hospital.logo ?? undefined,
-            website: hospital.website ?? undefined,
-            slogan: hospital.slogan ?? undefined,
-            pobox: hospital.pobox ?? undefined,
-            paymentPlan: hospital.paymentPlan as unknown as PaymentPlan,
-            nfcCardFee:  hospital.nfcCardFee as unknown as number,
-            registrationFee: hospital.registrationFee as unknown as number,
-        };
-    }
 }

@@ -10,7 +10,7 @@ datasource db {
   provider = "postgresql"
 }
 
-model Hospital {
+model Organization {
 
   id                    String   @id @default(uuid())
   name                  String
@@ -28,15 +28,44 @@ model Hospital {
   nfcCardFee            Decimal @default(1000.00)
   registrationFee       Decimal @default(0.00)
   paymentPlan           PaymentPlan?
+  businessType          BusinessType @default(HOSPITAL)
+  orgType               OrgType @default(STANDALONE)
+  healthcareNetworkId   String?
+  healthcareNetworkName String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   deletedAt             DateTime? @updatedAt
   deletedBy             String?
 
 
+  branches               Branch[]
   staffs                 HospitalStaff[]
   patients               Patient[]
 
+}
+
+model Branch {
+  id             String       @id @default(uuid())
+  organizationId String
+  name           String
+  code           String       @unique
+  address        String
+  city           String
+  state          String
+  country        String
+  phone          String[]
+  email          String?
+  isMainBranch   Boolean      @default(false)
+  status         BranchStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  updatedBy      String?
+  deletedAt      DateTime?
+  deletedBy      String?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model InsuranceScheme {
@@ -192,18 +221,51 @@ model PersonalAccessToken {
 }
 
 
+// ------------ DEPARTMENTS & QUEUES ------------
+
+model Department {
+  id          String    @id @default(uuid())
+  systemKey   String    @unique
+  name        String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  updatedBy   String?
+  deletedAt   DateTime?
+  deletedBy   String?
+
+  staff       HospitalStaff[]
+  queues      Queue[]
+}
+
+model Queue {
+  id           String     @id @default(uuid())
+  departmentId String
+  systemKey    String     @unique
+  name         String
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  updatedBy    String?
+  deletedAt    DateTime?
+  deletedBy    String?
+
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@index([departmentId])
+}
+
 // ------------ STAFF ------------
 model HospitalStaff {
-  id                    String   @id @default(uuid())  @map("user_id")
-  user                  User    @relation(fields: [id], references: [id], onDelete: Cascade)
-  department            String?
-  hospitalId            String?
-  role                   HospitalStaffRole?
-  createdAt               DateTime @default(now())
+  id             String      @id @default(uuid()) @map("user_id")
+  user           User        @relation(fields: [id], references: [id], onDelete: Cascade)
+  departmentId   String?
+  hospitalId     String?
+  role           HospitalStaffRole?
+  createdAt      DateTime    @default(now())
 
-  // relationships
-  hospital              Hospital? @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
-
+  department     Department? @relation(fields: [departmentId], references: [id])
+  hospital       Organization? @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
 }
 
 // ------------ PATIENT ------------
@@ -254,7 +316,7 @@ model Patient {
   updatedAt               DateTime @updatedAt
 
   user                      User    @relation(fields: [id], references: [id], onDelete: Cascade)
-  hospital                  Hospital    @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  hospital                  Organization    @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
   insuranceScheme           InsuranceScheme? @relation(fields: [insuranceSchemeId], references: [id])
 
 }
@@ -415,6 +477,17 @@ enum PaymentPlan {
   EXQUISITE
 }
 
+enum BusinessType {
+  HOSPITAL
+  LABORATORY
+  PHARMACY
+}
+
+enum OrgType {
+  STANDALONE
+  CHAIN
+}
+
 enum UserStatus {
   ACTIVE
   NOTAPPROVED //admin account
@@ -520,6 +593,12 @@ enum BillingType {
   SELF_PAYING
   INSURANCE
   STAFF_INSURANCE
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+  CLOSED
 }
 
 enum NotificationType {
