@@ -75,13 +75,33 @@ export class StaffService {
                 },
             });
 
-            return prisma.hospitalStaff.create({
+            const created = await prisma.hospitalStaff.create({
                 data: {
                     id: user.id,
                     hospitalId: org.id,
                     role: dto.role as $Enums.HospitalStaffRole,
                     departmentId: dto.departmentId,
                 },
+            });
+
+            // Auto-assign the seeded duty profile that matches this role, if one exists
+            const matchingProfile = await prisma.dutyProfile.findFirst({
+                where: { role: dto.role as $Enums.HospitalStaffRole, deletedAt: null },
+                select: { id: true },
+            });
+
+            if (matchingProfile) {
+                await prisma.staffAssignment.create({
+                    data: {
+                        staffId: created.id,
+                        dutyProfileId: matchingProfile.id,
+                        assignedBy: created.id,
+                    },
+                });
+            }
+
+            return prisma.hospitalStaff.findUnique({
+                where: { id: created.id },
                 include: STAFF_INCLUDE,
             });
         });

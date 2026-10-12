@@ -36,6 +36,7 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'queue.manage',       name: 'Manage Queue',         description: 'Add, remove or reorder queue entries' },
     { key: 'appointment.create', name: 'Book Appointment',     description: 'Book appointments' },
     { key: 'appointment.manage', name: 'Manage Appointments',  description: 'Reschedule or cancel appointments' },
+    { key: 'encounter.create',   name: 'Create Encounter',     description: 'Open a patient visit or walk-in encounter' },
 
     // Billing
     { key: 'billing.view',    name: 'View Billing',     description: 'View bills and payment records' },
@@ -50,4 +51,13 @@ export const ADMIN_DUTY_PROFILE_PERMISSIONS = new Set([
     'patient.view', 'patient.assign',
     'appointment.create', 'appointment.manage',
     'billing.view', 'billing.create', 'billing.approve',
+]);
+
+// Permissions granted to the Receptionist DutyProfile at onboarding
+export const RECEPTIONIST_DUTY_PROFILE_PERMISSIONS = new Set([
+    'patient.register', 'patient.view', 'patient.edit', 'patient.assign',
+    'queue.view', 'queue.manage',
+    'appointment.create', 'appointment.manage',
+    'encounter.create',
+    'billing.view',
 ]);

@@ -63,11 +63,29 @@ export class DutyProfileService {
             include: {
                 department: { select: { id: true, name: true, systemKey: true } },
                 queues: { include: { queue: { select: { id: true, name: true, systemKey: true } } } },
-                permissions: { include: { permission: { select: { id: true, key: true, description: true } } } },
+                permissions: { include: { permission: { select: { id: true, key: true, name: true, description: true } } } },
             },
         });
         if (!profile || profile.deletedAt) throw new NotFoundException('Duty profile not found');
         return profile;
+    }
+
+    async getStats(id: string) {
+        await this.assertExists(id);
+
+        const now = new Date();
+        const [permissions, queues, assignedStaff] = await this.databaseService.client.$transaction([
+            this.databaseService.client.dutyProfilePermission.count({ where: { dutyProfileId: id } }),
+            this.databaseService.client.dutyProfileQueue.count({ where: { dutyProfileId: id } }),
+            this.databaseService.client.staffAssignment.count({
+                where: {
+                    dutyProfileId: id,
+                    OR: [{ endsAt: null }, { endsAt: { gt: now } }],
+                },
+            }),
+        ]);
+
+        return { assignedStaff, permissions, queues };
     }
 
     async update(id: string, dto: UpdateDutyProfileDto) {

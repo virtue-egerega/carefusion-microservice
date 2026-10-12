@@ -5,8 +5,12 @@
   "author": "Virtue E. Egerega",
   "private": true,
   "license": "UNLICENSED",
+  "prisma": {
+    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"
+  },
   "scripts": {
     "build": "nest build",
+    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
     "format": "prettier --write \"src/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",

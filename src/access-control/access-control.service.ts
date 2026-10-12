@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PERMISSION_CATALOG, ADMIN_DUTY_PROFILE_PERMISSIONS } from './permissions.catalog';
+import { PERMISSION_CATALOG, ADMIN_DUTY_PROFILE_PERMISSIONS, RECEPTIONIST_DUTY_PROFILE_PERMISSIONS } from './permissions.catalog';
 
 @Injectable()
 export class AccessControlService {
@@ -28,51 +28,81 @@ export class AccessControlService {
         return { count, docs: groups };
     }
 
-    async seedForOrg(prisma: any, adminStaffId: string): Promise<void> {
-        // 1. Seed all platform permissions (upsert — idempotent)
+    // Seeds permissions + duty profile catalog. No user dependency — safe to run anytime.
+    async seedCatalog(prisma: any): Promise<void> {
+        // 1. Upsert all platform permissions
         for (const perm of PERMISSION_CATALOG) {
             await prisma.permission.upsert({
                 where:  { key: perm.key },
-                create: { key: perm.key, description: perm.description },
-                update: {},
+                create: { key: perm.key, name: perm.name, description: perm.description },
+                update: { name: perm.name, description: perm.description },
             });
         }
 
-        // 2. Resolve the ADMINISTRATION department (seeded just before this call)
-        const adminDept = await prisma.department.findUnique({
-            where: { systemKey: 'ADMINISTRATION' },
-        });
-
-        // 3. Upsert the "Hospital Administrator" DutyProfile
-        //    role = SUPERADMIN; no queues (global — permissions apply unconditionally per PRD §7)
-        const dutyProfile = await prisma.dutyProfile.upsert({
+        // 2. Hospital Administrator DutyProfile (SUPERADMIN, ADMINISTRATION dept, global — no queues)
+        const adminDept = await prisma.department.findUnique({ where: { systemKey: 'ADMINISTRATION' } });
+        const adminProfile = await prisma.dutyProfile.upsert({
             where:  { name: 'Hospital Administrator' },
             create: { name: 'Hospital Administrator', role: 'SUPERADMIN', departmentId: adminDept?.id ?? null },
             update: {},
         });
-
-        // 4. Link admin permissions to the DutyProfile
-        const permissions = await prisma.permission.findMany({
+        const adminPerms = await prisma.permission.findMany({
             where: { key: { in: [...ADMIN_DUTY_PROFILE_PERMISSIONS] } },
             select: { id: true },
         });
-
-        for (const perm of permissions) {
+        for (const perm of adminPerms) {
             await prisma.dutyProfilePermission.upsert({
-                where:  { dutyProfileId_permissionId: { dutyProfileId: dutyProfile.id, permissionId: perm.id } },
-                create: { dutyProfileId: dutyProfile.id, permissionId: perm.id },
+                where:  { dutyProfileId_permissionId: { dutyProfileId: adminProfile.id, permissionId: perm.id } },
+                create: { dutyProfileId: adminProfile.id, permissionId: perm.id },
                 update: {},
             });
         }
 
-        // 5. Assign the DutyProfile to the SUPERADMIN staff member
-        await prisma.staffAssignment.upsert({
-            where:  { staffId_dutyProfileId: { staffId: adminStaffId, dutyProfileId: dutyProfile.id } },
-            create: { staffId: adminStaffId, dutyProfileId: dutyProfile.id, assignedBy: adminStaffId },
+        // 3. Receptionist DutyProfile (RECEPTION dept, RECEPTION_QUEUE)
+        const receptionDept  = await prisma.department.findUnique({ where: { systemKey: 'RECEPTION' } });
+        const receptionQueue = receptionDept
+            ? await prisma.queue.findUnique({ where: { systemKey: 'RECEPTION_QUEUE' } })
+            : null;
+        const receptionistProfile = await prisma.dutyProfile.upsert({
+            where:  { name: 'Receptionist' },
+            create: { name: 'Receptionist', role: 'RECEPTIONIST', departmentId: receptionDept?.id ?? null },
             update: {},
         });
+        const receptionistPerms = await prisma.permission.findMany({
+            where: { key: { in: [...RECEPTIONIST_DUTY_PROFILE_PERMISSIONS] } },
+            select: { id: true },
+        });
+        for (const perm of receptionistPerms) {
+            await prisma.dutyProfilePermission.upsert({
+                where:  { dutyProfileId_permissionId: { dutyProfileId: receptionistProfile.id, permissionId: perm.id } },
+                create: { dutyProfileId: receptionistProfile.id, permissionId: perm.id },
+                update: {},
+            });
+        }
+        if (receptionQueue) {
+            await prisma.dutyProfileQueue.upsert({
+                where:  { dutyProfileId_queueId: { dutyProfileId: receptionistProfile.id, queueId: receptionQueue.id } },
+                create: { dutyProfileId: receptionistProfile.id, queueId: receptionQueue.id },
+                update: {},
+            });
+        }
+    }
 
-        // 6. Set the SUPERADMIN's departmentId to ADMINISTRATION
+    // Called at onboarding only — assigns the SUPERADMIN to their duty profile and sets department.
+    async seedForOrg(prisma: any, adminStaffId: string): Promise<void> {
+        await this.seedCatalog(prisma);
+
+        const adminDept    = await prisma.department.findUnique({ where: { systemKey: 'ADMINISTRATION' } });
+        const adminProfile = await prisma.dutyProfile.findUnique({ where: { name: 'Hospital Administrator' } });
+
+        if (adminProfile) {
+            await prisma.staffAssignment.upsert({
+                where:  { staffId_dutyProfileId: { staffId: adminStaffId, dutyProfileId: adminProfile.id } },
+                create: { staffId: adminStaffId, dutyProfileId: adminProfile.id, assignedBy: adminStaffId },
+                update: {},
+            });
+        }
+
         if (adminDept) {
             await prisma.hospitalStaff.update({
                 where: { id: adminStaffId },

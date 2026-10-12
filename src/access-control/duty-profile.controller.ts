@@ -30,7 +30,13 @@ export class DutyProfileController {
         return this.dutyProfileService.findAll(limit, offset, search);
     }
 
-    @ApiOperation({ summary: 'Get a single duty profile' })
+    @ApiOperation({ summary: 'Get assigned staff count, permissions count and queues count for a duty profile' })
+    @Get(':id/stats')
+    getStats(@Param('id') id: string) {
+        return this.dutyProfileService.getStats(id);
+    }
+
+    @ApiOperation({ summary: 'Get a single duty profile with full permissions and queues' })
     @Get(':id')
     findOne(@Param('id') id: string) {
         return this.dutyProfileService.findOne(id);
