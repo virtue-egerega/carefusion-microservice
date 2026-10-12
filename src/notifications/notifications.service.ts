@@ -3,7 +3,7 @@ import { CreateNotificationDto, NotificationDto, NotificationType, UpdateNotific
 import { NotificationInterface } from '@shared/interfaces/Notification/notification.interface';
 import { MailerService } from '@nestjs-modules/mailer';
 import { DatabaseService } from '../database/database.service';
-import { $Enums, Prisma } from '../../generated/prisma';
+import { $Enums, Prisma } from '../../generated/prisma/client';
 
 @Injectable()
 export class NotificationsService {
@@ -22,7 +22,7 @@ export class NotificationsService {
 
 		try {
 			// Start a transaction - for an all or fail process of creating a user
-			const notification = await this.databaseService.$transaction(async (prisma) => {
+			const notification = await this.databaseService.client.$transaction(async (prisma) => {
 
 				// Create the user
 				const notification = await prisma.notification.create({ data: newNotificationInput });
@@ -43,8 +43,8 @@ export class NotificationsService {
 	}
 
 	async findAll(limit: number, offset: number, search?: string): Promise<{ count: number; docs: NotificationDto[] }> {
-		const [notifications, count] = await this.databaseService.$transaction([
-			this.databaseService.notification.findMany({
+		const [notifications, count] = await this.databaseService.client.$transaction([
+			this.databaseService.client.notification.findMany({
 				take: limit,
 				skip: offset,
 				where: {
@@ -58,7 +58,7 @@ export class NotificationsService {
 				orderBy: { createdAt: 'asc' },
 			}),
 
-			this.databaseService.notification.count({
+			this.databaseService.client.notification.count({
 				where: {
 					deletedAt: null,
 					...(search && {
@@ -72,7 +72,7 @@ export class NotificationsService {
 
 		return {
 			count,
-			docs:notifications.map(notification => this.mapToNotification(notification))
+			docs: notifications.map((notification) => this.mapToNotification(notification))
 		};
 
 	}
@@ -80,7 +80,7 @@ export class NotificationsService {
 
 	async findOne(id: string): Promise<NotificationDto> {
 
-		const notification = await this.databaseService.notification.findUnique({
+		const notification = await this.databaseService.client.notification.findUnique({
 			where: {
 				id: id,
 				deletedAt: null
@@ -103,7 +103,7 @@ export class NotificationsService {
 				...updateNotificationDto
 			};
 
-			const notification = await this.databaseService.notification.update({
+			const notification = await this.databaseService.client.notification.update({
 				where: { id },
 				data: updateNotificationInput
 			});
@@ -123,7 +123,7 @@ export class NotificationsService {
 	async read(id: string): Promise<NotificationDto> {
 		try {
 
-			const notification = await this.databaseService.notification.update({
+			const notification = await this.databaseService.client.notification.update({
 				where: { id },
 				data: {
 					isRead: true
@@ -143,7 +143,7 @@ export class NotificationsService {
 
 	async readAll(userId: string): Promise<{ count: number }> {
 		try {
-			const result = await this.databaseService.notification.updateMany({
+			const result = await this.databaseService.client.notification.updateMany({
 				where: { userId, isRead: false },
 				data: { isRead: true },
 			});
@@ -157,7 +157,7 @@ export class NotificationsService {
 
 	async remove(id: string): Promise<NotificationDto> {
 
-		const notification = await this.databaseService.$transaction(async (prisma) => {
+		const notification = await this.databaseService.client.$transaction(async (prisma) => {
 			const deletedNotification = await prisma.notification.update({
 				where: { id },
 				data: {
@@ -177,7 +177,7 @@ export class NotificationsService {
 
 	async permanentDelete(id: string): Promise<NotificationDto> {
 
-		const notification = await this.databaseService.$transaction(async (prisma) => {
+		const notification = await this.databaseService.client.$transaction(async (prisma) => {
 			const deletedNotification = await prisma.notification.delete({
 				where: { id },
 			});

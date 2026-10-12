@@ -15,6 +15,7 @@ import { PharmacyModule } from './pharmacy/pharmacy.module';
 import { EnumsModule } from './enums/enums.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { AuthModule } from './auth/auth.module';
+import { AccessControlModule } from './access-control/access-control.module';
 
 @Module({
     imports: [
@@ -32,6 +33,7 @@ import { AuthModule } from './auth/auth.module';
         EnumsModule,
         DepartmentsModule,
         AuthModule,
+        AccessControlModule,
     ],
     controllers: [AppController],
     providers: [AppService],

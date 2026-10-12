@@ -97,46 +97,11 @@ model Role {
   deletedBy    String?         // userId of the user who deleted this role
 
   @@index([name])
-  rolePermissions   RolePermission[]
-  users             User[]
+  users        User[]
+  dutyProfiles DutyProfile[]
 }
 
 
-model Resource {
-  id              String       @id @default(uuid())
-  name            String       @unique
-  description     String?
-
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  updatedBy       String?         // userId of the user who updated this role
-  deletedAt      DateTime?       // soft delete
-  deletedBy     String?         // userId of the user who updated this role
-
-  rolePermissions   RolePermission[]
-
-}
-
-
-model RolePermission {
-  id              String       @id @default(uuid())
-  roleId          String
-  resourceId      String
-  action          PermissionAction
-  path            String?    // e.g. "/api/v1/users", "/api/v1/users/:id"
-  description     String?
-
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  updatedBy       String?         // userId of the user who updated this role
-  deletedAt      DateTime?       // soft delete
-  deletedBy     String?         // userId of the user who updated this role
-
-  role            Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  resource        Resource     @relation(fields: [resourceId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, resourceId])
-}
 
 model User {
   id                    String   @id @default(uuid())
@@ -221,6 +186,71 @@ model PersonalAccessToken {
 }
 
 
+// ------------ ACCESS CONTROL ------------
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  dutyProfilePermissions DutyProfilePermission[]
+}
+
+model DutyProfile {
+  id           String    @id @default(uuid())
+  name         String    @unique
+  roleId       String
+  departmentId String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  updatedBy    String?
+  deletedAt    DateTime?
+  deletedBy    String?
+
+  role        Role        @relation(fields: [roleId], references: [id])
+  department  Department? @relation(fields: [departmentId], references: [id])
+  queues      DutyProfileQueue[]
+  permissions DutyProfilePermission[]
+  assignments StaffAssignment[]
+}
+
+model DutyProfileQueue {
+  id            String @id @default(uuid())
+  dutyProfileId String
+  queueId       String
+
+  dutyProfile DutyProfile @relation(fields: [dutyProfileId], references: [id], onDelete: Cascade)
+  queue       Queue       @relation(fields: [queueId], references: [id], onDelete: Cascade)
+
+  @@unique([dutyProfileId, queueId])
+}
+
+model DutyProfilePermission {
+  id            String @id @default(uuid())
+  dutyProfileId String
+  permissionId  String
+
+  dutyProfile DutyProfile @relation(fields: [dutyProfileId], references: [id], onDelete: Cascade)
+  permission  Permission  @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([dutyProfileId, permissionId])
+}
+
+model StaffAssignment {
+  id            String    @id @default(uuid())
+  staffId       String
+  dutyProfileId String
+  assignedBy    String
+  assignedAt    DateTime  @default(now())
+  endsAt        DateTime?
+
+  staff       HospitalStaff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  dutyProfile DutyProfile   @relation(fields: [dutyProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, dutyProfileId])
+}
+
 // ------------ DEPARTMENTS & QUEUES ------------
 
 model Department {
@@ -234,8 +264,9 @@ model Department {
   deletedAt   DateTime?
   deletedBy   String?
 
-  staff       HospitalStaff[]
-  queues      Queue[]
+  staff        HospitalStaff[]
+  queues       Queue[]
+  dutyProfiles DutyProfile[]
 }
 
 model Queue {
@@ -250,7 +281,8 @@ model Queue {
   deletedAt    DateTime?
   deletedBy    String?
 
-  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  department        Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  dutyProfileQueues DutyProfileQueue[]
 
   @@index([departmentId])
 }
@@ -264,8 +296,9 @@ model HospitalStaff {
   role           HospitalStaffRole?
   createdAt      DateTime    @default(now())
 
-  department     Department? @relation(fields: [departmentId], references: [id])
-  hospital       Organization? @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  department     Department?    @relation(fields: [departmentId], references: [id])
+  hospital       Organization?  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  assignments    StaffAssignment[]
 }
 
 // ------------ PATIENT ------------
@@ -383,17 +416,6 @@ model Notification {
 
 // ------------ APPOINTMENTS ------------
 
-// gastroenterology, oncology, peadiatrics, cardiology
-model Clinic {
-  id              String     @id @default(uuid())
-  name            String     @unique
-  description     String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  updatedBy             String?         // userId of the user who updated this role
-  deletedAt             DateTime?       // soft delete
-  deletedBy             String?
-}
 
 model ConsultationType {
   id              String     @id @default(uuid())
@@ -443,12 +465,6 @@ model Appointment {
 
 // ============ ENUMS ============
 
-enum PermissionAction {
-  READ
-  WRITE
-  DELETE
-  UPDATE
-}
 
 enum PublicHealthRole {
   INSPECTOR

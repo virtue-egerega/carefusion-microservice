@@ -14,17 +14,17 @@ export class CreateNotificationDto {
     @ApiProperty({ description: 'ID of the user receiving the notification' })
     @IsString()
     @IsNotEmpty()
-    userId: string;
+    userId!: string;
 
     @ApiProperty({ example: 'You have a new message', description: 'Notification message' })
     @IsString()
     @IsNotEmpty()
-    message: string;
+    message!: string;
 
     @ApiProperty({ example: 'INFO', enum: NotificationType, description: 'Type of notification' })
     @IsEnum(NotificationType)
     @IsNotEmpty()
-    type: NotificationType;
+    type!: NotificationType;
 
     @ApiProperty({ example: false, description: 'Indicates whether the notification has been read' })
     @IsOptional()

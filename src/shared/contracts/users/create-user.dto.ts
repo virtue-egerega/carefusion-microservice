@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsString, IsOptional, IsArray, IsEmail, IsUUID, IsDate, IsEnum, IsNotEmpty, IsStrongPassword, MinLength, ValidateIf, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { BillingType, PermissionAction, TransactionMode, UserStatus, UserType } from '@shared/enums/users/user.enums';
+import { BillingType, TransactionMode, UserStatus, UserType } from '@shared/enums/users/user.enums';
 
 export class CreateRoleDto {
     @ApiProperty({ description: 'Name of the role, e.g., "Doctor", "Nurse"', example: 'Doctor' })
@@ -11,45 +11,6 @@ export class CreateRoleDto {
     @ApiProperty({ description: 'Description of the role responsibilities', example: 'Responsible for patient care in the hospital.', required: false })
     @IsOptional()
     @IsString()
-    description?: string;
-}
-
-export class CreateResourceDto {
-    @ApiProperty({ type: String, description: 'Unique name of the resource', example: 'User Management' })
-    @IsString()
-    @IsNotEmpty()
-    name!: string;
-
-    @ApiProperty({ type: String, description: 'Optional description of the resource', example: 'Handles all user-related permissions', required: false })
-    @IsString()
-    @IsOptional()
-    description?: string;
-}
-
-export class CreateRolePermissionDto {
-    @ApiProperty({ type: String, description: 'ID of the role this permission applies to', example: 'role-abc123' })
-    @IsUUID()
-    @IsNotEmpty()
-    roleId!: string;
-
-    @ApiProperty({ type: String, description: 'ID of the resource this permission applies to', example: 'resource-xyz456' })
-    @IsUUID()
-    @IsNotEmpty()
-    resourceId!: string;
-
-    @ApiProperty({ enum: PermissionAction, description: 'Action the role can perform on the resource', example: PermissionAction.READ })
-    @IsEnum(PermissionAction)
-    @IsNotEmpty()
-    action!: PermissionAction;
-
-    @ApiProperty({ type: String, description: 'Path this permission applies to', example: '/api/v1/users/:id', required: false })
-    @IsOptional()
-    @IsString()
-    path?: string;
-
-    @ApiProperty({ type: String, description: 'Optional description of the role permission', example: 'Allows reading user details', required: false })
-    @IsString()
-    @IsOptional()
     description?: string;
 }
 

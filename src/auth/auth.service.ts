@@ -36,6 +36,23 @@ export class AuthService {
                                 },
                             },
                         },
+                        assignments: {
+                            where: {
+                                OR: [
+                                    { endsAt: null },
+                                    { endsAt: { gt: new Date() } },
+                                ],
+                            },
+                            include: {
+                                dutyProfile: {
+                                    include: {
+                                        permissions: {
+                                            include: { permission: { select: { key: true } } },
+                                        },
+                                    },
+                                },
+                            },
+                        },
                     },
                 },
             },
@@ -102,6 +119,15 @@ export class AuthService {
 
         const { password: _, refreshToken: __, staff, ...safeUser } = user;
 
+        // Union of all permission keys across every active DutyProfile assignment
+        const permissions: string[] = staff
+            ? [...new Set(
+                staff.assignments.flatMap(a =>
+                    a.dutyProfile.permissions.map(p => p.permission.key)
+                )
+              )]
+            : [];
+
         const staffProfile = staff ? {
             role: staff.role,
             department: staff.department ? {
@@ -110,6 +136,7 @@ export class AuthService {
                 systemKey: staff.department.systemKey,
                 queues: staff.department.queues,
             } : null,
+            permissions,
         } : null;
 
         return { user: safeUser, staff: staffProfile, access_token, refresh_token };

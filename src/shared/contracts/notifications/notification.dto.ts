@@ -1,11 +1,38 @@
+import {
+    IsBoolean,
+    IsDate,
+    IsOptional,
+    IsString,
+    IsUUID,
+} from 'class-validator';
+
 export class NotificationDto {
-    id: string;
-    userId: string;
-    message: string;
-    type: string;
-    isRead: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    deletedAt?: Date | null;
-    deletedBy?: string | null;
+    @IsUUID()
+    id: string = '';
+
+    @IsUUID()
+    userId: string = '';
+
+    @IsString()
+    message: string = '';
+
+    @IsString()
+    type: string = '';
+
+    @IsBoolean()
+    isRead: boolean = false;
+
+    @IsDate()
+    createdAt: Date = new Date();
+
+    @IsDate()
+    updatedAt: Date = new Date();
+
+    @IsOptional()
+    @IsDate()
+    deletedAt: Date | null = null;
+
+    @IsOptional()
+    @IsUUID()
+    deletedBy: string | null = null;
 }

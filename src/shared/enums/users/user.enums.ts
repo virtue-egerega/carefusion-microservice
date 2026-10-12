@@ -52,13 +52,6 @@ export enum GENOTYPE {
 }
 
 
-export enum PermissionAction {
-    READ = "READ",
-    WRITE = "WRITE",
-    DELETE = "DELETE",
-    UPDATE = "UPDATE",
-  }
-
   export enum PublicHealthRole {
     INSPECTOR = "INSPECTOR",
     DATA_ANALYST = "DATA_ANALYST",

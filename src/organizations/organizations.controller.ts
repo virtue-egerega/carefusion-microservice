@@ -1,18 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Response } from 'express';
 import { OrganizationsService } from './organizations.service';
 import { CreateBranchDto, OnboardOrganizationDto, UpdateBranchDto, UpdateOrganizationDto } from '@shared/contracts/organizations';
 import { OrganizationFilter } from '@shared/enums/organizations/organization.enums';
 
-const REFRESH_COOKIE = 'refresh_token';
-const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict' as const,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-};
 
 @ApiTags('organizations')
 @Controller('organizations')
@@ -21,10 +12,8 @@ export class OrganizationsController {
 
   @Post()
   @ApiOperation({ summary: 'Onboard organization — creates org, Headquarters branch, and first admin user in one transaction.' })
-  async create(@Body() dto: OnboardOrganizationDto, @Res({ passthrough: true }) res: Response) {
-    const { refresh_token, ...body } = await this.organizationsService.create(dto);
-    res.cookie(REFRESH_COOKIE, refresh_token, cookieOptions);
-    return body;
+  create(@Body() dto: OnboardOrganizationDto) {
+    return this.organizationsService.create(dto);
   }
 
   @Get()

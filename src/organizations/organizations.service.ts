@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
 import { DepartmentsService } from '../departments/departments.service';
+import { AccessControlService } from '../access-control/access-control.service';
 import { BranchDto, CreateBranchDto, OnboardOrganizationDto, OrganizationDto, UpdateBranchDto, UpdateOrganizationDto } from '@shared/contracts/organizations';
 import { BranchStatus, BusinessType, OrgType, OrganizationFilter, PaymentPlan } from '@shared/enums/organizations/organization.enums';
 import { Prisma, $Enums } from '../../generated/prisma/client';
@@ -13,6 +14,7 @@ export class OrganizationsService {
         private readonly databaseService: DatabaseService,
         private readonly jwtService: JwtService,
         private readonly departmentsService: DepartmentsService,
+        private readonly accessControlService: AccessControlService,
     ) { }
 
     async create(dto: OnboardOrganizationDto) {
@@ -93,19 +95,10 @@ export class OrganizationsService {
             });
 
             await this.departmentsService.seedForOrg(prisma, organization.businessType);
+            await this.accessControlService.seedForOrg(prisma, user.id);
 
             return { organization, branch, user };
         }, { timeout: 30000 });
-
-        const tokenPayload = { sub: result.user.id, type: result.user.type };
-        const access_token = this.jwtService.sign(tokenPayload, {
-            secret: process.env.JWT_ACCESS_TOKEN_SECRET,
-            expiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN as any,
-        });
-        const refresh_token = this.jwtService.sign(tokenPayload, {
-            secret: process.env.JWT_REFRESH_TOKEN_SECRET,
-            expiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN as any,
-        });
 
         const { password: _, ...adminWithoutPassword } = result.user;
 
@@ -113,8 +106,6 @@ export class OrganizationsService {
             organization: this.mapToOrganizationDto(result.organization),
             mainBranch: this.mapToBranchDto(result.branch),
             admin: adminWithoutPassword,
-            access_token,
-            refresh_token,
         };
     }
 
