@@ -14,6 +14,7 @@ import { LaboratoryModule } from './laboratory/laboratory.module';
 import { PharmacyModule } from './pharmacy/pharmacy.module';
 import { EnumsModule } from './enums/enums.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
     imports: [
@@ -30,6 +31,7 @@ import { DepartmentsModule } from './departments/departments.module';
         PharmacyModule,
         EnumsModule,
         DepartmentsModule,
+        AuthModule,
     ],
     controllers: [AppController],
     providers: [AppService],

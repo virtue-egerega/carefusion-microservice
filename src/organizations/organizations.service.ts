@@ -100,11 +100,11 @@ export class OrganizationsService {
         const tokenPayload = { sub: result.user.id, type: result.user.type };
         const access_token = this.jwtService.sign(tokenPayload, {
             secret: process.env.JWT_ACCESS_TOKEN_SECRET,
-            expiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN,
+            expiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN as any,
         });
         const refresh_token = this.jwtService.sign(tokenPayload, {
             secret: process.env.JWT_REFRESH_TOKEN_SECRET,
-            expiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN,
+            expiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN as any,
         });
 
         const { password: _, ...adminWithoutPassword } = result.user;

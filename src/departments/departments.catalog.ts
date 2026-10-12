@@ -110,12 +110,17 @@ export const DEPARTMENT_CATALOG: DeptEntry[] = [
     name: 'HR',
     queues: defaultQueue('HR', 'HR'),
   },
+  {
+    systemKey: 'ADMINISTRATION',
+    name: 'Administration',
+    queues: defaultQueue('ADMINISTRATION', 'Administration'),
+  },
 ];
 
 const ACTIVE_KEYS: Record<string, string[]> = {
   HOSPITAL:   DEPARTMENT_CATALOG.map(d => d.systemKey), // all active
-  LABORATORY: ['RECEPTION', 'LABORATORY', 'ACCOUNTS'],
-  PHARMACY:   ['RECEPTION', 'PHARMACY', 'ACCOUNTS'],
+  LABORATORY: ['RECEPTION', 'LABORATORY', 'ACCOUNTS', 'ADMINISTRATION'],
+  PHARMACY:   ['RECEPTION', 'PHARMACY', 'ACCOUNTS', 'ADMINISTRATION'],
 };
 
 export function getActiveKeys(businessType: string): Set<string> {
