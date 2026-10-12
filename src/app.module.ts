@@ -16,6 +16,7 @@ import { EnumsModule } from './enums/enums.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { AuthModule } from './auth/auth.module';
 import { AccessControlModule } from './access-control/access-control.module';
+import { StaffModule } from './staff/staff.module';
 
 @Module({
     imports: [
@@ -34,6 +35,7 @@ import { AccessControlModule } from './access-control/access-control.module';
         DepartmentsModule,
         AuthModule,
         AccessControlModule,
+        StaffModule,
     ],
     controllers: [AppController],
     providers: [AppService],

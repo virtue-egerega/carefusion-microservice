@@ -19,7 +19,7 @@ export class DutyProfileService {
         if (existing) throw new ConflictException(`A duty profile named "${dto.name}" already exists`);
 
         const profile = await this.databaseService.client.dutyProfile.create({
-            data: { name: dto.name, roleId: dto.roleId, departmentId: dto.departmentId },
+            data: { name: dto.name, role: dto.role, departmentId: dto.departmentId },
         });
 
         if (dto.queueIds?.length) await this.linkQueues(profile.id, dto.queueIds);
@@ -28,30 +28,45 @@ export class DutyProfileService {
         return this.findOne(profile.id);
     }
 
-    async findAll() {
-        return this.databaseService.client.dutyProfile.findMany({
-            where: { deletedAt: null },
-            orderBy: { name: 'asc' },
-            include: {
-                role: { select: { id: true, name: true } },
-                department: { select: { id: true, name: true, systemKey: true } },
-                queues: { include: { queue: { select: { id: true, name: true, systemKey: true } } } },
-                permissions: { include: { permission: { select: { id: true, key: true, description: true } } } },
-            },
-        });
+    async findAll(limit = 20, offset = 0, search?: string) {
+        const where: any = {
+            deletedAt: null,
+            ...(search && {
+                name: { contains: search, mode: 'insensitive' },
+            }),
+        };
+        const [count, docs] = await this.databaseService.client.$transaction([
+            this.databaseService.client.dutyProfile.count({ where }),
+            this.databaseService.client.dutyProfile.findMany({
+                where,
+                orderBy: { name: 'asc' },
+                take: limit,
+                skip: offset,
+                select: {
+                    id: true,
+                    name: true,
+                    role: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    department: { select: { id: true, name: true, systemKey: true } },
+                    _count: { select: { queues: true, permissions: true } },
+                },
+            }),
+        ]);
+
+        return { count, docs };
     }
 
     async findOne(id: string) {
         const profile = await this.databaseService.client.dutyProfile.findUnique({
             where: { id },
             include: {
-                role: { select: { id: true, name: true } },
                 department: { select: { id: true, name: true, systemKey: true } },
                 queues: { include: { queue: { select: { id: true, name: true, systemKey: true } } } },
                 permissions: { include: { permission: { select: { id: true, key: true, description: true } } } },
             },
         });
-        if (!profile) throw new NotFoundException('Duty profile not found');
+        if (!profile || profile.deletedAt) throw new NotFoundException('Duty profile not found');
         return profile;
     }
 
@@ -145,7 +160,6 @@ export class DutyProfileService {
             include: {
                 dutyProfile: {
                     include: {
-                        role: { select: { id: true, name: true } },
                         department: { select: { id: true, name: true } },
                         permissions: { include: { permission: { select: { key: true } } } },
                         queues: { include: { queue: { select: { id: true, name: true, systemKey: true } } } },

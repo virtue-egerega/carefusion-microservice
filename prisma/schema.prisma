@@ -86,20 +86,6 @@ model InsuranceScheme {
 }
 
 
-model Role {
-  id             String           @id @default(uuid())
-  name           String           @unique // e.g. "DOCTOR", "LAB_ADMIN" all roles, including nhis staffs
-  description    String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  updatedBy   String?         // userId of the user who updated this role
-  deletedAt      DateTime?       // soft delete
-  deletedBy    String?         // userId of the user who deleted this role
-
-  @@index([name])
-  users        User[]
-  dutyProfiles DutyProfile[]
-}
 
 
 
@@ -121,11 +107,8 @@ model User {
   updatedBy             String?         // userId of the user who updated this role
   deletedAt             DateTime?       // soft delete
   deletedBy             String?         // userId of the user who updated this role
-  roleId                String?
   balance               Decimal @default(0.00) // for patients, this is the amount they have paid
 
-
-  role                  Role? @relation(fields: [roleId], references: [id]) // 👈 relation to Role
   personalAccessTokens  PersonalAccessToken[]
   passwordHistory       PasswordHistory[]
   address              Address[]
@@ -198,17 +181,16 @@ model Permission {
 }
 
 model DutyProfile {
-  id           String    @id @default(uuid())
-  name         String    @unique
-  roleId       String
+  id           String            @id @default(uuid())
+  name         String            @unique
+  role         HospitalStaffRole
   departmentId String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
   updatedBy    String?
   deletedAt    DateTime?
   deletedBy    String?
 
-  role        Role        @relation(fields: [roleId], references: [id])
   department  Department? @relation(fields: [departmentId], references: [id])
   queues      DutyProfileQueue[]
   permissions DutyProfilePermission[]

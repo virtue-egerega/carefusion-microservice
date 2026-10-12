@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DutyProfileService } from './duty-profile.service';
 import {
@@ -22,8 +22,12 @@ export class DutyProfileController {
 
     @ApiOperation({ summary: 'List all duty profiles' })
     @Get()
-    findAll() {
-        return this.dutyProfileService.findAll();
+    findAll(
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+        @Query('search') search?: string,
+    ) {
+        return this.dutyProfileService.findAll(limit, offset, search);
     }
 
     @ApiOperation({ summary: 'Get a single duty profile' })

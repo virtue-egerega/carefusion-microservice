@@ -73,11 +73,6 @@ export class CreateUserDto {
     @IsNotEmpty()
     insuranceSchemeId?: string;
 
-    @ApiProperty({ description: 'Role ID', example: 'b56e1d2c-6d6f-4d5b-bfed-91b7344561ad', format: 'uuid', required: false })
-    @IsUUID()
-    @IsOptional()
-    roleId?: string;
-
     @ApiProperty({ description: 'Card opening deposit amount (PATIENT only)', example: '5000.00', required: false })
     @ValidateIf(o => o.type === UserType.PATIENT)
     @IsNotEmpty()

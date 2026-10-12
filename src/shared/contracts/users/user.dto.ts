@@ -19,5 +19,4 @@ export class UserDto {
     deletedAt?: Date | null;
     deletedBy?: string | null;
     hospitalId?: string | null;
-    roleId?: string | null;
 }

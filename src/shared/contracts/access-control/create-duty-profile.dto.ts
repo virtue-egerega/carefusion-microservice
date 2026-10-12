@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { HospitalStaffRole } from '@shared/enums/users/user.enums';
 
 export class CreateDutyProfileDto {
     @ApiProperty({ example: 'Gyno Nurse' })
@@ -7,10 +8,10 @@ export class CreateDutyProfileDto {
     @IsNotEmpty()
     name!: string;
 
-    @ApiProperty({ description: 'Role.id', example: 'uuid' })
-    @IsUUID()
+    @ApiProperty({ enum: HospitalStaffRole, description: 'Staff role this profile is intended for (used as a filter tag)' })
+    @IsEnum(HospitalStaffRole)
     @IsNotEmpty()
-    roleId!: string;
+    role!: HospitalStaffRole;
 
     @ApiProperty({ description: 'Department.id — omit for a global (queue-less) profile', required: false })
     @IsUUID()
