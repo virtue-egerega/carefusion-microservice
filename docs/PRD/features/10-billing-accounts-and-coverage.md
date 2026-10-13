@@ -918,7 +918,9 @@ no queue restriction.
 | `billing.credit_limit.request` | Request Credit Limit Change | Raise `CREDIT_LIMIT_CHANGE` requests |
 | `billing.writeoff.request` | Request Write-off | Raise `WRITE_OFF` and `RECOVERY` requests |
 | `coverage.view` | View Coverage | See a patient's coverages and remaining benefit |
-| `coverage.manage` | Manage Coverage | Enrol principals/dependants, end coverage, select a visit's coverage |
+| `coverage.select` | Select Coverage | Choose a visit's coverage, set coverage priority (reception) |
+| `coverage.enrol` | Enrol Coverage | Enrol principals and add dependants (insurance desk) |
+| `coverage.end` | End Coverage | End a coverage; ending a principal ends the policy (insurance desk) |
 | `payer.manage` | Manage Payers & Plans | Payers, plans, benefits, copay, caps |
 | `insurance.preauth.record` | Record Pre-authorisation | Capture auth codes, record auth refusal |
 | `insurance.claim.review` | Record Payer Decisions | Record approve/reject per line |
@@ -929,10 +931,10 @@ no queue restriction.
 | `finance.report.view` | View Finance Reports | Write-off register, refund/adjustment/void reports, payer ageing |
 
 **Where permissions are checked.** The access token signed at login carries the caller's
-`organizationId`, permission keys and duty profile ids, so most requests need no permission query.
-The exception is `finance.request.approve` and `finance.policy.manage`. These are re-read from the
-database on every use, because access tokens live 24 hours, and someone whose approval rights were
-revoked must not keep approving money until their token expires.
+`organizationId`, permission keys and duty profile ids, so no request reads permissions from the
+database. When anyone's permissions change, including approval rights, they are forced to log in
+again through the re-login flag (`09` §9.3). An approver whose rights were removed can't keep
+approving on an old token.
 
 `billing.approve` ("Approve and process payments") is **removed**. Combining "receive payments"
 with "approve" in one key is exactly what the separation of duties in §8 forbids. Its holders are
@@ -944,11 +946,11 @@ is assigned automatically):
 | Profile | Queues | Permissions | Approval limits |
 |---|---|---|---|
 | Cashier | Cashier | `billing.view`, `billing.payment.receive`, `billing.account.*`, `billing.refund.request`, `billing.void.request`, `billing.transfer.request`, `coverage.view` | — |
-| Insurance Officer | Insurance | `billing.view`, `coverage.view`, `coverage.manage`, `insurance.*`, `billing.writeoff.request` | — |
+| Insurance Officer | Insurance | `billing.view`, `coverage.*`, `insurance.*`, `billing.writeoff.request` | — |
 | Billing Supervisor | Cashier, Insurance, Write-offs & Approvals | above + `billing.charge.create`, `billing.adjustment.request`, `billing.credit_limit.request`, `finance.request.approve`, `finance.report.view` | set by tenant at onboarding (e.g. ₦50,000) |
 | Finance Manager | Write-offs & Approvals | `billing.view`, `payer.manage`, `finance.request.approve`, `finance.policy.manage`, `finance.report.view` | set by tenant at onboarding (higher tier) |
 
-Reception keeps `billing.view` and gains `coverage.view`, `coverage.manage` (to choose a visit's
+Reception keeps `billing.view` and gains `coverage.view`, `coverage.select` (to choose a visit's
 coverage), `billing.account.create` and `billing.account.member.add` (to open a family account
 and attach a patient to it at registration). Removing members and editing accounts stay with
 Accounts. The seeded Hospital Administrator profile drops `billing.approve` and gains
@@ -1015,8 +1017,10 @@ with the approver's name and the evidence attached.
 | `/api/v1/patients/:id/billing-account` | GET | `billing.view` | Current account, balance, unpaid items |
 | `/api/v1/payers` | POST / GET / PATCH | `payer.manage` | Payers (creates the payer account) |
 | `/api/v1/payers/:id/plans` | POST / GET / PATCH | `payer.manage` | Plans and `PlanBenefit` rows |
-| `/api/v1/plans/:id/policies` | POST / GET | `coverage.manage` | Enrol principal |
-| `/api/v1/policies/:id/coverages` | POST / GET / DELETE | `coverage.manage` | Dependants |
+| `/api/v1/plans/:id/policies` | POST | `coverage.enrol` | Enrol principal |
+| `/api/v1/policies/:id/coverages` | POST | `coverage.enrol` | Add dependant |
+| `/api/v1/coverages/:id` | DELETE | `coverage.end` | End coverage |
+| `/api/v1/patients/:id/coverages/priority` | PUT | `coverage.select` | Order a patient's coverages |
 | `/api/v1/patients/:id/coverages` | GET | `coverage.view` | Coverages with remaining benefit |
 | `/api/v1/charges` | POST | internal / `billing.charge.create` | Post a charge; returns allocations |
 | `/api/v1/charges/:id` | GET | `billing.view` | Charge with allocation history |

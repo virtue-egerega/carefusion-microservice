@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
-import { BillingAccountsController } from './billing-accounts.controller';
-import { BillingAccountsService } from './billing-accounts.service';
-import { ChargesService } from './charges.service';
-import { LedgerService } from './ledger.service';
+import { BillingAccountsController } from './accounts/billing-accounts.controller';
+import { BillingAccountsService } from './accounts/billing-accounts.service';
+import { ChargesService } from './charges/charges.service';
 import { CoverageController } from './coverage/coverage.controller';
 import { CoverageService } from './coverage/coverage.service';
-import { PayersService } from './coverage/payers.service';
+import { LedgerService } from './ledger/ledger.service';
+import { PayersController } from './payers/payers.controller';
+import { PayersService } from './payers/payers.service';
 
 @Module({
-    controllers: [BillingAccountsController, CoverageController],
+    controllers: [BillingAccountsController, PayersController, CoverageController],
     providers: [LedgerService, BillingAccountsService, ChargesService, PayersService, CoverageService],
     exports: [LedgerService, BillingAccountsService, ChargesService, CoverageService],
 })

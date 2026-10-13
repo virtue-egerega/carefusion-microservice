@@ -1,4 +1,58 @@
 -- CreateEnum
+CREATE TYPE "PublicHealthRole" AS ENUM ('INSPECTOR', 'DATA_ANALYST', 'SUPERVISOR', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "Gender" AS ENUM ('MALE', 'FEMALE', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "NHISRole" AS ENUM ('ADMIN', 'VERIFIER', 'CLAIMS_PROCESSOR', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "PaymentPlan" AS ENUM ('EPIC', 'PREMIUM', 'EXQUISITE');
+
+-- CreateEnum
+CREATE TYPE "BusinessType" AS ENUM ('HOSPITAL', 'LABORATORY', 'PHARMACY');
+
+-- CreateEnum
+CREATE TYPE "OrgType" AS ENUM ('STANDALONE', 'CHAIN');
+
+-- CreateEnum
+CREATE TYPE "UserStatus" AS ENUM ('ACTIVE', 'NOTAPPROVED', 'RESTRICTED', 'DELETED');
+
+-- CreateEnum
+CREATE TYPE "MaritalStatus" AS ENUM ('SINGLE', 'MARRIED', 'DIVORCED', 'WIDOWED');
+
+-- CreateEnum
+CREATE TYPE "AddressType" AS ENUM ('RESIDENCE', 'WORK', 'ORIGIN');
+
+-- CreateEnum
+CREATE TYPE "TokenType" AS ENUM ('SESSION', 'API', 'PASSWORDRESET', 'DELETEACCOUNT', 'VERIFYACCOUNT');
+
+-- CreateEnum
+CREATE TYPE "HospitalStaffRole" AS ENUM ('ADMIN', 'SUPERADMIN', 'MANAGER', 'DOCTOR', 'NURSE', 'LAB_ADMIN', 'PHARMACIST', 'RECEPTIONIST', 'ACCOUNTANT', 'LAB_TECHNICIAN', 'PHARMACY_TECHNICIAN', 'RADIOLOGIST', 'PHLEBOTOMIST', 'OPTOMETRIST', 'DENTIST', 'OTHER');
+
+-- CreateEnum
+CREATE TYPE "UserType" AS ENUM ('SUPERADMIN', 'ADMIN', 'HOSPITAL_STAFF', 'PATIENT', 'NHIS_WORKER', 'PUBLIC_HEALTH_WORKER');
+
+-- CreateEnum
+CREATE TYPE "BloodGroup" AS ENUM ('A_POS', 'A_NEG', 'B_POS', 'B_NEG', 'AB_POS', 'AB_NEG', 'O_POS', 'O_NEG');
+
+-- CreateEnum
+CREATE TYPE "Genotype" AS ENUM ('AA', 'AS', 'SS', 'AC', 'SC', 'CC', 'AE', 'EE');
+
+-- CreateEnum
+CREATE TYPE "BranchStatus" AS ENUM ('ACTIVE', 'INACTIVE', 'CLOSED');
+
+-- CreateEnum
+CREATE TYPE "NotificationType" AS ENUM ('INFO', 'WARNING', 'ERROR', 'SUCCESS');
+
+-- CreateEnum
+CREATE TYPE "AppointmentStatus" AS ENUM ('SCHEDULED', 'STARTED', 'IN_PROGRESS', 'CANCELLED', 'COMPLETED', 'NO_SHOW');
+
+-- CreateEnum
+CREATE TYPE "ConsultationReason" AS ENUM ('FOLLOW_UP', 'TEST_REVIEW', 'EMERGENCY', 'ROUTINE', 'REFERRAL', 'CHECKUP', 'ANTENATAL', 'POSTNATAL', 'VACCINATION', 'MEDICATION', 'PHYSICAL_EXAMINATION', 'LAB_TEST', 'IMAGING', 'PROCEDURE', 'SURGERY', 'REHABILITATION', 'THERAPY', 'COUNSELING', 'EDUCATION', 'MONITORING', 'SCREENING', 'PREVENTION', 'OTHER');
+
+-- CreateEnum
 CREATE TYPE "BillingAccountType" AS ENUM ('INDIVIDUAL', 'FAMILY', 'PAYER');
 
 -- CreateEnum
@@ -61,6 +115,345 @@ CREATE TYPE "ApprovalDecision" AS ENUM ('APPROVE', 'REJECT');
 -- CreateEnum
 CREATE TYPE "FinancialReason" AS ENUM ('PAYER_REJECTION_HOSPITAL_FAULT', 'PAYER_TARIFF_DISPUTE', 'MISSING_PREAUTH', 'WAIVER_CLINICAL', 'WAIVER_WELFARE', 'STAFF_BENEFIT', 'BAD_DEBT', 'DECEASED_NO_ESTATE', 'CHARGE_ERROR', 'DUPLICATE_PAYMENT', 'OVERPAYMENT', 'SERVICE_NOT_RENDERED', 'DEBT_RECOVERED', 'OTHER');
 
+-- CreateEnum
+CREATE TYPE "PasswordChangeReason" AS ENUM ('ADMIN_RESET', 'USER_CHANGE');
+
+-- CreateTable
+CREATE TABLE "Organization" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
+    "logo" TEXT,
+    "phone" TEXT[],
+    "email" TEXT NOT NULL,
+    "city" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "country" TEXT NOT NULL,
+    "zipCode" TEXT NOT NULL,
+    "website" TEXT,
+    "slogan" TEXT,
+    "pobox" TEXT,
+    "nfcCardFee" DECIMAL(65,30) NOT NULL DEFAULT 1000.00,
+    "registrationFee" DECIMAL(65,30) NOT NULL DEFAULT 0.00,
+    "paymentPlan" "PaymentPlan",
+    "businessType" "BusinessType" NOT NULL DEFAULT 'HOSPITAL',
+    "orgType" "OrgType" NOT NULL DEFAULT 'STANDALONE',
+    "healthcareNetworkId" TEXT,
+    "healthcareNetworkName" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Organization_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Branch" (
+    "id" TEXT NOT NULL,
+    "organizationId" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "code" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
+    "city" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "country" TEXT NOT NULL,
+    "phone" TEXT[],
+    "email" TEXT,
+    "isMainBranch" BOOLEAN NOT NULL DEFAULT false,
+    "status" "BranchStatus" NOT NULL DEFAULT 'ACTIVE',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Branch_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "User" (
+    "id" TEXT NOT NULL,
+    "email" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
+    "firstName" TEXT NOT NULL,
+    "middleName" TEXT,
+    "lastName" TEXT NOT NULL,
+    "phone" TEXT[],
+    "type" "UserType" NOT NULL,
+    "status" "UserStatus" NOT NULL DEFAULT 'ACTIVE',
+    "loginAttempts" INTEGER NOT NULL DEFAULT 0,
+    "mustChangePassword" BOOLEAN NOT NULL DEFAULT false,
+    "refreshToken" TEXT,
+    "lastLogin" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PasswordHistory" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
+    "changedBy" TEXT,
+    "reason" "PasswordChangeReason",
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3),
+
+    CONSTRAINT "PasswordHistory_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PersonalAccessToken" (
+    "id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "type" "TokenType" NOT NULL,
+    "expiry" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+
+    CONSTRAINT "PersonalAccessToken_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Permission" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Permission_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DutyProfile" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "role" "HospitalStaffRole" NOT NULL,
+    "departmentId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "DutyProfile_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DutyProfileQueue" (
+    "id" TEXT NOT NULL,
+    "dutyProfileId" TEXT NOT NULL,
+    "queueId" TEXT NOT NULL,
+
+    CONSTRAINT "DutyProfileQueue_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DutyProfilePermission" (
+    "id" TEXT NOT NULL,
+    "dutyProfileId" TEXT NOT NULL,
+    "permissionId" TEXT NOT NULL,
+
+    CONSTRAINT "DutyProfilePermission_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StaffAssignment" (
+    "id" TEXT NOT NULL,
+    "staffId" TEXT NOT NULL,
+    "dutyProfileId" TEXT NOT NULL,
+    "assignedBy" TEXT NOT NULL,
+    "assignedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endsAt" TIMESTAMP(3),
+
+    CONSTRAINT "StaffAssignment_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Department" (
+    "id" TEXT NOT NULL,
+    "systemKey" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Department_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Queue" (
+    "id" TEXT NOT NULL,
+    "departmentId" TEXT NOT NULL,
+    "systemKey" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Queue_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "HospitalStaff" (
+    "user_id" TEXT NOT NULL,
+    "departmentId" TEXT,
+    "hospitalId" TEXT,
+    "role" "HospitalStaffRole",
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdBy" TEXT,
+
+    CONSTRAINT "HospitalStaff_pkey" PRIMARY KEY ("user_id")
+);
+
+-- CreateTable
+CREATE TABLE "Address" (
+    "id" TEXT NOT NULL,
+    "street" TEXT NOT NULL,
+    "city" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "country" TEXT NOT NULL,
+    "postalCode" TEXT,
+    "type" "AddressType" NOT NULL,
+    "userId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Address_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Patient" (
+    "user_id" TEXT NOT NULL,
+    "patientId" SERIAL NOT NULL,
+    "nfcId" TEXT NOT NULL,
+    "nfcLinkedAt" TIMESTAMP(3),
+    "nfcLinkedBy" TEXT,
+    "dateOfBirth" TIMESTAMP(3),
+    "sex" "Gender",
+    "maritalStatus" "MaritalStatus",
+    "nationality" TEXT,
+    "occupation" TEXT,
+    "religion" TEXT,
+    "ethnicity" TEXT,
+    "spokenLanguages" TEXT[],
+    "bloodGroup" "BloodGroup",
+    "genotype" "Genotype",
+    "emergencyContactId" TEXT,
+    "hospital_id" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Patient_pkey" PRIMARY KEY ("user_id")
+);
+
+-- CreateTable
+CREATE TABLE "NextOfKin" (
+    "id" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "firstName" TEXT NOT NULL,
+    "middleName" TEXT NOT NULL,
+    "lastName" TEXT NOT NULL,
+    "relationship" TEXT NOT NULL,
+    "phone" TEXT[],
+    "email" TEXT,
+    "address" TEXT,
+    "isEmergencyContact" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NextOfKin_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "NHISWorker" (
+    "user_id" TEXT NOT NULL,
+    "role" "NHISRole",
+    "payerId" TEXT NOT NULL,
+
+    CONSTRAINT "NHISWorker_pkey" PRIMARY KEY ("user_id")
+);
+
+-- CreateTable
+CREATE TABLE "PublicHealthWorker" (
+    "user_id" TEXT NOT NULL,
+    "role" "PublicHealthRole",
+
+    CONSTRAINT "PublicHealthWorker_pkey" PRIMARY KEY ("user_id")
+);
+
+-- CreateTable
+CREATE TABLE "Notification" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "type" "NotificationType" NOT NULL,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ConsultationType" (
+    "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "description" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "ConsultationType_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Appointment" (
+    "id" TEXT NOT NULL,
+    "hospitalId" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "appointmentStartedAt" TIMESTAMP(3),
+    "appointmentEndedAt" TIMESTAMP(3),
+    "checkin" BOOLEAN DEFAULT false,
+    "checkinAt" TIMESTAMP(3),
+    "status" "AppointmentStatus" NOT NULL DEFAULT 'SCHEDULED',
+    "reason" "ConsultationReason" NOT NULL,
+    "consultationTypeId" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "referralNote" TEXT,
+    "referredById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedBy" TEXT,
+    "deletedAt" TIMESTAMP(3),
+    "deletedBy" TEXT,
+
+    CONSTRAINT "Appointment_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateTable
 CREATE TABLE "BillingAccount" (
     "id" TEXT NOT NULL,
@@ -103,6 +496,7 @@ CREATE TABLE "AccountEntry" (
     "entryType" "AccountEntryType" NOT NULL,
     "amount" DECIMAL(14,2) NOT NULL,
     "balanceAfter" DECIMAL(14,2) NOT NULL,
+    "appliedAmount" DECIMAL(14,2) NOT NULL DEFAULT 0,
     "allocationId" TEXT,
     "requestId" TEXT,
     "reversesId" TEXT,
@@ -364,6 +758,87 @@ CREATE TABLE "ApprovalPolicy" (
 );
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Branch_code_key" ON "Branch"("code");
+
+-- CreateIndex
+CREATE INDEX "Branch_organizationId_idx" ON "Branch"("organizationId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
+CREATE INDEX "email_lastname_index" ON "User"("email", "lastName");
+
+-- CreateIndex
+CREATE INDEX "phone_lastname_index" ON "User"("phone", "lastName");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PersonalAccessToken_token_key" ON "PersonalAccessToken"("token");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PersonalAccessToken_user_id_type_key" ON "PersonalAccessToken"("user_id", "type");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Permission_key_key" ON "Permission"("key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DutyProfile_name_key" ON "DutyProfile"("name");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DutyProfileQueue_dutyProfileId_queueId_key" ON "DutyProfileQueue"("dutyProfileId", "queueId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DutyProfilePermission_dutyProfileId_permissionId_key" ON "DutyProfilePermission"("dutyProfileId", "permissionId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "StaffAssignment_staffId_dutyProfileId_key" ON "StaffAssignment"("staffId", "dutyProfileId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Department_systemKey_key" ON "Department"("systemKey");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Queue_systemKey_key" ON "Queue"("systemKey");
+
+-- CreateIndex
+CREATE INDEX "Queue_departmentId_idx" ON "Queue"("departmentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Address_userId_type_key" ON "Address"("userId", "type");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Patient_nfcId_key" ON "Patient"("nfcId");
+
+-- CreateIndex
+CREATE INDEX "emergency_contact_index" ON "NextOfKin"("patientId", "isEmergencyContact");
+
+-- CreateIndex
+CREATE INDEX "patient_contact_index" ON "NextOfKin"("patientId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "NextOfKin_patientId_isEmergencyContact_key" ON "NextOfKin"("patientId", "isEmergencyContact");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ConsultationType_name_key" ON "ConsultationType"("name");
+
+-- CreateIndex
+CREATE INDEX "Appointment_patientId_idx" ON "Appointment"("patientId");
+
+-- CreateIndex
+CREATE INDEX "Appointment_hospitalId_idx" ON "Appointment"("hospitalId");
+
+-- CreateIndex
+CREATE INDEX "Appointment_date_idx" ON "Appointment"("date");
+
+-- CreateIndex
+CREATE INDEX "Appointment_checkinAt_idx" ON "Appointment"("checkinAt");
+
+-- CreateIndex
+CREATE INDEX "Appointment_status_idx" ON "Appointment"("status");
+
+-- CreateIndex
+CREATE INDEX "Appointment_doctorId_idx" ON "Appointment"("doctorId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "BillingAccount_accountNumber_key" ON "BillingAccount"("accountNumber");
 
 -- CreateIndex
@@ -389,6 +864,9 @@ CREATE INDEX "AccountEntry_patientId_createdAt_idx" ON "AccountEntry"("patientId
 
 -- CreateIndex
 CREATE INDEX "AccountEntry_allocationId_idx" ON "AccountEntry"("allocationId");
+
+-- CreateIndex
+CREATE INDEX "AccountEntry_branchId_idx" ON "AccountEntry"("branchId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Payer_organizationId_name_key" ON "Payer"("organizationId", "name");
@@ -433,8 +911,7 @@ CREATE INDEX "ChargeAllocation_billingAccountId_paymentStatus_state_idx" ON "Cha
 CREATE INDEX "ChargeAllocation_coverageId_reviewStatus_idx" ON "ChargeAllocation"("coverageId", "reviewStatus");
 
 -- CreateIndex
--- NULLS NOT DISTINCT: the overall-limit row (category IS NULL) must be unique too (PRD 10 §6.4)
-CREATE UNIQUE INDEX "BenefitUsage_scope_scopeId_category_periodStart_key" ON "BenefitUsage"("scope", "scopeId", "category", "periodStart") NULLS NOT DISTINCT;
+CREATE UNIQUE INDEX "BenefitUsage_scope_scopeId_category_periodStart_key" ON "BenefitUsage"("scope", "scopeId", "category", "periodStart");
 
 -- CreateIndex
 CREATE INDEX "PaymentApplication_allocationId_idx" ON "PaymentApplication"("allocationId");
@@ -461,6 +938,72 @@ CREATE UNIQUE INDEX "ApprovalLimit_dutyProfileId_requestType_key" ON "ApprovalLi
 CREATE UNIQUE INDEX "ApprovalPolicy_organizationId_requestType_key" ON "ApprovalPolicy"("organizationId", "requestType");
 
 -- AddForeignKey
+ALTER TABLE "Branch" ADD CONSTRAINT "Branch_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PasswordHistory" ADD CONSTRAINT "PasswordHistory_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PersonalAccessToken" ADD CONSTRAINT "PersonalAccessToken_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DutyProfile" ADD CONSTRAINT "DutyProfile_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "Department"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DutyProfileQueue" ADD CONSTRAINT "DutyProfileQueue_dutyProfileId_fkey" FOREIGN KEY ("dutyProfileId") REFERENCES "DutyProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DutyProfileQueue" ADD CONSTRAINT "DutyProfileQueue_queueId_fkey" FOREIGN KEY ("queueId") REFERENCES "Queue"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DutyProfilePermission" ADD CONSTRAINT "DutyProfilePermission_dutyProfileId_fkey" FOREIGN KEY ("dutyProfileId") REFERENCES "DutyProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DutyProfilePermission" ADD CONSTRAINT "DutyProfilePermission_permissionId_fkey" FOREIGN KEY ("permissionId") REFERENCES "Permission"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_staffId_fkey" FOREIGN KEY ("staffId") REFERENCES "HospitalStaff"("user_id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StaffAssignment" ADD CONSTRAINT "StaffAssignment_dutyProfileId_fkey" FOREIGN KEY ("dutyProfileId") REFERENCES "DutyProfile"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Queue" ADD CONSTRAINT "Queue_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "Department"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HospitalStaff" ADD CONSTRAINT "HospitalStaff_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HospitalStaff" ADD CONSTRAINT "HospitalStaff_departmentId_fkey" FOREIGN KEY ("departmentId") REFERENCES "Department"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HospitalStaff" ADD CONSTRAINT "HospitalStaff_hospitalId_fkey" FOREIGN KEY ("hospitalId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Address" ADD CONSTRAINT "Address_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Patient" ADD CONSTRAINT "Patient_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Patient" ADD CONSTRAINT "Patient_hospital_id_fkey" FOREIGN KEY ("hospital_id") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NextOfKin" ADD CONSTRAINT "NextOfKin_patientId_fkey" FOREIGN KEY ("patientId") REFERENCES "Patient"("user_id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NHISWorker" ADD CONSTRAINT "NHISWorker_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NHISWorker" ADD CONSTRAINT "NHISWorker_payerId_fkey" FOREIGN KEY ("payerId") REFERENCES "Payer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PublicHealthWorker" ADD CONSTRAINT "PublicHealthWorker_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Appointment" ADD CONSTRAINT "Appointment_consultationTypeId_fkey" FOREIGN KEY ("consultationTypeId") REFERENCES "ConsultationType"("id") ON DELETE NO ACTION ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "BillingAccount" ADD CONSTRAINT "BillingAccount_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -477,6 +1020,9 @@ ALTER TABLE "BillingAccountMember" ADD CONSTRAINT "BillingAccountMember_patientI
 
 -- AddForeignKey
 ALTER TABLE "AccountEntry" ADD CONSTRAINT "AccountEntry_accountId_fkey" FOREIGN KEY ("accountId") REFERENCES "BillingAccount"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AccountEntry" ADD CONSTRAINT "AccountEntry_branchId_fkey" FOREIGN KEY ("branchId") REFERENCES "Branch"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "AccountEntry" ADD CONSTRAINT "AccountEntry_allocationId_fkey" FOREIGN KEY ("allocationId") REFERENCES "ChargeAllocation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
@@ -567,80 +1113,3 @@ ALTER TABLE "ApprovalLimit" ADD CONSTRAINT "ApprovalLimit_dutyProfileId_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "ApprovalPolicy" ADD CONSTRAINT "ApprovalPolicy_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- ============================================================================
--- Integrity rules Prisma can't express (PRD 10). Hand-written — keep when regenerating.
--- ============================================================================
-
--- §3.2 Every patient has exactly one current billing-account membership
-CREATE UNIQUE INDEX "BillingAccountMember_current_patient_key"
-    ON "BillingAccountMember"("patientId") WHERE "leftAt" IS NULL;
-
--- §4.4 Exactly one PRINCIPAL per policy
-CREATE UNIQUE INDEX "Coverage_one_principal_per_policy_key"
-    ON "Coverage"("policyId") WHERE "memberType" = 'PRINCIPAL';
-
--- §3.1 A PAYER account belongs to a payer; patient accounts never do
-ALTER TABLE "BillingAccount" ADD CONSTRAINT "BillingAccount_payer_iff_payer_type_check"
-    CHECK (("accountType" = 'PAYER') = ("payerId" IS NOT NULL));
-ALTER TABLE "BillingAccount" ADD CONSTRAINT "BillingAccount_credit_limit_check"
-    CHECK ("creditLimit" >= 0 AND "unappliedCredit" >= 0);
-
--- §3.3 / D11–D12 Money leaving the charge-and-pay flow must carry an approved request
-ALTER TABLE "AccountEntry" ADD CONSTRAINT "AccountEntry_controlled_entry_requires_request_check"
-    CHECK ("entryType" NOT IN ('WRITE_OFF', 'REFUND', 'TRANSFER_IN', 'TRANSFER_OUT', 'ADJUSTMENT')
-           OR "requestId" IS NOT NULL);
-ALTER TABLE "AccountEntry" ADD CONSTRAINT "AccountEntry_sign_check"
-    CHECK (CASE "entryType"
-             WHEN 'DEPOSIT'      THEN "amount" > 0
-             WHEN 'REMITTANCE'   THEN "amount" > 0
-             WHEN 'WRITE_OFF'    THEN "amount" > 0
-             WHEN 'TRANSFER_IN'  THEN "amount" > 0
-             WHEN 'CHARGE'       THEN "amount" < 0
-             WHEN 'REFUND'       THEN "amount" < 0
-             WHEN 'TRANSFER_OUT' THEN "amount" < 0
-             ELSE "amount" <> 0
-           END);
-ALTER TABLE "AccountEntry" ADD CONSTRAINT "AccountEntry_reversal_target_check"
-    CHECK (("entryType" = 'REVERSAL') = ("reversesId" IS NOT NULL));
-
--- §4.2 Percentages and caps
-ALTER TABLE "Plan" ADD CONSTRAINT "Plan_copay_range_check"
-    CHECK ("copayPercent" BETWEEN 0 AND 100);
-ALTER TABLE "Plan" ADD CONSTRAINT "Plan_limits_check"
-    CHECK ("maxSpouses" >= 0 AND "maxChildren" >= 0
-           AND ("annualLimitPerMember" IS NULL OR "annualLimitPerMember" >= 0)
-           AND ("annualLimitPerPolicy" IS NULL OR "annualLimitPerPolicy" >= 0));
-ALTER TABLE "PlanBenefit" ADD CONSTRAINT "PlanBenefit_copay_range_check"
-    CHECK ("copayPercent" IS NULL OR "copayPercent" BETWEEN 0 AND 100);
-ALTER TABLE "PlanBenefit" ADD CONSTRAINT "PlanBenefit_limit_check"
-    CHECK ("annualLimit" IS NULL OR "annualLimit" >= 0);
-
--- §5 Charges
-ALTER TABLE "Charge" ADD CONSTRAINT "Charge_amount_check"
-    CHECK ("quantity" > 0 AND "unitPrice" >= 0 AND "amount" = "quantity" * "unitPrice");
-
--- §6.1 Allocation ownership shape
-ALTER TABLE "ChargeAllocation" ADD CONSTRAINT "ChargeAllocation_owner_shape_check"
-    CHECK (CASE "responsibleType"
-             WHEN 'PAYER'    THEN "billingAccountId" IS NOT NULL AND "coverageId" IS NOT NULL AND "reviewStatus" IS NOT NULL
-             WHEN 'ACCOUNT'  THEN "billingAccountId" IS NOT NULL AND "coverageId" IS NULL AND "reviewStatus" IS NULL
-             WHEN 'HOSPITAL' THEN "billingAccountId" IS NULL AND "requestId" IS NOT NULL
-                                  AND "paymentStatus" = 'NOT_APPLICABLE'
-           END);
-ALTER TABLE "ChargeAllocation" ADD CONSTRAINT "ChargeAllocation_amounts_check"
-    CHECK ("amount" > 0 AND "paidAmount" >= 0 AND "paidAmount" <= "amount");
-
--- §7.1 Applications
-ALTER TABLE "PaymentApplication" ADD CONSTRAINT "PaymentApplication_amount_check"
-    CHECK ("amount" > 0);
-
--- §8 Requests
-ALTER TABLE "FinancialRequest" ADD CONSTRAINT "FinancialRequest_shape_check"
-    CHECK ("amount" >= 0 AND "requiredApprovals" IN (1, 2) AND length(trim("narrative")) >= 20);
-ALTER TABLE "FinancialRequestTarget" ADD CONSTRAINT "FinancialRequestTarget_amount_check"
-    CHECK ("amount" > 0);
-ALTER TABLE "FinancialRequestApproval" ADD CONSTRAINT "FinancialRequestApproval_note_check"
-    CHECK (length(trim("note")) > 0);
-ALTER TABLE "ApprovalLimit" ADD CONSTRAINT "ApprovalLimit_amount_check"
-    CHECK ("maxAmount" >= 0);

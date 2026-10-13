@@ -1,16 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
-import { LoginDto, ChangePasswordDto, ForgotPasswordDto, ResetPasswordDto } from '@shared/contracts/auth';
+import { LoginDto, ChangePasswordDto } from '@shared/contracts/auth';
 import { $Enums } from '../../generated/prisma/client';
 import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
 
 const PASSWORD_HISTORY_LIMIT = 5;
 const MAX_ATTEMPTS_LOCKOUT  = 5;
 const MAX_ATTEMPTS_RESTRICT = 8;
 const LOCKOUT_MINUTES       = 10;
-const RESET_TOKEN_HOURS     = 1;
+// A temporary-password session can only change the password (09 §3), so it is short-lived
+const PASSWORD_CHANGE_TOKEN_TTL = '30m';
 
 @Injectable()
 export class AuthService {
@@ -97,6 +97,22 @@ export class AuthService {
             throw new UnauthorizedException('Incorrect password');
         }
 
+        const { password: _, refreshToken: __, staff, ...safeUser } = user;
+
+        // Signed in with a temporary password: the only thing this session may do is change it.
+        // No permissions, no organisation, no refresh token.
+        if (user.mustChangePassword) {
+            const access_token = this.jwtService.sign(
+                { sub: user.id, type: user.type, passwordChangeRequired: true },
+                { secret: process.env.JWT_ACCESS_TOKEN_SECRET, expiresIn: PASSWORD_CHANGE_TOKEN_TTL },
+            );
+            await this.databaseService.client.user.update({
+                where: { id: user.id },
+                data:  { loginAttempts: 0, lastLogin: new Date(), refreshToken: null },
+            });
+            return { user: safeUser, mustChangePassword: true, access_token, refresh_token: null };
+        }
+
         // Union of all permission keys across every active DutyProfile assignment
         const activeAssignments = user.staff?.assignments.filter(a => !a.dutyProfile.deletedAt) ?? [];
         const permissions: string[] = [...new Set(
@@ -130,8 +146,6 @@ export class AuthService {
             },
         });
 
-        const { password: _, refreshToken: __, staff, ...safeUser } = user;
-
         const staffProfile = staff ? {
             role: staff.role,
             department: staff.department ? {
@@ -143,7 +157,7 @@ export class AuthService {
             permissions,
         } : null;
 
-        return { user: safeUser, staff: staffProfile, access_token, refresh_token };
+        return { user: safeUser, mustChangePassword: false, staff: staffProfile, access_token, refresh_token };
     }
 
     async changePassword(userId: string, dto: ChangePasswordDto) {
@@ -159,71 +173,15 @@ export class AuthService {
 
         await this.databaseService.client.$transaction([
             this.databaseService.client.passwordHistory.create({
-                data: { userId, password: user.password },
+                data: { userId, password: user.password, changedBy: userId, reason: $Enums.PasswordChangeReason.USER_CHANGE },
             }),
             this.databaseService.client.user.update({
                 where: { id: userId },
-                data: { password: newHash, refreshToken: null },
+                data: { password: newHash, refreshToken: null, mustChangePassword: false },
             }),
         ]);
 
         return { message: 'Password changed successfully. Please log in again.' };
-    }
-
-    async forgotPassword(dto: ForgotPasswordDto) {
-        const user = await this.databaseService.client.user.findUnique({
-            where: { email: dto.email, deletedAt: null },
-        });
-
-        // Always return 200 — no enumeration
-        if (!user) return { message: 'If that email exists, a reset token has been generated.' };
-
-        const token = crypto.randomBytes(32).toString('hex');
-        const expiry = new Date(Date.now() + RESET_TOKEN_HOURS * 60 * 60 * 1000);
-
-        await this.databaseService.client.personalAccessToken.upsert({
-            where: { userId_type: { userId: user.id, type: $Enums.TokenType.PASSWORDRESET } },
-            create: { userId: user.id, token, type: $Enums.TokenType.PASSWORDRESET, expiry },
-            update: { token, expiry, deletedAt: null },
-        });
-
-        return { token, expiresAt: expiry };
-    }
-
-    async resetPassword(dto: ResetPasswordDto) {
-        const record = await this.databaseService.client.personalAccessToken.findFirst({
-            where: {
-                token: dto.token,
-                type: $Enums.TokenType.PASSWORDRESET,
-                deletedAt: null,
-                expiry: { gt: new Date() },
-            },
-        });
-
-        if (!record) throw new BadRequestException('Reset token is invalid or has expired');
-
-        const user = await this.databaseService.client.user.findUnique({ where: { id: record.userId } });
-        if (!user) throw new NotFoundException('User not found');
-
-        await this.assertNotInHistory(user.id, dto.newPassword);
-
-        const newHash = await bcrypt.hash(dto.newPassword, 10);
-
-        await this.databaseService.client.$transaction([
-            this.databaseService.client.passwordHistory.create({
-                data: { userId: user.id, password: user.password },
-            }),
-            this.databaseService.client.user.update({
-                where: { id: user.id },
-                data: { password: newHash, loginAttempts: 0, refreshToken: null },
-            }),
-            this.databaseService.client.personalAccessToken.update({
-                where: { id: record.id },
-                data: { deletedAt: new Date() },
-            }),
-        ]);
-
-        return { message: 'Password reset successfully. Please log in.' };
     }
 
     private async assertNotInHistory(userId: string, plainPassword: string): Promise<void> {

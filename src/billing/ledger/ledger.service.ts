@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
-import { $Enums, Prisma } from '../../generated/prisma/client';
-import type { BillingAccount } from '../../generated/prisma/client';
+import { DatabaseService } from '../../database/database.service';
+import { $Enums, Prisma } from '../../../generated/prisma/client';
+import type { BillingAccount } from '../../../generated/prisma/client';
 
 type Decimal = Prisma.Decimal;
 export const toDecimal = (value: string | number | Prisma.Decimal) => new Prisma.Decimal(value);

@@ -3,25 +3,12 @@ import { DatabaseService } from '../database/database.service';
 import { withConstraintErrors } from '../database/prisma-errors';
 import { CreatePatientDto } from '@shared/contracts/patients';
 import { $Enums } from '../../generated/prisma/client';
-import { BillingAccountsService } from '../billing/billing-accounts.service';
-import { ChargesService } from '../billing/charges.service';
-import { LedgerService, toDecimal } from '../billing/ledger.service';
+import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
+import { ChargesService } from '../billing/charges/charges.service';
+import { LedgerService, toDecimal } from '../billing/ledger/ledger.service';
 import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
-
-function generatePassword(): string {
-    const upper  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const lower  = 'abcdefghijklmnopqrstuvwxyz';
-    const digits = '0123456789';
-    const syms   = '!@#$%^&*';
-    const all    = upper + lower + digits + syms;
-    const rand   = (set: string) => set[crypto.randomInt(set.length)];
-    const rest   = Array.from({ length: 6 }, () => rand(all)).join('');
-    return [rand(upper), rand(lower), rand(digits), rand(syms), ...rest]
-        .sort(() => Math.random() - 0.5)
-        .join('');
-}
+import { generateTemporaryPassword } from '../auth/temporary-password';
 
 const BILLING_ACCOUNT_SUMMARY = {
     where: { leftAt: null },
@@ -64,7 +51,7 @@ export class PatientsService {
         // Email is optional for patients — generate a stable internal placeholder if omitted
         const email = dto.email ?? `${uuidv4()}@patient.internal`;
 
-        const plainPassword = generatePassword();
+        const plainPassword = generateTemporaryPassword();
         const hashed        = await bcrypt.hash(plainPassword, 10);
 
         return this.databaseService.transaction(async () => {
@@ -76,6 +63,7 @@ export class PatientsService {
                     data: {
                         email,
                         password: hashed,
+                        mustChangePassword: true,   // a temporary password, shown once (09 §3)
                         firstName: dto.firstName,
                         middleName: dto.middleName,
                         lastName: dto.lastName,

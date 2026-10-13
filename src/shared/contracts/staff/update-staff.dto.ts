@@ -40,9 +40,4 @@ export class UpdateStaffDto {
     @IsUUID()
     @IsOptional()
     departmentId?: string;
-
-    @ApiProperty({ required: false })
-    @IsUUID()
-    @IsOptional()
-    updatedBy?: string;
 }

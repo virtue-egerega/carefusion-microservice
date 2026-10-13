@@ -1,10 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../database/database.service';
-import { withConstraintErrors } from '../database/prisma-errors';
-import { $Enums } from '../../generated/prisma/client';
-import type { BillingAccount } from '../../generated/prisma/client';
+import { DatabaseService } from '../../database/database.service';
+import { withConstraintErrors } from '../../database/prisma-errors';
+import { $Enums } from '../../../generated/prisma/client';
+import type { BillingAccount } from '../../../generated/prisma/client';
 import { CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
-import { LedgerService, toDecimal } from './ledger.service';
+import { LedgerService, toDecimal } from '../ledger/ledger.service';
 
 const ACCOUNT_SUMMARY = {
     id: true, accountNumber: true, accountType: true, name: true, status: true,

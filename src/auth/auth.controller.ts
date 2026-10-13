@@ -1,9 +1,9 @@
 import { Body, Controller, Post, Request, Res, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
-import { JwtAuthGuard } from './jwt.guard';
-import { LoginDto, ChangePasswordDto, ForgotPasswordDto, ResetPasswordDto } from '@shared/contracts/auth';
+import { AllowsPasswordChangeRequired, JwtAuthGuard } from './jwt.guard';
+import { LoginDto, ChangePasswordDto } from '@shared/contracts/auth';
 
 const REFRESH_COOKIE = 'refresh_token';
 const cookieOptions = {
@@ -19,30 +19,22 @@ const cookieOptions = {
 export class AuthController {
     constructor(private readonly authService: AuthService) {}
 
-    @ApiOperation({ summary: 'Staff login' })
+    @ApiOperation({
+        summary: 'Login. With a temporary password, returns mustChangePassword: true and a token that can only change the password',
+    })
     @Post('login')
     async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
         const { refresh_token, ...body } = await this.authService.login(dto);
-        res.cookie(REFRESH_COOKIE, refresh_token, cookieOptions);
+        if (refresh_token) res.cookie(REFRESH_COOKIE, refresh_token, cookieOptions);
         return body;
     }
 
-    @ApiOperation({ summary: 'Change password (requires Bearer token)' })
+    @ApiOperation({ summary: 'Change password (requires Bearer token; also completes a forced change)' })
+    @ApiBearerAuth()
     @UseGuards(JwtAuthGuard)
+    @AllowsPasswordChangeRequired()
     @Post('change-password')
     changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
         return this.authService.changePassword(req.user.sub, dto);
-    }
-
-    @ApiOperation({ summary: 'Request a password reset token' })
-    @Post('forgot-password')
-    forgotPassword(@Body() dto: ForgotPasswordDto) {
-        return this.authService.forgotPassword(dto);
-    }
-
-    @ApiOperation({ summary: 'Reset password using the token' })
-    @Post('reset-password')
-    resetPassword(@Body() dto: ResetPasswordDto) {
-        return this.authService.resetPassword(dto);
     }
 }

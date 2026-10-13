@@ -85,6 +85,7 @@ model User {
   type                  UserType
   status                UserStatus @default(ACTIVE)
   loginAttempts         Int       @default(0)
+  mustChangePassword    Boolean   @default(false) // set when an admin issues a temporary password (creation or reset)
   refreshToken          String?
   lastLogin             DateTime?
   createdAt             DateTime @default(now())
@@ -110,7 +111,9 @@ model User {
 model PasswordHistory{
   id          String @id @default(uuid())
   userId      String
-  password    String
+  password    String                         // the hash that was replaced
+  changedBy   String?                        // who set the new password: the admin (reset) or the user
+  reason      PasswordChangeReason?
   createdAt   DateTime @default(now())
   updatedAt   DateTime?
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -242,6 +245,7 @@ model HospitalStaff {
   hospitalId     String?
   role           HospitalStaffRole?
   createdAt      DateTime    @default(now())
+  createdBy      String?                       // admin who created the account (and issued its first password)
 
   department     Department?    @relation(fields: [departmentId], references: [id])
   hospital       Organization?  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
@@ -1136,4 +1140,9 @@ enum FinancialReason {
   SERVICE_NOT_RENDERED
   DEBT_RECOVERED
   OTHER
+}
+
+enum PasswordChangeReason {
+  ADMIN_RESET   // an admin issued a temporary password; the user must change it at next login
+  USER_CHANGE   // the user changed their own password
 }

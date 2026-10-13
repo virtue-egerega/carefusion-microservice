@@ -39,4 +39,9 @@ export class CreateStaffDto {
     @IsUUID()
     @IsOptional()
     departmentId?: string;
+
+    @ApiProperty({ description: "Duty profile to assign: it decides the staff member's permissions and queues" })
+    @IsUUID()
+    @IsNotEmpty()
+    dutyProfileId!: string;
 }

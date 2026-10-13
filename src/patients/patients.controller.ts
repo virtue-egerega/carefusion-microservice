@@ -4,7 +4,7 @@ import { PatientsService, UpdateMedicalDto, AddAddressDto, AddNextOfKinDto, Regi
 import { CreatePatientDto } from '@shared/contracts/patients';
 import { Authorize, CurrentUser, OrganizationId } from '../auth/auth.decorators';
 import type { AuthUser } from '../auth/permissions.guard';
-import { BillingAccountsService } from '../billing/billing-accounts.service';
+import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
 
 @ApiTags('patients')
 @Controller('patients')

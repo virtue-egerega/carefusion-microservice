@@ -5,6 +5,7 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'org.manage',          name: 'Manage Organisation',       description: 'Manage organisation settings' },
     { key: 'branch.manage',       name: 'Manage Branches',           description: 'Create and manage branches' },
     { key: 'staff.manage',        name: 'Manage Staff',              description: 'Create, edit and deactivate staff accounts' },
+    { key: 'staff.password.reset', name: 'Reset Staff Password',     description: 'Issue a temporary password the staff member must change at next login' },
     { key: 'department.manage',   name: 'Manage Departments',        description: 'Enable, disable and rename departments and queues' },
     { key: 'duty_profile.manage', name: 'Manage Duty Profiles',      description: 'Create and assign duty profiles' },
     { key: 'report.view',         name: 'View Reports',              description: 'View operational reports' },
@@ -55,7 +56,9 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
 
     // Coverage & payers
     { key: 'coverage.view',   name: 'View Coverage',          description: 'See a patient\'s coverages and remaining benefit' },
-    { key: 'coverage.manage', name: 'Manage Coverage',        description: 'Enrol principals and dependants, end coverage, select a visit\'s coverage' },
+    { key: 'coverage.select', name: 'Select Coverage',        description: 'Choose which coverage applies to a visit and set coverage priority' },
+    { key: 'coverage.enrol',  name: 'Enrol Coverage',         description: 'Enrol principals and add dependants to policies' },
+    { key: 'coverage.end',    name: 'End Coverage',           description: 'End a coverage (ending a principal ends the whole policy)' },
     { key: 'payer.manage',    name: 'Manage Payers & Plans',  description: 'Manage payers, plans, benefits, copay and caps' },
 
     // Insurance desk
@@ -78,6 +81,8 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
     // "receive payments" and "approve" must not share a key (PRD 10 §8); approval is granted separately
     'billing.approve': ['billing.payment.receive'],
     // Split so reception can open/join accounts while removals stay with Accounts
+    // Split so reception can pick a visit's coverage while enrolment and ending stay with the insurance desk
+    'coverage.manage': ['coverage.select', 'coverage.enrol', 'coverage.end'],
     'billing.account.manage': [
         'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
     ],
@@ -112,7 +117,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         departmentKey: 'ADMINISTRATION',
         queueKeys: [],
         permissions: [
-            'org.manage', 'branch.manage', 'staff.manage', 'department.manage', 'duty_profile.manage',
+            'org.manage', 'branch.manage', 'staff.manage', 'staff.password.reset', 'department.manage', 'duty_profile.manage',
             'report.view', 'metrics.view',
             'patient.view', 'patient.assign',
             'appointment.create', 'appointment.manage',
@@ -129,7 +134,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'queue.view', 'queue.manage',
             'appointment.create', 'appointment.manage',
             'encounter.create',
-            'billing.view', 'billing.account.create', 'billing.account.member.add', 'coverage.view', 'coverage.manage',
+            'billing.view', 'billing.account.create', 'billing.account.member.add', 'coverage.view', 'coverage.select',
         ],
     },
     {
@@ -144,7 +149,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         role: 'ACCOUNTANT',
         departmentKey: 'ACCOUNTS',
         queueKeys: ['INSURANCE_QUEUE'],
-        permissions: ['billing.view', 'coverage.view', 'coverage.manage', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request'],
+        permissions: ['billing.view', 'coverage.view', 'coverage.select', 'coverage.enrol', 'coverage.end', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request'],
     },
     {
         name: 'Billing Supervisor',
@@ -153,7 +158,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         queueKeys: ['CASHIER_QUEUE', 'INSURANCE_QUEUE', 'WRITE_OFF_QUEUE'],
         permissions: [...new Set([
             ...CASHIER_PERMISSIONS,
-            'coverage.manage', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request',
+            'coverage.select', 'coverage.enrol', 'coverage.end', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request',
             'billing.charge.create', 'billing.adjustment.request', 'billing.credit_limit.request',
             'finance.request.approve', 'finance.report.view',
         ])],

@@ -3,7 +3,7 @@ import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums } from '../../../generated/prisma/client';
 import { CreatePayerDto, CreatePlanDto, PlanBenefitDto, UpdatePayerDto, UpdatePlanDto } from '@shared/contracts/billing';
-import { BillingAccountsService } from '../billing-accounts.service';
+import { BillingAccountsService } from '../accounts/billing-accounts.service';
 
 const benefitRows = (benefits: PlanBenefitDto[]) => benefits.map(b => ({
     category:        b.category as $Enums.ServiceCategory,

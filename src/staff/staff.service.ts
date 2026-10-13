@@ -1,28 +1,17 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { withConstraintErrors } from '../database/prisma-errors';
 import { CreateStaffDto } from '@shared/contracts/staff/create-staff.dto';
 import { UpdateStaffDto } from '@shared/contracts/staff/update-staff.dto';
 import { $Enums } from '../../generated/prisma/client';
+import { generateTemporaryPassword } from '../auth/temporary-password';
 import * as bcrypt from 'bcrypt';
-import * as crypto from 'crypto';
-
-function generatePassword(): string {
-    const upper  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const lower  = 'abcdefghijklmnopqrstuvwxyz';
-    const digits = '0123456789';
-    const syms   = '!@#$%^&*';
-    const all    = upper + lower + digits + syms;
-    const rand   = (set: string) => set[crypto.randomInt(set.length)];
-    const rest   = Array.from({ length: 6 }, () => rand(all)).join('');
-    // guarantee at least one of each required class
-    return [rand(upper), rand(lower), rand(digits), rand(syms), ...rest].sort(() => Math.random() - 0.5).join('');
-}
 
 const STAFF_INCLUDE = {
     user: {
         select: {
             id: true, email: true, firstName: true, middleName: true, lastName: true,
-            phone: true, status: true, type: true, createdAt: true, updatedAt: true,
+            phone: true, status: true, type: true, mustChangePassword: true, createdAt: true, updatedAt: true,
         },
     },
     department: { select: { id: true, name: true, systemKey: true } },
@@ -41,74 +30,125 @@ const STAFF_INCLUDE = {
     },
 };
 
+/** Staff accounts, scoped to the admin's organisation (from the token). */
 @Injectable()
 export class StaffService {
     constructor(private readonly databaseService: DatabaseService) {}
 
-    async create(dto: CreateStaffDto) {
-        const existing = await this.databaseService.client.user.findUnique({ where: { email: dto.email } });
-        if (existing) throw new ConflictException('A user with this email already exists');
+    /**
+     * Creates the account with a temporary password, returned once in this response only.
+     * The new user must change it at first login (09 §3). `createdBy` records the admin, who is
+     * also who issued that first password.
+     */
+    async create(dto: CreateStaffDto, organizationId: string, createdBy: string) {
+        const profile = await this.databaseService.client.dutyProfile.findFirst({
+            where:  { id: dto.dutyProfileId, deletedAt: null },
+            select: { id: true },
+        });
+        if (!profile) throw new NotFoundException('Duty profile not found');
 
-        if (dto.departmentId) {
-            const dept = await this.databaseService.client.department.findUnique({ where: { id: dto.departmentId } });
-            if (!dept) throw new NotFoundException('Department not found');
-        }
+        const temporaryPassword = generateTemporaryPassword();
+        const hashed = await bcrypt.hash(temporaryPassword, 10);
 
-        const org = await this.databaseService.client.organization.findFirst();
-        if (!org) throw new NotFoundException('No organisation found');
+        const staff = await this.databaseService.transaction(async () => {
+            const client = this.databaseService.client;
 
-        const plainPassword = generatePassword();
-        const hashed = await bcrypt.hash(plainPassword, 10);
-
-        const staff = await this.databaseService.client.$transaction(async (prisma) => {
-            const user = await prisma.user.create({
-                data: {
-                    email: dto.email,
-                    password: hashed,
-                    firstName: dto.firstName,
-                    middleName: dto.middleName,
-                    lastName: dto.lastName,
-                    phone: dto.phone,
-                    type: $Enums.UserType.HOSPITAL_STAFF,
-                    status: $Enums.UserStatus.ACTIVE,
-                },
-            });
-
-            const created = await prisma.hospitalStaff.create({
-                data: {
-                    id: user.id,
-                    hospitalId: org.id,
-                    role: dto.role as $Enums.HospitalStaffRole,
-                    departmentId: dto.departmentId,
-                },
-            });
-
-            // Auto-assign the seeded duty profile that matches this role, if one exists
-            const matchingProfile = await prisma.dutyProfile.findFirst({
-                where: { role: dto.role as $Enums.HospitalStaffRole, deletedAt: null },
-                select: { id: true },
-            });
-
-            if (matchingProfile) {
-                await prisma.staffAssignment.create({
+            const user = await withConstraintErrors(
+                () => client.user.create({
                     data: {
-                        staffId: created.id,
-                        dutyProfileId: matchingProfile.id,
-                        assignedBy: created.id,
+                        email: dto.email,
+                        password: hashed,
+                        mustChangePassword: true,
+                        firstName: dto.firstName,
+                        middleName: dto.middleName,
+                        lastName: dto.lastName,
+                        phone: dto.phone,
+                        type: $Enums.UserType.HOSPITAL_STAFF,
+                        status: $Enums.UserStatus.ACTIVE,
                     },
-                });
-            }
+                }),
+                { conflict: 'A user with this email already exists' },
+            );
 
-            return prisma.hospitalStaff.findUnique({
+            const created = await withConstraintErrors(
+                () => client.hospitalStaff.create({
+                    data: {
+                        id: user.id,
+                        hospitalId: organizationId,
+                        role: dto.role as $Enums.HospitalStaffRole,
+                        departmentId: dto.departmentId,
+                        createdBy,
+                    },
+                }),
+                { notFound: 'Department not found' },
+            );
+
+            // The admin's chosen duty profile decides permissions and queues; the staff role is only a title
+            await client.staffAssignment.create({
+                data: {
+                    staffId: created.id,
+                    dutyProfileId: dto.dutyProfileId,
+                    assignedBy: createdBy,
+                },
+            });
+
+            return client.hospitalStaff.findUniqueOrThrow({
                 where: { id: created.id },
                 include: STAFF_INCLUDE,
             });
         });
 
-        return { ...staff, temporaryPassword: plainPassword };
+        return { ...staff, temporaryPassword };
     }
 
-    async findAll(limit = 20, offset = 0, search?: string) {
+    /**
+     * Admin password reset (09 §4): a new temporary password, returned once in this response only.
+     * The user must change it at next login, existing refresh sessions are revoked, and the reset is
+     * recorded in PasswordHistory with the admin who issued it.
+     */
+    async resetPassword(staffId: string, organizationId: string, resetBy: string) {
+        if (staffId === resetBy) {
+            throw new BadRequestException('Use change-password to change your own password');
+        }
+
+        const user = await this.databaseService.client.user.findFirst({
+            where:  { id: staffId, deletedAt: null, staff: { hospitalId: organizationId } },
+            select: { id: true, password: true },
+        });
+        if (!user) throw new NotFoundException('Staff member not found');
+
+        const temporaryPassword = generateTemporaryPassword();
+        const hashed = await bcrypt.hash(temporaryPassword, 10);
+
+        await this.databaseService.transaction(async () => {
+            const client = this.databaseService.client;
+            await client.passwordHistory.create({
+                data: {
+                    userId:    user.id,
+                    password:  user.password,
+                    changedBy: resetBy,
+                    reason:    $Enums.PasswordChangeReason.ADMIN_RESET,
+                },
+            });
+            await client.user.update({
+                where: { id: user.id },
+                data: {
+                    password:           hashed,
+                    mustChangePassword: true,
+                    refreshToken:       null,
+                    loginAttempts:      0,
+                    updatedBy:          resetBy,
+                },
+            });
+        });
+
+        return {
+            message: 'Temporary password issued. Hand it to the staff member; they must change it at next login.',
+            temporaryPassword,
+        };
+    }
+
+    async findAll(organizationId: string, limit = 20, offset = 0, search?: string) {
         const userWhere: any = { deletedAt: null, type: $Enums.UserType.HOSPITAL_STAFF };
 
         if (search) {
@@ -119,10 +159,11 @@ export class StaffService {
             ];
         }
 
+        const where = { hospitalId: organizationId, user: userWhere };
         const [count, docs] = await this.databaseService.client.$transaction([
-            this.databaseService.client.hospitalStaff.count({ where: { user: userWhere } }),
+            this.databaseService.client.hospitalStaff.count({ where }),
             this.databaseService.client.hospitalStaff.findMany({
-                where: { user: userWhere },
+                where,
                 take: limit,
                 skip: offset,
                 orderBy: { createdAt: 'desc' },
@@ -130,10 +171,11 @@ export class StaffService {
                     id: true,
                     role: true,
                     createdAt: true,
+                    createdBy: true,
                     user: {
                         select: {
                             id: true, email: true, firstName: true, middleName: true,
-                            lastName: true, phone: true, status: true,
+                            lastName: true, phone: true, status: true, mustChangePassword: true,
                         },
                     },
                     department: { select: { id: true, name: true, systemKey: true } },
@@ -145,34 +187,33 @@ export class StaffService {
         return { count, docs };
     }
 
-    async findOne(id: string) {
-        const staff = await this.databaseService.client.hospitalStaff.findUnique({
-            where: { id },
+    async findOne(id: string, organizationId: string) {
+        const staff = await this.databaseService.client.hospitalStaff.findFirst({
+            where: { id, hospitalId: organizationId },
             include: STAFF_INCLUDE,
         });
         if (!staff) throw new NotFoundException('Staff member not found');
         return staff;
     }
 
-    async update(id: string, dto: UpdateStaffDto) {
-        const staff = await this.databaseService.client.hospitalStaff.findUnique({ where: { id } });
+    async update(id: string, dto: UpdateStaffDto, organizationId: string, updatedBy: string) {
+        const staff = await this.databaseService.client.hospitalStaff.findFirst({ where: { id, hospitalId: organizationId } });
         if (!staff) throw new NotFoundException('Staff member not found');
 
-        const { role, departmentId, status, updatedBy, ...userFields } = dto;
+        const { role, departmentId, status, ...userFields } = dto;
 
-        return this.databaseService.client.$transaction(async (prisma) => {
-            if (Object.keys(userFields).length || status || updatedBy) {
-                await prisma.user.update({
-                    where: { id: staff.id },
-                    data: {
-                        ...userFields,
-                        ...(status && { status: status as $Enums.UserStatus }),
-                        updatedBy,
-                    },
-                });
-            }
+        return this.databaseService.transaction(async () => {
+            const client = this.databaseService.client;
+            await client.user.update({
+                where: { id: staff.id },
+                data: {
+                    ...userFields,
+                    ...(status && { status: status as $Enums.UserStatus }),
+                    updatedBy,
+                },
+            });
 
-            return prisma.hospitalStaff.update({
+            return client.hospitalStaff.update({
                 where: { id },
                 data: {
                     ...(role && { role: role as $Enums.HospitalStaffRole }),
@@ -183,14 +224,12 @@ export class StaffService {
         });
     }
 
-    async remove(id: string, deletedBy: string) {
-        const staff = await this.databaseService.client.hospitalStaff.findUnique({ where: { id } });
-        if (!staff) throw new NotFoundException('Staff member not found');
-
-        await this.databaseService.client.user.update({
-            where: { id: staff.id },
-            data: { deletedAt: new Date(), deletedBy, status: $Enums.UserStatus.DELETED },
+    async remove(id: string, organizationId: string, deletedBy: string) {
+        const { count } = await this.databaseService.client.user.updateMany({
+            where: { id, deletedAt: null, staff: { hospitalId: organizationId } },
+            data:  { deletedAt: new Date(), deletedBy, status: $Enums.UserStatus.DELETED, refreshToken: null },
         });
+        if (!count) throw new NotFoundException('Staff member not found');
 
         return { message: 'Staff member removed successfully' };
     }

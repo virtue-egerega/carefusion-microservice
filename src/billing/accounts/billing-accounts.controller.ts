@@ -1,7 +1,7 @@
 import { Body, Controller, DefaultValuePipe, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { Authorize, CurrentUser, OrganizationId } from '../auth/auth.decorators';
-import type { AuthUser } from '../auth/permissions.guard';
+import { Authorize, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
+import type { AuthUser } from '../../auth/permissions.guard';
 import { AddAccountMemberDto, CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
 import { BillingAccountType } from '@shared/enums/billing/billing.enums';
 import { BillingAccountsService } from './billing-accounts.service';
