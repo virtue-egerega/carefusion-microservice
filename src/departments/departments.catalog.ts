@@ -103,7 +103,12 @@ export const DEPARTMENT_CATALOG: DeptEntry[] = [
   {
     systemKey: 'ACCOUNTS',
     name: 'Accounts',
-    queues: defaultQueue('ACCOUNTS', 'Accounts'),
+    // PRD 10 §9
+    queues: [
+      { systemKey: 'CASHIER_QUEUE',   name: 'Cashier' },
+      { systemKey: 'INSURANCE_QUEUE', name: 'Insurance / HMO Desk' },
+      { systemKey: 'WRITE_OFF_QUEUE', name: 'Write-offs & Approvals' },
+    ],
   },
   {
     systemKey: 'HR',
@@ -122,6 +127,9 @@ const ACTIVE_KEYS: Record<string, string[]> = {
   LABORATORY: ['RECEPTION', 'LABORATORY', 'ACCOUNTS', 'ADMINISTRATION'],
   PHARMACY:   ['RECEPTION', 'PHARMACY', 'ACCOUNTS', 'ADMINISTRATION'],
 };
+
+// Queues replaced by a department's own PRD. Seeding soft-deletes them where they still exist.
+export const RETIRED_QUEUE_KEYS = ['ACCOUNTS_QUEUE'];
 
 export function getActiveKeys(businessType: string): Set<string> {
   return new Set(ACTIVE_KEYS[businessType] ?? ACTIVE_KEYS['HOSPITAL']);

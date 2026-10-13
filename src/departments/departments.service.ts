@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { DEPARTMENT_CATALOG, getActiveKeys } from './departments.catalog';
+import { DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from './departments.catalog';
 
 export type UpdateDepartmentDto = { name?: string; isActive?: boolean; updatedBy?: string };
 export type UpdateQueueDto     = { name?: string; isActive?: boolean; updatedBy?: string };
@@ -34,6 +34,11 @@ export class DepartmentsService {
                 });
             }
         }
+
+        await prisma.queue.updateMany({
+            where: { systemKey: { in: RETIRED_QUEUE_KEYS }, deletedAt: null },
+            data:  { isActive: false, deletedAt: new Date() },
+        });
     }
 
     async findAll() {

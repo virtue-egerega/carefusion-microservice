@@ -2,8 +2,12 @@ import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   UserType, UserStatus, HospitalStaffRole, Gender, MaritalStatus,
-  BLOOD_GROUP, GENOTYPE, BillingType, TransactionMode, PublicHealthRole, NHISRole,
+  BLOOD_GROUP, GENOTYPE, PublicHealthRole, NHISRole,
 } from '@shared/enums/users/user.enums';
+import {
+  AccountStatus, BillingAccountType, MemberType, OverLimitAction, PayerType, PaymentMode, PaymentStatus,
+  PolicyStatus, ServiceCategory, SettlementMode,
+} from '@shared/enums/billing/billing.enums';
 import { PaymentPlan, BusinessType, OrgType } from '@shared/enums/organizations/organization.enums';
 import { NotificationType } from '@shared/contracts/notifications/create-notification.dto';
 
@@ -29,8 +33,6 @@ export class EnumsController {
         maritalStatus: toOptions(MaritalStatus),
         bloodGroup: toOptions(BLOOD_GROUP),
         genotype: toOptions(GENOTYPE),
-        billingType: toOptions(BillingType),
-        transactionMode: toOptions(TransactionMode),
         publicHealthRole: toOptions(PublicHealthRole),
         nhisRole: toOptions(NHISRole),
       },
@@ -38,6 +40,18 @@ export class EnumsController {
         paymentPlan: toOptions(PaymentPlan),
         businessType: toOptions(BusinessType),
         orgType: toOptions(OrgType),
+      },
+      billing: {
+        billingAccountType: toOptions(BillingAccountType),
+        accountStatus: toOptions(AccountStatus),
+        paymentMode: toOptions(PaymentMode),
+        paymentStatus: toOptions(PaymentStatus),
+        serviceCategory: toOptions(ServiceCategory),
+        payerType: toOptions(PayerType),
+        settlementMode: toOptions(SettlementMode),
+        overLimitAction: toOptions(OverLimitAction),
+        memberType: toOptions(MemberType),
+        policyStatus: toOptions(PolicyStatus),
       },
       notifications: {
         notificationType: toOptions(NotificationType),

@@ -86,7 +86,6 @@ function mockUserRecord() {
         refreshToken: null,
         lastLogin: null,
         roleId: null,
-        balance: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
         updatedBy: null, deletedAt: null, deletedBy: null,

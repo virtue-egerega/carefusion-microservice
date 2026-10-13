@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PERMISSION_CATALOG, ADMIN_DUTY_PROFILE_PERMISSIONS, RECEPTIONIST_DUTY_PROFILE_PERMISSIONS } from './permissions.catalog';
+import { PERMISSION_CATALOG, RETIRED_PERMISSIONS, SYSTEM_DUTY_PROFILES } from './permissions.catalog';
 
 @Injectable()
 export class AccessControlService {
@@ -28,7 +28,7 @@ export class AccessControlService {
         return { count, docs: groups };
     }
 
-    // Seeds permissions + duty profile catalog. No user dependency — safe to run anytime.
+    // Seeds permissions + system duty profiles. No user dependency — safe to run anytime.
     async seedCatalog(prisma: any): Promise<void> {
         // 1. Upsert all platform permissions
         for (const perm of PERMISSION_CATALOG) {
@@ -39,52 +39,71 @@ export class AccessControlService {
             });
         }
 
-        // 2. Hospital Administrator DutyProfile (SUPERADMIN, ADMINISTRATION dept, global — no queues)
-        const adminDept = await prisma.department.findUnique({ where: { systemKey: 'ADMINISTRATION' } });
-        const adminProfile = await prisma.dutyProfile.upsert({
-            where:  { name: 'Hospital Administrator' },
-            create: { name: 'Hospital Administrator', role: 'SUPERADMIN', departmentId: adminDept?.id ?? null },
-            update: {},
-        });
-        const adminPerms = await prisma.permission.findMany({
-            where: { key: { in: [...ADMIN_DUTY_PROFILE_PERMISSIONS] } },
-            select: { id: true },
-        });
-        for (const perm of adminPerms) {
-            await prisma.dutyProfilePermission.upsert({
-                where:  { dutyProfileId_permissionId: { dutyProfileId: adminProfile.id, permissionId: perm.id } },
-                create: { dutyProfileId: adminProfile.id, permissionId: perm.id },
+        // 2. System duty profiles, their permissions and queues
+        for (const def of SYSTEM_DUTY_PROFILES) {
+            const dept = await prisma.department.findUnique({ where: { systemKey: def.departmentKey } });
+            const profile = await prisma.dutyProfile.upsert({
+                where:  { name: def.name },
+                create: { name: def.name, role: def.role, departmentId: dept?.id ?? null },
                 update: {},
             });
+
+            const perms = await prisma.permission.findMany({
+                where: { key: { in: def.permissions } },
+                select: { id: true },
+            });
+            for (const perm of perms) {
+                await prisma.dutyProfilePermission.upsert({
+                    where:  { dutyProfileId_permissionId: { dutyProfileId: profile.id, permissionId: perm.id } },
+                    create: { dutyProfileId: profile.id, permissionId: perm.id },
+                    update: {},
+                });
+            }
+
+            const queues = await prisma.queue.findMany({
+                where: { systemKey: { in: def.queueKeys } },
+                select: { id: true },
+            });
+            for (const queue of queues) {
+                await prisma.dutyProfileQueue.upsert({
+                    where:  { dutyProfileId_queueId: { dutyProfileId: profile.id, queueId: queue.id } },
+                    create: { dutyProfileId: profile.id, queueId: queue.id },
+                    update: {},
+                });
+            }
         }
 
-        // 3. Receptionist DutyProfile (RECEPTION dept, RECEPTION_QUEUE)
-        const receptionDept  = await prisma.department.findUnique({ where: { systemKey: 'RECEPTION' } });
-        const receptionQueue = receptionDept
-            ? await prisma.queue.findUnique({ where: { systemKey: 'RECEPTION_QUEUE' } })
-            : null;
-        const receptionistProfile = await prisma.dutyProfile.upsert({
-            where:  { name: 'Receptionist' },
-            create: { name: 'Receptionist', role: 'RECEPTIONIST', departmentId: receptionDept?.id ?? null },
-            update: {},
-        });
-        const receptionistPerms = await prisma.permission.findMany({
-            where: { key: { in: [...RECEPTIONIST_DUTY_PROFILE_PERMISSIONS] } },
-            select: { id: true },
-        });
-        for (const perm of receptionistPerms) {
-            await prisma.dutyProfilePermission.upsert({
-                where:  { dutyProfileId_permissionId: { dutyProfileId: receptionistProfile.id, permissionId: perm.id } },
-                create: { dutyProfileId: receptionistProfile.id, permissionId: perm.id },
-                update: {},
+        // 3. Retired permissions: carry holders over to the replacement keys, then remove
+        await this.retirePermissions(prisma);
+    }
+
+    private async retirePermissions(prisma: any): Promise<void> {
+        const systemNames = SYSTEM_DUTY_PROFILES.map(p => p.name);
+
+        for (const [oldKey, replacements] of Object.entries(RETIRED_PERMISSIONS)) {
+            const old = await prisma.permission.findUnique({ where: { key: oldKey } });
+            if (!old) continue;
+
+            const holders = await prisma.dutyProfilePermission.findMany({
+                where:  { permissionId: old.id, dutyProfile: { name: { notIn: systemNames } } },
+                select: { dutyProfileId: true },
             });
-        }
-        if (receptionQueue) {
-            await prisma.dutyProfileQueue.upsert({
-                where:  { dutyProfileId_queueId: { dutyProfileId: receptionistProfile.id, queueId: receptionQueue.id } },
-                create: { dutyProfileId: receptionistProfile.id, queueId: receptionQueue.id },
-                update: {},
+            const newPerms = await prisma.permission.findMany({
+                where:  { key: { in: replacements } },
+                select: { id: true },
             });
+            for (const { dutyProfileId } of holders) {
+                for (const perm of newPerms) {
+                    await prisma.dutyProfilePermission.upsert({
+                        where:  { dutyProfileId_permissionId: { dutyProfileId, permissionId: perm.id } },
+                        create: { dutyProfileId, permissionId: perm.id },
+                        update: {},
+                    });
+                }
+            }
+
+            // Cascades the old DutyProfilePermission rows
+            await prisma.permission.delete({ where: { id: old.id } });
         }
     }
 

@@ -6,9 +6,9 @@ Depends on: `02-hospital-onboarding.md` (`Branch`), `05-access-control-clinical-
 Referenced by: `07-appointment-management.md`, `08-electronic-medical-records.md`,
 `03-federation-patient-sharing.md` (inbound shares match/create a `Patient` here).
 
-Scope note: insurance is deliberately absent from this document — it lands with the Billing
-feature. Patient Timeline (§6) is specified only as a thin, growing read view; it has no data of
-its own to design around until Appointment/EMR/Admission exist.
+Scope note: insurance, corporate cover and billing accounts are absent from this document — see
+`10-billing-accounts-and-coverage.md`. Patient Timeline (§6) is specified only as a thin,
+growing read view; it has no data of its own to design around until Appointment/EMR/Admission exist.
 
 ## 1. What Problem This Solves
 
@@ -260,53 +260,12 @@ their behalf — reusing this model rather than building a separate consent-auth
 Capturing the consent itself (signature, OTP, verbal-logged) is not designed here; only
 *identifying* who's authorized to give it.
 
-### 2.6 `PatientAccount` (the "Family Card" — shared billing/tracking group)
+### 2.6 Billing account membership
 
-```prisma
-model PatientAccount {
-  id          String   @id @default(uuid())
-  cardNumber  String   @unique              // the physical/printed family-card number
-  accountType AccountType
-  name        String                        // e.g. "The Okafor Family", "Acme Corp Staff"
-  status      AccountStatus @default(ACTIVE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  members     PatientAccountMember[]
-}
-
-enum AccountType {
-  FAMILY
-  ORGANIZATION
-}
-
-enum AccountStatus {
-  ACTIVE
-  INACTIVE
-}
-
-model PatientAccountMember {
-  id        String   @id @default(uuid())
-  accountId String
-  patientId String
-  joinedAt  DateTime @default(now())
-
-  account   PatientAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  patient   Patient        @relation(fields: [patientId], references: [id])
-
-  @@unique([accountId, patientId])
-}
-```
-
-A patient belongs to at most one `PatientAccount` at a time — one physical card. `accountType`
-covers both a biological/marital family and a company registering its staff under one account:
-same structure, different reason for being grouped. This is a **grouping** concept, separate from
-`PatientRelationship` — being on the same family card doesn't require a recorded PARENT/CHILD/
-SPOUSE relationship between members (a company's staff account has none at all), and a formally
-recorded guardian relationship doesn't require both people to share a billing account either.
-This document defines only the grouping structure: which patients belong to which account. Shared
-billing balances, invoicing against the account, and insurance policies that cover an entire
-account are the Billing feature's job, not designed here.
+Moved to `10-billing-accounts-and-coverage.md`. The earlier `PatientAccount` ("Family Card")
+grouping is now `BillingAccount` (`10` §3): every patient belongs to exactly one, either their own
+`INDIVIDUAL` account or a shared `FAMILY` one. Employers covering their staff are not accounts
+there; they're `CORPORATE` payers with plans and caps (`10` §4).
 
 ## 3. Identification & Duplicate Prevention
 
@@ -340,8 +299,8 @@ search for. A baby born in the hospital gets a minimal `Patient` created immedia
 name (e.g. "Baby of `<mother's name>`"), `dateOfBirth` set to the time of birth, `sex` required,
 `nationalId`/`phone`/`email` left null. The record is linked to the mother via
 `PatientRelationship(relationshipType=CHILD, relatedPatientId=<mother>)` (and the reciprocal
-`PARENT` row), and is typically added as a `PatientAccountMember` to the mother's existing
-`PatientAccount`, if she has one. The name and any identifiers are filled in later as an update to
+`PARENT` row), and is added to the mother's `BillingAccount`, with a `CHILD` coverage on her policy offered if
+she has one (`10` §11). The name and any identifiers are filled in later as an update to
 this same record — not a new registration once they're known.
 
 ## 5. Cross-Branch Sharing
@@ -374,8 +333,6 @@ across tables that don't all exist yet.
 | `/api/v1/patients/:id/disabilities` | POST / GET | clinical staff | Manage `PatientDisability` rows |
 | `/api/v1/patients/:id/profile` | GET / PATCH | clinical staff | Read/update `PatientProfile` |
 | `/api/v1/patients/:id/relationships` | POST / GET | reception/clinical staff | Link/list `PatientRelationship` rows |
-| `/api/v1/patient-accounts` | POST / GET | reception/billing staff | Create/list `PatientAccount` ("Family Card") rows |
-| `/api/v1/patient-accounts/:id/members` | POST / GET / DELETE | reception/billing staff | Add/list/remove `PatientAccountMember` rows |
 | `/api/v1/patients/:id/timeline` | GET | staff with visibility | §6 aggregation |
 
 ## 8. Why / Where / Why Not
@@ -405,17 +362,13 @@ across tables that don't all exist yet.
   link (for consent authority, for pulling a relative's actual history) only makes sense when the
   other person genuinely is a patient in this system. Conflating the two would force every contact
   to either be a full patient record or lose the structured lookup capability.
-- **Why `PatientAccount` is a separate model from `PatientRelationship`** — a billing/tracking
-  group and a clinical/consent relationship answer different questions and don't always coincide
-  (a company's staff account has no family relationships between members; a formally-recorded
-  guardian doesn't necessarily share a bill with their ward). Merging them would mean an org's
-  staff-account members show up as "family," or a billing group can't exist without inventing
-  fictitious relationship types.
+- **Why billing accounts are a separate model from `PatientRelationship`.** A billing group and a
+  clinical/consent relationship answer different questions and don't always coincide (a
+  formally-recorded guardian doesn't necessarily share a bill with their ward). See `10`.
 
 ## 9. Explicitly Out of Scope for v1
 
-- **Insurance, and all billing/invoicing mechanics for `PatientAccount`** — deliberately excluded;
-  land with the Billing feature. This document only defines who's grouped under which account.
+- **Insurance, corporate cover, and billing accounts** — see `10-billing-accounts-and-coverage.md`.
 - **Formal consent-capture workflow** (signature, OTP, verbal-logged) — `PatientRelationship.
   isPrimaryGuardian` only identifies *who* is authorized to consent; capturing an actual consent
   event is a different feature's job (the same shape of problem `03`'s `PatientShare.consentMethod`

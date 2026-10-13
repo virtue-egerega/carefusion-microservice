@@ -4,7 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
-import { UsersModule } from './users/users.module';
+import { PatientsModule } from './patients/patients.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppointmentsModule } from './appointments/appointments.module';
@@ -23,7 +23,7 @@ import { StaffModule } from './staff/staff.module';
         ConfigModule.forRoot({ isGlobal: true }),
         DatabaseModule,
         CloudinaryModule,
-        UsersModule,
+        PatientsModule,
         OrganizationsModule,
         NotificationsModule,
         AppointmentsModule,

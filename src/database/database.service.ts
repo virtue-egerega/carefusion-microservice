@@ -26,6 +26,15 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
     get client(): PrismaInstance {
         return (this.als.getStore()?.tx ?? this._prisma) as PrismaInstance;
     }
+
+    /**
+     * Runs fn in a transaction that every service call inside it shares via `client`.
+     * Nested calls join the outer transaction instead of opening a new one.
+     */
+    async transaction<T>(fn: () => Promise<T>): Promise<T> {
+        if (this.als.getStore()) return fn();
+        return this._prisma.$transaction(tx => this.als.run({ tx }, fn));
+    }
     async onModuleInit() {
         await this._prisma.$connect();
     }

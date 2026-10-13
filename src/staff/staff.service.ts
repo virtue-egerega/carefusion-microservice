@@ -58,7 +58,6 @@ export class StaffService {
         if (!org) throw new NotFoundException('No organisation found');
 
         const plainPassword = generatePassword();
-        console.log({plainPassword})
         const hashed = await bcrypt.hash(plainPassword, 10);
 
         const staff = await this.databaseService.client.$transaction(async (prisma) => {

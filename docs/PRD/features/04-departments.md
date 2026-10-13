@@ -153,6 +153,7 @@ operational stations only, not every visit type or sub-reason a patient might ha
 | Laboratory | Sample Collection, Hematology, Chemistry, Result Verification |
 | Radiology | X-Ray, Ultrasound, CT Scan |
 | Pharmacy | Dispensing |
+| Accounts | Cashier, Insurance / HMO Desk, Write-offs & Approvals (`10-billing-accounts-and-coverage.md` §9) |
 | *(others)* | One default queue matching the department name, until that department's own clinical-flow PRD refines it |
 
 Outpatient seeds a single queue, not one per visit reason — General Consultation, Follow-up, and

@@ -97,7 +97,20 @@ export class AuthService {
             throw new UnauthorizedException('Incorrect password');
         }
 
-        const tokenPayload = { sub: user.id, type: user.type };
+        // Union of all permission keys across every active DutyProfile assignment
+        const activeAssignments = user.staff?.assignments.filter(a => !a.dutyProfile.deletedAt) ?? [];
+        const permissions: string[] = [...new Set(
+            activeAssignments.flatMap(a => a.dutyProfile.permissions.map(p => p.permission.key)),
+        )];
+
+        // Request context carried in the token so handlers don't re-query it (see AuthUser)
+        const tokenPayload = {
+            sub: user.id,
+            type: user.type,
+            organizationId: user.staff?.hospitalId ?? null,
+            permissions,
+            dutyProfileIds: activeAssignments.map(a => a.dutyProfileId),
+        };
 
         const access_token = this.jwtService.sign(tokenPayload, {
             secret: process.env.JWT_ACCESS_TOKEN_SECRET,
@@ -118,15 +131,6 @@ export class AuthService {
         });
 
         const { password: _, refreshToken: __, staff, ...safeUser } = user;
-
-        // Union of all permission keys across every active DutyProfile assignment
-        const permissions: string[] = staff
-            ? [...new Set(
-                staff.assignments.flatMap(a =>
-                    a.dutyProfile.permissions.map(p => p.permission.key)
-                )
-              )]
-            : [];
 
         const staffProfile = staff ? {
             role: staff.role,

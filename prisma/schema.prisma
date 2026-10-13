@@ -41,6 +41,10 @@ model Organization {
   branches               Branch[]
   staffs                 HospitalStaff[]
   patients               Patient[]
+  billingAccounts        BillingAccount[]
+  payers                 Payer[]
+  financialRequests      FinancialRequest[]
+  approvalPolicies       ApprovalPolicy[]
 
 }
 
@@ -64,30 +68,11 @@ model Branch {
   deletedBy      String?
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  charges        Charge[]
+  accountEntries AccountEntry[]
 
   @@index([organizationId])
 }
-
-model InsuranceScheme {
-  id                    String   @id @default(uuid()) // Unique ID for the insurance scheme
-  name                  String   // Name of the insurance scheme (e.g., "ABC Health Insurance")
-  description           String?  // A description of the insurance scheme (optional)
-  address               String?  // Address of the insurance provider
-  phone                 String[] // Contact numbers for the scheme
-  email                 String   // Email for communication with the scheme
-  website               String?  // Website for the insurance scheme
-  registrationFee       Decimal  @default(0.00) // Registration fee for users
-  createdAt             DateTime @default(now()) // Timestamp for when the scheme was created
-  updatedAt             DateTime @updatedAt // Timestamp for when the scheme was last updated
-
-  // Relating users (staff members) who work for this insurance scheme
-  staffs                NHISWorker[]   // Relation to the User model (staff members)
-  patients              Patient[]
-}
-
-
-
-
 
 model User {
   id                    String   @id @default(uuid())
@@ -107,42 +92,20 @@ model User {
   updatedBy             String?         // userId of the user who updated this role
   deletedAt             DateTime?       // soft delete
   deletedBy             String?         // userId of the user who updated this role
-  balance               Decimal @default(0.00) // for patients, this is the amount they have paid
 
   personalAccessTokens  PersonalAccessToken[]
   passwordHistory       PasswordHistory[]
   address              Address[]
-  transaction           Transaction[]
 
   staff                 HospitalStaff?
   patient               Patient?
   nhisWorker            NHISWorker?
   publicHealthWorker    PublicHealthWorker?
 
-  @@index([id, balance], name: "patient_balance_index")
   @@index([email, lastName], name: "email_lastname_index")
   @@index([phone, lastName], name: "phone_lastname_index")
 }
 
-model Transaction {
-  id              String    @id @default(uuid())
-  userId          String
-  amount          Decimal
-  type            TransactionType
-  status          TransactionStatus
-  description     String?
-  reference       String?
-  modeOfPayment   TransactionMode// e.g. "Payment for service", "Refund", "Transfer"
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  updatedBy       String?
-  deletedAt       DateTime?
-  deletedBy       String?
-
-  // relations
-  user            User     @relation(fields: [id], references: [id], onDelete: Cascade )
-
-}
 
 model PasswordHistory{
   id          String @id @default(uuid())
@@ -196,6 +159,7 @@ model DutyProfile {
   queues      DutyProfileQueue[]
   permissions DutyProfilePermission[]
   assignments StaffAssignment[]
+  approvalLimits ApprovalLimit[]
 }
 
 model DutyProfileQueue {
@@ -325,15 +289,18 @@ model Patient {
   emergencyContactId    String?
   emergencyContact       NextOfKin[]
   hospitalId             String  @map("hospital_id")
-  insuranceSchemeId      String?
-  billingtype            BillingType @default(SELF_PAYING) // e.g. "Insurance", "Self-paying", "Staff Insurance"
 
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
   user                      User    @relation(fields: [id], references: [id], onDelete: Cascade)
   hospital                  Organization    @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
-  insuranceScheme           InsuranceScheme? @relation(fields: [insuranceSchemeId], references: [id])
+
+  heldBillingAccounts       BillingAccount[]       @relation("AccountHolder")
+  billingMemberships        BillingAccountMember[]
+  principalPolicies         Policy[]               @relation("PolicyPrincipal")
+  coverages                 Coverage[]
+  charges                   Charge[]
 
 }
 
@@ -365,9 +332,9 @@ model NHISWorker {
   id                    String   @id @default(uuid()) @map("user_id")
   user                  User     @relation(fields: [id], references: [id], onDelete: Cascade)
   role                  NHISRole?
-  insuranceSchemeId      String
+  payerId               String
 
-  insuranceScheme       InsuranceScheme? @relation(fields: [insuranceSchemeId], references: [id])
+  payer                 Payer    @relation(fields: [payerId], references: [id])
 
 }
 
@@ -445,6 +412,400 @@ model Appointment {
   @@index([doctorId])
 }
 
+
+// ============ BILLING (PRD 10) ============
+// Money is Decimal(14,2); percentages are Decimal(5,2). Constraints Prisma can't express
+// (partial unique indexes, CHECKs) live in the migration SQL — see 20261013*_billing_core.
+
+// ------------ Accounts & ledger (§3) ------------
+
+model BillingAccount {
+  id              String             @id @default(uuid())
+  organizationId  String
+  accountNumber   String             @unique
+  accountType     BillingAccountType
+  name            String
+  holderPatientId String?
+  holderName      String?
+  holderPhone     String[]
+  payerId         String?            @unique
+  balance         Decimal            @default(0.00) @db.Decimal(14, 2) // credits − debits; negative = owed
+  unappliedCredit Decimal            @default(0.00) @db.Decimal(14, 2)
+  creditLimit     Decimal            @default(0.00) @db.Decimal(14, 2)
+  status          AccountStatus      @default(ACTIVE)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  updatedBy       String?
+
+  organization    Organization       @relation(fields: [organizationId], references: [id])
+  holder          Patient?           @relation("AccountHolder", fields: [holderPatientId], references: [id])
+  payer           Payer?             @relation(fields: [payerId], references: [id])
+  members         BillingAccountMember[]
+  entries         AccountEntry[]
+  charges         Charge[]
+  allocations     ChargeAllocation[]
+  requests        FinancialRequest[]
+
+  @@index([organizationId, accountType, status])
+}
+
+model BillingAccountMember {
+  id        String    @id @default(uuid())
+  accountId String
+  patientId String
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime? // null = current member; one current membership per patient (partial unique index)
+  createdBy String
+
+  account   BillingAccount @relation(fields: [accountId], references: [id])
+  patient   Patient        @relation(fields: [patientId], references: [id])
+
+  @@index([patientId, leftAt])
+  @@index([accountId, leftAt])
+}
+
+model AccountEntry {
+  id            String           @id @default(uuid())
+  accountId     String
+  patientId     String?
+  entryType     AccountEntryType
+  amount        Decimal          @db.Decimal(14, 2) // signed: + credit, − debit
+  balanceAfter  Decimal          @db.Decimal(14, 2)
+  appliedAmount Decimal          @default(0) @db.Decimal(14, 2) // credits only: how much has paid allocations
+  allocationId  String?
+  requestId     String?          // required for WRITE_OFF/REFUND/TRANSFER_*/ADJUSTMENT (CHECK constraint)
+  reversesId    String?          @unique
+  modeOfPayment PaymentMode?
+  reference     String?
+  description   String
+  branchId      String
+  createdAt     DateTime         @default(now())
+  createdBy     String
+
+  account       BillingAccount    @relation(fields: [accountId], references: [id])
+  branch        Branch            @relation(fields: [branchId], references: [id])
+  allocation    ChargeAllocation? @relation(fields: [allocationId], references: [id])
+  request       FinancialRequest? @relation(fields: [requestId], references: [id])
+  reverses      AccountEntry?     @relation("EntryReversal", fields: [reversesId], references: [id])
+  reversedBy    AccountEntry?     @relation("EntryReversal")
+  applications  PaymentApplication[]
+
+  @@index([accountId, createdAt])
+  @@index([patientId, createdAt])
+  @@index([allocationId])
+  @@index([branchId])
+}
+
+// ------------ Coverage (§4) ------------
+
+model Payer {
+  id              String         @id @default(uuid())
+  organizationId  String
+  name            String
+  payerType       PayerType
+  settlementMode  SettlementMode
+  contactName     String?
+  phone           String[]
+  email           String?
+  address         String?
+  paymentTermDays Int?
+  status          AccountStatus  @default(ACTIVE)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  updatedBy       String?
+
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+  account         BillingAccount?
+  plans           Plan[]
+  nhisWorkers     NHISWorker[]
+
+  @@unique([organizationId, name])
+}
+
+model Plan {
+  id                   String          @id @default(uuid())
+  payerId              String
+  name                 String
+  copayPercent         Decimal         @default(0) @db.Decimal(5, 2) // PATIENT's share
+  annualLimitPerMember Decimal?        @db.Decimal(14, 2)
+  annualLimitPerPolicy Decimal?        @db.Decimal(14, 2)
+  overLimitAction      OverLimitAction @default(BILL_TO_ACCOUNT)
+  maxSpouses           Int             @default(0)
+  maxChildren          Int             @default(0)
+  childMaxAge          Int?
+  allowOtherDependants Boolean         @default(false)
+  status               AccountStatus   @default(ACTIVE)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  updatedBy            String?
+
+  payer                Payer           @relation(fields: [payerId], references: [id])
+  benefits             PlanBenefit[]
+  policies             Policy[]
+
+  @@unique([payerId, name])
+}
+
+model PlanBenefit {
+  id              String          @id @default(uuid())
+  planId          String
+  category        ServiceCategory
+  covered         Boolean         @default(true)
+  copayPercent    Decimal?        @db.Decimal(5, 2) // overrides Plan.copayPercent
+  annualLimit     Decimal?        @db.Decimal(14, 2)
+  requiresPreAuth Boolean         @default(false)
+
+  plan            Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, category])
+}
+
+model Policy {
+  id                 String       @id @default(uuid())
+  planId             String
+  policyNumber       String
+  principalPatientId String
+  validFrom          DateTime
+  validTo            DateTime?
+  status             PolicyStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  updatedBy          String?
+
+  plan               Plan         @relation(fields: [planId], references: [id])
+  principal          Patient      @relation("PolicyPrincipal", fields: [principalPatientId], references: [id])
+  coverages          Coverage[]
+
+  @@unique([planId, policyNumber])
+  @@index([principalPatientId])
+}
+
+model Coverage {
+  id           String       @id @default(uuid())
+  policyId     String
+  patientId    String
+  memberType   MemberType   // one PRINCIPAL per policy (partial unique index)
+  memberNumber String?
+  priority     Int          @default(1)
+  validFrom    DateTime
+  validTo      DateTime?
+  status       PolicyStatus @default(ACTIVE)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  createdBy    String
+
+  policy       Policy       @relation(fields: [policyId], references: [id])
+  patient      Patient      @relation(fields: [patientId], references: [id])
+  charges      Charge[]
+  allocations  ChargeAllocation[]
+
+  @@unique([policyId, patientId])
+  @@index([patientId, status])
+}
+
+// ------------ Charges & allocation (§5, §6) ------------
+
+model Charge {
+  id               String          @id @default(uuid())
+  patientId        String
+  branchId         String
+  appointmentId    String?
+  billingAccountId String          // patient's account at posting time (snapshot)
+  coverageId       String?
+  category         ServiceCategory
+  description      String
+  quantity         Int             @default(1)
+  unitPrice        Decimal         @db.Decimal(14, 2)
+  amount           Decimal         @db.Decimal(14, 2)
+  sourceType       String
+  sourceId         String
+  status           ChargeStatus    @default(POSTED)
+  createdAt        DateTime        @default(now())
+  createdBy        String
+
+  patient          Patient         @relation(fields: [patientId], references: [id])
+  branch           Branch          @relation(fields: [branchId], references: [id])
+  billingAccount   BillingAccount  @relation(fields: [billingAccountId], references: [id])
+  coverage         Coverage?       @relation(fields: [coverageId], references: [id])
+  allocations      ChargeAllocation[]
+  requests         FinancialRequest[]
+
+  @@index([patientId, createdAt])
+  @@index([billingAccountId, createdAt])
+  @@index([sourceType, sourceId])
+  @@index([appointmentId])
+}
+
+model ChargeAllocation {
+  id                String           @id @default(uuid())
+  chargeId          String
+  responsibleType   ResponsibleType
+  billingAccountId  String?
+  coverageId        String?
+  basis             AllocationBasis
+  amount            Decimal          @db.Decimal(14, 2)
+  state             AllocationState  @default(ACTIVE)
+  replacesId        String?
+  requestId         String?
+
+  reviewStatus      ReviewStatus?
+  authorizationCode String?
+  reviewedAt        DateTime?
+  reviewedBy        String?
+  rejectionReason   String?
+
+  paidAmount        Decimal          @default(0) @db.Decimal(14, 2)
+  paymentStatus     PaymentStatus
+
+  createdAt         DateTime         @default(now())
+  createdBy         String
+
+  charge            Charge            @relation(fields: [chargeId], references: [id])
+  billingAccount    BillingAccount?   @relation(fields: [billingAccountId], references: [id])
+  coverage          Coverage?         @relation(fields: [coverageId], references: [id])
+  replaces          ChargeAllocation? @relation("AllocationLineage", fields: [replacesId], references: [id])
+  replacedBy        ChargeAllocation[] @relation("AllocationLineage")
+  request           FinancialRequest? @relation(fields: [requestId], references: [id])
+  entries           AccountEntry[]
+  applications      PaymentApplication[]
+  requestTargets    FinancialRequestTarget[]
+
+  @@index([chargeId, state])
+  @@index([billingAccountId, paymentStatus, state])
+  @@index([coverageId, reviewStatus])
+}
+
+model BenefitUsage {
+  id          String           @id @default(uuid())
+  scope       UsageScope
+  scopeId     String           // coverageId (MEMBER) or policyId (POLICY)
+  category    ServiceCategory? // null = overall annual limit
+  periodStart DateTime
+  periodEnd   DateTime
+  usedAmount  Decimal          @default(0) @db.Decimal(14, 2)
+
+  // NULLS NOT DISTINCT (so the null-category row is unique too) is applied in the migration SQL
+  @@unique([scope, scopeId, category, periodStart])
+}
+
+// ------------ Reconciliation (§7) ------------
+
+model PaymentApplication {
+  id            String    @id @default(uuid())
+  creditEntryId String
+  allocationId  String
+  amount        Decimal   @db.Decimal(14, 2)
+  appliedAt     DateTime  @default(now())
+  appliedBy     String
+  reversedAt    DateTime?
+  reversedBy    String?
+
+  creditEntry   AccountEntry     @relation(fields: [creditEntryId], references: [id])
+  allocation    ChargeAllocation @relation(fields: [allocationId], references: [id])
+
+  @@index([allocationId])
+  @@index([creditEntryId])
+}
+
+// ------------ Financial requests (§8) ------------
+
+model FinancialRequest {
+  id                String                 @id @default(uuid())
+  organizationId    String
+  branchId          String
+  requestType       FinancialRequestType
+  amount            Decimal                @db.Decimal(14, 2)
+  reasonCode        FinancialReason
+  narrative         String
+  billingAccountId  String?
+  chargeId          String?
+  payload           Json?
+  requiredApprovals Int
+  status            FinancialRequestStatus @default(PENDING)
+  requestedBy       String
+  requestedAt       DateTime               @default(now())
+  decidedAt         DateTime?
+  cancelledBy       String?
+  cancelledAt       DateTime?
+
+  organization      Organization           @relation(fields: [organizationId], references: [id])
+  billingAccount    BillingAccount?        @relation(fields: [billingAccountId], references: [id])
+  charge            Charge?                @relation(fields: [chargeId], references: [id])
+  targets           FinancialRequestTarget[]
+  approvals         FinancialRequestApproval[]
+  attachments       FinancialRequestAttachment[]
+  entries           AccountEntry[]
+  allocations       ChargeAllocation[]
+
+  @@index([organizationId, status, requestType])
+  @@index([requestedBy])
+}
+
+model FinancialRequestTarget {
+  id           String  @id @default(uuid())
+  requestId    String
+  allocationId String
+  amount       Decimal @db.Decimal(14, 2)
+
+  request      FinancialRequest @relation(fields: [requestId], references: [id])
+  allocation   ChargeAllocation @relation(fields: [allocationId], references: [id])
+
+  @@unique([requestId, allocationId])
+}
+
+model FinancialRequestApproval {
+  id            String           @id @default(uuid())
+  requestId     String
+  approverId    String
+  decision      ApprovalDecision
+  note          String
+  approverLimit Decimal          @db.Decimal(14, 2)
+  decidedAt     DateTime         @default(now())
+
+  request       FinancialRequest @relation(fields: [requestId], references: [id])
+
+  @@unique([requestId, approverId])
+}
+
+model FinancialRequestAttachment {
+  id          String   @id @default(uuid())
+  requestId   String
+  fileRef     String
+  fileName    String
+  mimeType    String
+  sha256      String
+  description String?
+  uploadedBy  String
+  uploadedAt  DateTime @default(now())
+
+  request     FinancialRequest @relation(fields: [requestId], references: [id])
+}
+
+model ApprovalLimit {
+  id            String               @id @default(uuid())
+  dutyProfileId String
+  requestType   FinancialRequestType
+  maxAmount     Decimal              @db.Decimal(14, 2)
+  updatedAt     DateTime             @updatedAt
+  updatedBy     String?
+
+  dutyProfile   DutyProfile          @relation(fields: [dutyProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([dutyProfileId, requestType])
+}
+
+model ApprovalPolicy {
+  id                String               @id @default(uuid())
+  organizationId    String
+  requestType       FinancialRequestType
+  dualApprovalAbove Decimal?             @db.Decimal(14, 2) // null = single approval always
+  updatedAt         DateTime             @updatedAt
+  updatedBy         String?
+
+  organization      Organization         @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, requestType])
+}
 
 // ============ ENUMS ============
 
@@ -564,35 +925,9 @@ enum Genotype {
   EE
 }
 
-enum TransactionType {
-  CREDIT
-  DEBIT
-}
 
-enum TransactionStatus {
-  PENDING
-  COMPLETED
-  FAILED
-  REFUNDED
-  DISPUTED
-  CANCELLED
-  CHARGEBACK
-}
 
-enum TransactionMode {
-  CASH
-  CARD
-  TRANSFER
-  ONLINE
-  SYSTEM_DEBIT
-  SYSTEM_CREDIT
-}
 
-enum BillingType {
-  SELF_PAYING
-  INSURANCE
-  STAFF_INSURANCE
-}
 
 enum BranchStatus {
   ACTIVE
@@ -639,5 +974,166 @@ enum ConsultationReason {
   MONITORING
   SCREENING
   PREVENTION
+  OTHER
+}
+
+// ------------ Billing enums (PRD 10) ------------
+
+enum BillingAccountType {
+  INDIVIDUAL
+  FAMILY
+  PAYER
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum AccountEntryType {
+  DEPOSIT
+  REMITTANCE
+  CHARGE
+  WRITE_OFF
+  REFUND
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum PaymentMode {
+  CASH
+  POS
+  TRANSFER
+  ONLINE
+  CHEQUE
+}
+
+enum PayerType {
+  HMO
+  GOVERNMENT
+  CORPORATE
+  STAFF
+}
+
+enum SettlementMode {
+  CLAIMS
+  DIRECT_INVOICE
+  INTERNAL
+}
+
+enum OverLimitAction {
+  BILL_TO_ACCOUNT
+  REQUIRE_APPROVAL
+}
+
+enum ServiceCategory {
+  REGISTRATION
+  CONSULTATION
+  LABORATORY
+  RADIOLOGY
+  PHARMACY
+  PROCEDURE
+  THEATRE
+  ADMISSION
+  OTHER
+}
+
+enum PolicyStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum MemberType {
+  PRINCIPAL
+  SPOUSE
+  CHILD
+  OTHER_DEPENDANT
+}
+
+enum ChargeStatus {
+  POSTED
+  VOIDED
+}
+
+enum ResponsibleType {
+  PAYER
+  ACCOUNT
+  HOSPITAL
+}
+
+enum AllocationBasis {
+  COVERED
+  COPAY
+  OVER_LIMIT
+  NOT_COVERED
+  REBILLED
+  WRITTEN_OFF
+}
+
+enum AllocationState {
+  ACTIVE
+  SUPERSEDED
+  VOIDED
+}
+
+enum ReviewStatus {
+  PENDING_AUTH
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PART_PAID
+  PAID
+  NOT_APPLICABLE
+}
+
+enum UsageScope {
+  MEMBER
+  POLICY
+}
+
+enum FinancialRequestType {
+  WRITE_OFF
+  REFUND
+  ADJUSTMENT
+  CHARGE_VOID
+  TRANSFER
+  CREDIT_LIMIT_CHANGE
+  RECOVERY
+}
+
+enum FinancialRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ApprovalDecision {
+  APPROVE
+  REJECT
+}
+
+enum FinancialReason {
+  PAYER_REJECTION_HOSPITAL_FAULT
+  PAYER_TARIFF_DISPUTE
+  MISSING_PREAUTH
+  WAIVER_CLINICAL
+  WAIVER_WELFARE
+  STAFF_BENEFIT
+  BAD_DEBT
+  DECEASED_NO_ESTATE
+  CHARGE_ERROR
+  DUPLICATE_PAYMENT
+  OVERPAYMENT
+  SERVICE_NOT_RENDERED
+  DEBT_RECOVERED
   OTHER
 }

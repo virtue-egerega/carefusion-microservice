@@ -38,26 +38,131 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'appointment.manage', name: 'Manage Appointments',  description: 'Reschedule or cancel appointments' },
     { key: 'encounter.create',   name: 'Create Encounter',     description: 'Open a patient visit or walk-in encounter' },
 
-    // Billing
-    { key: 'billing.view',    name: 'View Billing',     description: 'View bills and payment records' },
-    { key: 'billing.create',  name: 'Create Bill',      description: 'Create bills and invoices' },
-    { key: 'billing.approve', name: 'Approve Payment',  description: 'Approve and process payments' },
+    // Billing (PRD 10 §10)
+    { key: 'billing.view',                 name: 'View Billing',                 description: 'View charges, allocations and account statements' },
+    { key: 'billing.charge.create',        name: 'Post Manual Charge',           description: 'Post a charge not raised by another module' },
+    { key: 'billing.payment.receive',      name: 'Receive Payment',              description: 'Record deposits, apply payments and issue receipts' },
+    { key: 'billing.account.create',        name: 'Create Billing Account',       description: 'Open a family billing account' },
+    { key: 'billing.account.member.add',    name: 'Add Account Member',           description: 'Put a patient on a family billing account' },
+    { key: 'billing.account.member.remove', name: 'Remove Account Member',        description: 'Take a patient off a family billing account' },
+    { key: 'billing.account.update',        name: 'Update Billing Account',       description: 'Edit the name and holder details of a billing account' },
+    { key: 'billing.refund.request',       name: 'Request Refund',               description: 'Raise refund requests' },
+    { key: 'billing.void.request',         name: 'Request Charge Void',          description: 'Raise charge void requests' },
+    { key: 'billing.transfer.request',     name: 'Request Transfer',             description: 'Raise balance transfer requests' },
+    { key: 'billing.adjustment.request',   name: 'Request Adjustment',           description: 'Raise ledger adjustment requests' },
+    { key: 'billing.credit_limit.request', name: 'Request Credit Limit Change',  description: 'Raise credit limit change requests' },
+    { key: 'billing.writeoff.request',     name: 'Request Write-off',            description: 'Raise write-off and recovery requests' },
+
+    // Coverage & payers
+    { key: 'coverage.view',   name: 'View Coverage',          description: 'See a patient\'s coverages and remaining benefit' },
+    { key: 'coverage.manage', name: 'Manage Coverage',        description: 'Enrol principals and dependants, end coverage, select a visit\'s coverage' },
+    { key: 'payer.manage',    name: 'Manage Payers & Plans',  description: 'Manage payers, plans, benefits, copay and caps' },
+
+    // Insurance desk
+    { key: 'insurance.preauth.record',    name: 'Record Pre-authorisation', description: 'Capture authorisation codes or record refusal' },
+    { key: 'insurance.claim.review',      name: 'Record Payer Decisions',   description: 'Record payer approval or rejection per line' },
+    { key: 'insurance.remittance.record', name: 'Record Remittance',        description: 'Post payer remittances and match them to lines' },
+    { key: 'insurance.rejection.resolve', name: 'Resolve Rejections',       description: 'Rebill a rejected line to the patient' },
+
+    // Finance control
+    { key: 'finance.request.approve', name: 'Approve Financial Requests', description: 'Approve or reject financial requests within approval limits' },
+    { key: 'finance.policy.manage',   name: 'Manage Approval Policy',     description: 'Edit approval limits and dual-approval thresholds' },
+    { key: 'finance.report.view',     name: 'View Finance Reports',       description: 'Write-off register, refund/adjustment/void reports, payer ageing' },
 ];
 
-// Permissions granted to the Hospital Administrator DutyProfile at onboarding
-export const ADMIN_DUTY_PROFILE_PERMISSIONS = new Set([
-    'org.manage', 'branch.manage', 'staff.manage', 'department.manage', 'duty_profile.manage',
-    'report.view', 'metrics.view',
-    'patient.view', 'patient.assign',
-    'appointment.create', 'appointment.manage',
-    'billing.view', 'billing.create', 'billing.approve',
-]);
+// Permissions retired from the catalog. On seeding, holders of an old key are granted its
+// replacements (system-seeded profiles excluded — their sets come from SYSTEM_DUTY_PROFILES),
+// then the old Permission row is deleted.
+export const RETIRED_PERMISSIONS: Record<string, string[]> = {
+    'billing.create':  ['billing.charge.create'],
+    // "receive payments" and "approve" must not share a key (PRD 10 §8); approval is granted separately
+    'billing.approve': ['billing.payment.receive'],
+    // Split so reception can open/join accounts while removals stay with Accounts
+    'billing.account.manage': [
+        'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
+    ],
+};
 
-// Permissions granted to the Receptionist DutyProfile at onboarding
-export const RECEPTIONIST_DUTY_PROFILE_PERMISSIONS = new Set([
-    'patient.register', 'patient.view', 'patient.edit', 'patient.assign',
-    'queue.view', 'queue.manage',
-    'appointment.create', 'appointment.manage',
-    'encounter.create',
-    'billing.view',
-]);
+export type SystemDutyProfile = {
+    name: string;
+    role: 'SUPERADMIN' | 'RECEPTIONIST' | 'ACCOUNTANT' | 'MANAGER';
+    departmentKey: string;
+    queueKeys: string[];
+    permissions: string[];
+};
+
+const INSURANCE_PERMISSIONS = [
+    'insurance.preauth.record', 'insurance.claim.review', 'insurance.remittance.record', 'insurance.rejection.resolve',
+];
+
+const CASHIER_PERMISSIONS = [
+    'billing.view', 'billing.payment.receive',
+    'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
+    'billing.refund.request', 'billing.void.request', 'billing.transfer.request',
+    'coverage.view',
+];
+
+// Duty profiles seeded for every organisation. Only Hospital Administrator is assigned
+// automatically (to the onboarding admin). Tenants may edit them afterwards; approval
+// limits are deliberately not seeded — the tenant sets them (PRD 10 §10).
+export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
+    {
+        name: 'Hospital Administrator',
+        role: 'SUPERADMIN',
+        departmentKey: 'ADMINISTRATION',
+        queueKeys: [],
+        permissions: [
+            'org.manage', 'branch.manage', 'staff.manage', 'department.manage', 'duty_profile.manage',
+            'report.view', 'metrics.view',
+            'patient.view', 'patient.assign',
+            'appointment.create', 'appointment.manage',
+            'billing.view', 'finance.report.view',
+        ],
+    },
+    {
+        name: 'Receptionist',
+        role: 'RECEPTIONIST',
+        departmentKey: 'RECEPTION',
+        queueKeys: ['RECEPTION_QUEUE'],
+        permissions: [
+            'patient.register', 'patient.view', 'patient.edit', 'patient.assign',
+            'queue.view', 'queue.manage',
+            'appointment.create', 'appointment.manage',
+            'encounter.create',
+            'billing.view', 'billing.account.create', 'billing.account.member.add', 'coverage.view', 'coverage.manage',
+        ],
+    },
+    {
+        name: 'Cashier',
+        role: 'ACCOUNTANT',
+        departmentKey: 'ACCOUNTS',
+        queueKeys: ['CASHIER_QUEUE'],
+        permissions: CASHIER_PERMISSIONS,
+    },
+    {
+        name: 'Insurance Officer',
+        role: 'ACCOUNTANT',
+        departmentKey: 'ACCOUNTS',
+        queueKeys: ['INSURANCE_QUEUE'],
+        permissions: ['billing.view', 'coverage.view', 'coverage.manage', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request'],
+    },
+    {
+        name: 'Billing Supervisor',
+        role: 'MANAGER',
+        departmentKey: 'ACCOUNTS',
+        queueKeys: ['CASHIER_QUEUE', 'INSURANCE_QUEUE', 'WRITE_OFF_QUEUE'],
+        permissions: [...new Set([
+            ...CASHIER_PERMISSIONS,
+            'coverage.manage', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request',
+            'billing.charge.create', 'billing.adjustment.request', 'billing.credit_limit.request',
+            'finance.request.approve', 'finance.report.view',
+        ])],
+    },
+    {
+        name: 'Finance Manager',
+        role: 'MANAGER',
+        departmentKey: 'ACCOUNTS',
+        queueKeys: ['WRITE_OFF_QUEUE'],
+        permissions: ['billing.view', 'payer.manage', 'finance.request.approve', 'finance.policy.manage', 'finance.report.view'],
+    },
+];
