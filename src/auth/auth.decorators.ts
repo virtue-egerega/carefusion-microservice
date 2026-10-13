@@ -17,6 +17,13 @@ export const CurrentUser = createParamDecorator(
     (_data: unknown, ctx: ExecutionContext): AuthUser => ctx.switchToHttp().getRequest().user,
 );
 
+/** The caller's home branch, from the token. Where they're working: charges and patients record it. */
+export const BranchId = createParamDecorator((_data: unknown, ctx: ExecutionContext): string => {
+    const branchId = (ctx.switchToHttp().getRequest().user as AuthUser | undefined)?.branchId;
+    if (!branchId) throw new ForbiddenException('Your account has no branch. Ask an administrator to assign one, then log in again');
+    return branchId;
+});
+
 /** The caller's organisation, from the token. Rejects tokens without one (non-staff users). */
 export const OrganizationId = createParamDecorator((_data: unknown, ctx: ExecutionContext): string => {
     const organizationId = (ctx.switchToHttp().getRequest().user as AuthUser | undefined)?.organizationId;

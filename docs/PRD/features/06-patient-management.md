@@ -291,8 +291,14 @@ the org so it stays a stable identifier even after a cross-branch share (`05` §
    `PatientContact`, national ID if available, blood group if known, allergies/chronic
    conditions/disabilities if disclosed. None of §2.4's `PatientProfile` fields are required at
    this step.
-4. Either path converges on the same next step: proceed to `07-appointment-management.md` to
+4. **New registrations are billed immediately.** The registration and card fees post to the
+   patient's billing account as soon as the record is created (`10` §11). The patient settles
+   them at Accounts, not at reception.
+5. Either path converges on the same next step: proceed to `07-appointment-management.md` to
    create today's visit.
+
+The patient's `branchId` is the registering staff member's home branch, taken from their login
+token (`09` §9.1), never from the request.
 
 **Newborn registration** is a distinct case that skips step 1 entirely — there's nothing to
 search for. A baby born in the hospital gets a minimal `Patient` created immediately: a temporary

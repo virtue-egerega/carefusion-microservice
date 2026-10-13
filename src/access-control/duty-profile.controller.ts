@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { DutyProfileService } from './duty-profile.service';
+import { Authorize, CurrentUser } from '../auth/auth.decorators';
+import type { AuthUser } from '../auth/permissions.guard';
 import {
     CreateDutyProfileDto,
     UpdateDutyProfileDto,
@@ -10,6 +12,7 @@ import {
 } from '@shared/contracts/access-control';
 
 @ApiTags('duty-profiles')
+@Authorize('duty_profile.manage')
 @Controller('duty-profiles')
 export class DutyProfileController {
     constructor(private readonly dutyProfileService: DutyProfileService) {}
@@ -50,8 +53,8 @@ export class DutyProfileController {
 
     @ApiOperation({ summary: 'Soft-delete a duty profile' })
     @Delete(':id')
-    remove(@Param('id') id: string, @Query('deletedBy') deletedBy: string) {
-        return this.dutyProfileService.remove(id, deletedBy);
+    remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+        return this.dutyProfileService.remove(id, user.sub);
     }
 
     // ── Queues ──────────────────────────────────────────────────────────────
@@ -89,9 +92,9 @@ export class DutyProfileController {
     assignToStaff(
         @Param('staffId') staffId: string,
         @Body() dto: AssignDutyProfileDto,
-        @Query('assignedBy') assignedBy: string,
+        @CurrentUser() user: AuthUser,
     ) {
-        return this.dutyProfileService.assignToStaff(staffId, dto, assignedBy);
+        return this.dutyProfileService.assignToStaff(staffId, dto, user.sub);
     }
 
     @ApiOperation({ summary: 'Remove a duty profile from a staff member' })

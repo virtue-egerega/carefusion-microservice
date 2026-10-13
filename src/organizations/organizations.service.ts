@@ -90,6 +90,7 @@ export class OrganizationsService {
                 data: {
                     user: { connect: { id: user.id } },
                     hospital: { connect: { id: organization.id } },
+                    branch: { connect: { id: branch.id } },
                     role: $Enums.HospitalStaffRole.SUPERADMIN,
                 },
             });

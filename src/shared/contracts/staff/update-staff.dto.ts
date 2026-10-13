@@ -40,4 +40,9 @@ export class UpdateStaffDto {
     @IsUUID()
     @IsOptional()
     departmentId?: string;
+
+    @ApiProperty({ required: false, description: 'Home branch; changing it makes the staff member log in again' })
+    @IsUUID()
+    @IsOptional()
+    branchId?: string;
 }

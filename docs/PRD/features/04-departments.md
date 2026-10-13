@@ -136,31 +136,85 @@ later never requires new `systemKey`s):
 
 | `businessType` | Seeded departments (enabled by default) |
 |---|---|
-| `HOSPITAL` | Reception, Emergency, Outpatient, Nursing, Pharmacy, Laboratory, Radiology, Theatre, ICU, Pediatrics, Cardiology, Neurology, Orthopedics, Dental, Physiotherapy, Medical Records, Accounts, HR |
-| `LABORATORY` | Reception, Laboratory, Accounts |
-| `PHARMACY` | Reception, Pharmacy, Accounts |
+| `HOSPITAL` | All 31 below |
+| `LABORATORY` | Reception, Laboratory, Accounts, Administration |
+| `PHARMACY` | Reception, Pharmacy, Accounts, Administration |
 
 All other catalog departments are still seeded as rows (`isActive = false`) so a tenant can enable
 one later without a schema change — e.g. a growing Laboratory business enabling Radiology.
 
-Each enabled department seeds its own default `Queue` rows — genuinely distinct physical or
-operational stations only, not every visit type or sub-reason a patient might have:
+### 3.1 What a queue is, and who defines it
 
-| Department | Seeded queues |
+A queue is a **station where a particular kind of work happens**: a nursing station, a
+consulting clinic, a procedure room, an ECG bench. Not every visit type or sub-reason a patient
+might have.
+
+- **CareFusion defines every queue; hospitals never create one.** A queue carries behaviour
+  (routing, payment gates, ticket prefixes, `11`), so defining one is a technical
+  responsibility. New stations reach hospitals through product releases: seeding adds new queues
+  on upgrade. Hospitals may rename or deactivate them.
+- **More doctors or rooms doesn't mean more queues.** A large hospital with five cardiologists and
+  three consulting rooms still has one Cardiology Clinic queue. The extra capacity is `Room`
+  (`07`) and per-doctor assignment of queue entries (`11` §5.3).
+- **Wards aren't queues.** Wards are hospital-defined and worked as a patient list (`11` §13.1).
+- **Duty profiles pick queues.** An admin builds a profile by choosing a department and ticking
+  the stations that job works: a "Cardiology Nurse" gets Cardiology Nursing Station and ECG, not
+  the whole department. Only seeded, active queues can be assigned.
+
+### 3.2 Outpatient clinics: the standard three
+
+Every outpatient clinical department seeds the same three stations, matching the outpatient flow
+in `11` §7 (triage → doctor → procedure), then its own specialty stations (§3.3):
+
+| Station | Key | Default name (Cardiology) | Worked by |
+|---|---|---|---|
+| Nursing station (vitals, triage) | `<DEPT>_TRIAGE` | Cardiology Nursing Station | Nurses |
+| Consulting clinic | `<DEPT>_CONSULTATION` | Cardiology Clinic | Doctors |
+| Procedure / treatment room | `<DEPT>_PROCEDURE` | Cardiology Procedure Room | Nurses, doctors |
+
+General Outpatient keeps its existing `GENERAL_CONSULTATION` key for its clinic. Follow-up and
+walk-in visits are still the same clinic queue: they differ in the visit's reason, not the
+station.
+
+### 3.3 The catalog
+
+| Department | Stations |
 |---|---|
-| Emergency | Emergency Queue, Resuscitation Queue, Triage Queue, Observation Queue |
-| Outpatient | General Consultation |
-| Laboratory | Sample Collection, Hematology, Chemistry, Result Verification |
-| Radiology | X-Ray, Ultrasound, CT Scan |
-| Pharmacy | Dispensing |
-| Accounts | Cashier, Insurance / HMO Desk, Write-offs & Approvals (`10-billing-accounts-and-coverage.md` §9) |
-| *(others)* | One default queue matching the department name, until that department's own clinical-flow PRD refines it |
+| Reception | Reception |
+| Emergency | Emergency, Resuscitation, Triage, Observation |
+| General Outpatient (GOPD) | standard three |
+| Internal Medicine | standard three + Diabetes Clinic, Hypertension Clinic |
+| General Surgery | standard three + Surgical Dressing Room |
+| Obstetrics & Gynaecology | standard three (clinic: Gynaecology Clinic) + Antenatal Clinic, Postnatal Clinic, Family Planning, Obstetric Ultrasound, Labour Ward Triage |
+| Paediatrics | standard three + Immunisation, Child Welfare Clinic |
+| Cardiology | standard three + ECG, Echocardiography |
+| Neurology | standard three + EEG |
+| Orthopaedics | standard three + Plaster Room |
+| Ophthalmology | standard three + Visual Acuity, Refraction |
+| Ear, Nose & Throat | standard three + Audiometry |
+| Dental | standard three (procedure: Dental Chair) + Dental X-Ray |
+| Physiotherapy | standard three (clinic: Assessment; procedure: Treatment) |
+| Psychiatry, Dermatology, Urology | standard three |
+| HIV / ART Clinic | standard three + Adherence Counselling, ART Refill |
+| TB / DOTS | standard three + DOTS Dispensing |
+| Renal / Dialysis | standard three + Dialysis Unit |
+| Oncology | standard three + Chemotherapy Suite |
+| Nursing (hospital-wide) | Injection Room, Dressing Room |
+| ICU | ICU (ICU work is ward-based, `11` §13) |
+| Theatre | Pre-op, Theatre List, Recovery (PACU) |
+| Pharmacy | Outpatient Dispensing, Inpatient / Ward Pharmacy, Retail Counter |
+| Laboratory | Sample Collection, Hematology, Chemistry, Microbiology, Serology, Histopathology, Result Verification, Blood Bank – Cross-match, Blood Bank – Issue |
+| Radiology | X-Ray, Ultrasound, CT Scan, MRI, Mammography, Fluoroscopy, Reporting (a worklist; no patient waits there) |
+| Medical Records | Folder Retrieval |
+| Accounts | Cashier, Insurance / HMO Desk, Write-offs & Approvals (`10` §9) |
+| HR, Administration | one queue each |
 
-Outpatient seeds a single queue, not one per visit reason — General Consultation, Follow-up, and
-Walk-in visits are the same doctor and the same worklist; they differ only in `Appointment.reason`
-(§2.2), not in which physical queue the patient sits in. Pharmacy seeds only Dispensing — stock
-management isn't a patient/object worklist; it's a data-management concern owned by the future
-Pharmacy & Inventory PRD, not a `Queue` here.
+31 departments, 116 queues. The source of truth is `src/departments/departments.catalog.ts`.
+Queues it replaces (the earlier one-queue-per-department entries, e.g. `CARDIOLOGY_QUEUE`) are
+soft-deleted by seeding.
+
+Pharmacy stock management still isn't a queue. It's a data-management concern owned by the
+future Pharmacy & Inventory PRD.
 
 Admins can rename or deactivate (`isActive = false`) departments and queues after onboarding —
 they cannot create new ones (§4). A hospital that doesn't run Theatre yet simply leaves it

@@ -3,20 +3,34 @@ import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
 import { LoginDto, ChangePasswordDto } from '@shared/contracts/auth';
 import { $Enums } from '../../generated/prisma/client';
+import { sessionEnded, SessionsService } from './sessions.service';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 
 const PASSWORD_HISTORY_LIMIT = 5;
 const MAX_ATTEMPTS_LOCKOUT  = 5;
 const MAX_ATTEMPTS_RESTRICT = 8;
 const LOCKOUT_MINUTES       = 10;
-// A temporary-password session can only change the password (09 §3), so it is short-lived
-const PASSWORD_CHANGE_TOKEN_TTL = '30m';
+
+/** What a session carries (09 §9.1). Every token adds its own jti. */
+type SessionClaims = {
+    sub: string;
+    type: string;
+    organizationId: string | null;
+    branchId: string | null;
+    permissions: string[];
+    dutyProfileIds: string[];
+};
+
+const pickClaims = ({ sub, type, organizationId, branchId, permissions, dutyProfileIds }: SessionClaims): SessionClaims =>
+    ({ sub, type, organizationId, branchId, permissions, dutyProfileIds });
 
 @Injectable()
 export class AuthService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly jwtService: JwtService,
+        private readonly sessions: SessionsService,
     ) {}
 
     async login(dto: LoginDto) {
@@ -27,6 +41,7 @@ export class AuthService {
             include: {
                 staff: {
                     include: {
+                        branch: { select: { id: true, name: true } },
                         department: {
                             include: {
                                 queues: {
@@ -48,6 +63,9 @@ export class AuthService {
                                     include: {
                                         permissions: {
                                             include: { permission: { select: { key: true } } },
+                                        },
+                                        queues: {
+                                            include: { queue: { select: { id: true, name: true, systemKey: true } } },
                                         },
                                     },
                                 },
@@ -97,57 +115,49 @@ export class AuthService {
             throw new UnauthorizedException('Incorrect password');
         }
 
-        const { password: _, refreshToken: __, staff, ...safeUser } = user;
+        const { password: _, staff, ...safeUser } = user;
+
+        await this.databaseService.client.user.update({
+            where: { id: user.id },
+            data:  { loginAttempts: 0, lastLogin: new Date() },
+        });
+        // A successful login is what satisfies a forced re-login (09 §9.3)
+        await this.sessions.clearRelogin(user.id);
 
         // Signed in with a temporary password: the only thing this session may do is change it.
         // No permissions, no organisation, no refresh token.
         if (user.mustChangePassword) {
             const access_token = this.jwtService.sign(
-                { sub: user.id, type: user.type, passwordChangeRequired: true },
-                { secret: process.env.JWT_ACCESS_TOKEN_SECRET, expiresIn: PASSWORD_CHANGE_TOKEN_TTL },
+                { sub: user.id, type: user.type, passwordChangeRequired: true, jti: randomUUID() },
+                {
+                    secret: process.env.JWT_ACCESS_TOKEN_SECRET,
+                    expiresIn: process.env.JWT_PASSWORD_CHANGE_TOKEN_EXPIRES_IN as any,
+                },
             );
-            await this.databaseService.client.user.update({
-                where: { id: user.id },
-                data:  { loginAttempts: 0, lastLogin: new Date(), refreshToken: null },
-            });
             return { user: safeUser, mustChangePassword: true, access_token, refresh_token: null };
         }
 
-        // Union of all permission keys across every active DutyProfile assignment
+        // Login is the only place permissions are read (09 §9): union across active duty profiles
         const activeAssignments = user.staff?.assignments.filter(a => !a.dutyProfile.deletedAt) ?? [];
         const permissions: string[] = [...new Set(
             activeAssignments.flatMap(a => a.dutyProfile.permissions.map(p => p.permission.key)),
         )];
+        const queues = [...new Map(
+            activeAssignments.flatMap(a => a.dutyProfile.queues.map(q => [q.queue.id, q.queue] as const)),
+        ).values()];
 
-        // Request context carried in the token so handlers don't re-query it (see AuthUser)
-        const tokenPayload = {
+        const { access_token, refresh_token } = this.signSession({
             sub: user.id,
             type: user.type,
             organizationId: user.staff?.hospitalId ?? null,
+            branchId: user.staff?.branchId ?? null,
             permissions,
             dutyProfileIds: activeAssignments.map(a => a.dutyProfileId),
-        };
-
-        const access_token = this.jwtService.sign(tokenPayload, {
-            secret: process.env.JWT_ACCESS_TOKEN_SECRET,
-            expiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN as any,
-        });
-        const refresh_token = this.jwtService.sign(tokenPayload, {
-            secret: process.env.JWT_REFRESH_TOKEN_SECRET,
-            expiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN as any,
-        });
-
-        await this.databaseService.client.user.update({
-            where: { id: user.id },
-            data: {
-                loginAttempts: 0,
-                lastLogin: new Date(),
-                refreshToken: await bcrypt.hash(refresh_token, 10),
-            },
         });
 
         const staffProfile = staff ? {
             role: staff.role,
+            branch: staff.branch,
             department: staff.department ? {
                 id: staff.department.id,
                 name: staff.department.name,
@@ -155,9 +165,66 @@ export class AuthService {
                 queues: staff.department.queues,
             } : null,
             permissions,
+            queues,
         } : null;
 
         return { user: safeUser, mustChangePassword: false, staff: staffProfile, access_token, refresh_token };
+    }
+
+    /**
+     * Issues a new access token from a valid refresh token (09 §9.2). No database read: the claims
+     * are copied from the refresh token, so updated permissions only ever come from a new login.
+     */
+    async refresh(refreshToken: string | undefined) {
+        if (!refreshToken) throw sessionEnded('TOKEN_EXPIRED');
+
+        let payload: SessionClaims & { jti: string };
+        try {
+            payload = this.jwtService.verify(refreshToken, { secret: process.env.JWT_REFRESH_TOKEN_SECRET });
+        } catch {
+            throw sessionEnded('TOKEN_EXPIRED');
+        }
+        if (!payload.jti) throw sessionEnded('TOKEN_EXPIRED');
+
+        const ended = await this.sessions.endedReason(payload.jti, payload.sub);
+        if (ended) throw sessionEnded(ended);
+
+        const access_token = this.jwtService.sign(
+            { ...pickClaims(payload), jti: randomUUID() },
+            { secret: process.env.JWT_ACCESS_TOKEN_SECRET, expiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN as any },
+        );
+        return { access_token };
+    }
+
+    /**
+     * Ends this device's session (09 §9.4): both tokens are blacklisted until they would have
+     * expired. Other devices stay signed in.
+     */
+    async logout(access: { jti: string; exp: number }, refreshToken: string | undefined) {
+        await this.sessions.revokeToken(access.jti, access.exp, 'LOGGED_OUT');
+
+        if (refreshToken) {
+            try {
+                const refresh = this.jwtService.verify(refreshToken, { secret: process.env.JWT_REFRESH_TOKEN_SECRET });
+                if (refresh.jti) await this.sessions.revokeToken(refresh.jti, refresh.exp, 'LOGGED_OUT');
+            } catch {
+                // already invalid or expired: nothing to revoke
+            }
+        }
+        return { message: 'Logged out' };
+    }
+
+    /** Access + refresh tokens with the same claims and their own ids. */
+    private signSession(claims: SessionClaims) {
+        const access_token = this.jwtService.sign(
+            { ...claims, jti: randomUUID() },
+            { secret: process.env.JWT_ACCESS_TOKEN_SECRET, expiresIn: process.env.JWT_ACCESS_TOKEN_EXPIRES_IN as any },
+        );
+        const refresh_token = this.jwtService.sign(
+            { ...claims, jti: randomUUID() },
+            { secret: process.env.JWT_REFRESH_TOKEN_SECRET, expiresIn: process.env.JWT_REFRESH_TOKEN_EXPIRES_IN as any },
+        );
+        return { access_token, refresh_token };
     }
 
     async changePassword(userId: string, dto: ChangePasswordDto) {
@@ -177,9 +244,12 @@ export class AuthService {
             }),
             this.databaseService.client.user.update({
                 where: { id: userId },
-                data: { password: newHash, refreshToken: null, mustChangePassword: false },
+                data: { password: newHash, mustChangePassword: false },
             }),
         ]);
+
+        // Every session, including this one, must log in again with the new password
+        await this.sessions.requireRelogin([userId], 'PASSWORD_CHANGED');
 
         return { message: 'Password changed successfully. Please log in again.' };
     }

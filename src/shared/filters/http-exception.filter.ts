@@ -18,9 +18,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
                 ? resolveMessage(exception)
                 : 'Internal server error';
 
+        // A machine-readable reason, e.g. ACCESS_CHANGED on a forced re-login (09 §9.5)
+        const body = exception instanceof HttpException ? exception.getResponse() : null;
+        const code = body && typeof body === 'object' ? (body as Record<string, any>).code : undefined;
+
         res.status(status).json({
             success: false,
             statusCode: status,
+            ...(code && { code }),
             message,
             path: req.url,
         });

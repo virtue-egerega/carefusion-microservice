@@ -58,6 +58,14 @@ model Role {
 (§8) and carries no department or queue information; every staff member holds exactly one `Role`,
 and `DutyProfile.roleId` (§4) references this same table.
 
+**A role is a profession, never a specialty.** Roles are Doctor, Nurse, Midwife, Pharmacist,
+Physiotherapist, Radiographer, Anaesthetist, Dietitian, Social Worker, Medical Records Officer,
+Health Assistant, and so on. A gynaecologist is a `DOCTOR` whose duty profile works the O&G
+queues; a cardiac nurse is a `NURSE` with a cardiology profile. Specialty comes from the
+department and the duty profile. Otherwise every specialty becomes a role, and the role list
+duplicates the department catalog. **Staff creation never chooses a duty profile from the role**:
+the admin names the profile explicitly (`09` §5).
+
 ## 3. `Permission`
 
 ```prisma

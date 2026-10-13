@@ -5,7 +5,7 @@ import { CreatePatientDto } from '@shared/contracts/patients';
 import { $Enums } from '../../generated/prisma/client';
 import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
 import { ChargesService } from '../billing/charges/charges.service';
-import { LedgerService, toDecimal } from '../billing/ledger/ledger.service';
+import { toDecimal } from '../billing/ledger/ledger.service';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { generateTemporaryPassword } from '../auth/temporary-password';
@@ -41,18 +41,28 @@ export class PatientsService {
         private readonly databaseService: DatabaseService,
         private readonly billingAccounts: BillingAccountsService,
         private readonly charges: ChargesService,
-        private readonly ledger: LedgerService,
     ) {}
 
     // ── Step 1: Personal Info ────────────────────────────────────────────────
 
-    /** organizationId comes from the registering staff member's token. */
-    async create(dto: CreatePatientDto, organizationId: string, registeredBy: string) {
+    /**
+     * Registers the patient at the staff member's branch (both from their token), opens or joins
+     * their billing account, and bills the registration and card fees in the same transaction.
+     * The fees are incurred now; paying them is a separate step at Accounts (10 §7.2). Any credit
+     * already on the account pays them immediately; otherwise they stay owed.
+     */
+    async create(dto: CreatePatientDto, at: { organizationId: string; branchId: string }, registeredBy: string) {
         // Email is optional for patients — generate a stable internal placeholder if omitted
         const email = dto.email ?? `${uuidv4()}@patient.internal`;
 
         const plainPassword = generateTemporaryPassword();
-        const hashed        = await bcrypt.hash(plainPassword, 10);
+        const [hashed, fees] = await Promise.all([
+            bcrypt.hash(plainPassword, 10),
+            this.databaseService.client.organization.findUniqueOrThrow({
+                where:  { id: at.organizationId },
+                select: { registrationFee: true, nfcCardFee: true },
+            }),
+        ]);
 
         return this.databaseService.transaction(async () => {
             const client = this.databaseService.client;
@@ -82,7 +92,8 @@ export class PatientsService {
             const patient = await client.patient.create({
                 data: {
                     id: user.id,
-                    hospitalId: organizationId,
+                    hospitalId: at.organizationId,
+                    branchId: at.branchId,
                     nfcId: uuidv4(),
                     dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : undefined,
                     sex: dto.sex as $Enums.Gender | undefined,
@@ -90,16 +101,52 @@ export class PatientsService {
             });
 
             // Every patient has exactly one billing account from the moment they exist (PRD 10 §3.2)
-            const billing = dto.billingAccountId
-                ? await this.billingAccounts.moveMember(dto.billingAccountId, user.id, registeredBy, organizationId)
-                : await this.billingAccounts.openIndividualForPatient({
+            const billingAccountId = dto.billingAccountId
+                ? (await this.billingAccounts.moveMember(dto.billingAccountId, user.id, registeredBy, at.organizationId)).accountId
+                : (await this.billingAccounts.openIndividualForPatient({
                     patientId: user.id,
-                    organizationId,
+                    organizationId: at.organizationId,
                     name:  `${user.firstName} ${user.lastName}`,
                     phone: user.phone,
-                }, registeredBy);
+                }, registeredBy)).id;
 
-            return { ...patient, user, billingAccount: billing, temporaryPassword: plainPassword };
+            // Registration fees are incurred at registration. A fee the organisation sets to 0 isn't billed.
+            const billable = [
+                { description: 'Registration fee', unitPrice: fees.registrationFee },
+                { description: 'NFC card fee',     unitPrice: fees.nfcCardFee },
+            ].filter(fee => fee.unitPrice.gt(0));
+
+            const charges = [];
+            let account;
+            for (const fee of billable) {
+                const posted = await this.charges.post({
+                    patientId:        user.id,
+                    branchId:         at.branchId,
+                    billingAccountId,
+                    category:         $Enums.ServiceCategory.REGISTRATION,
+                    description:      fee.description,
+                    unitPrice:        fee.unitPrice.toString(),
+                    sourceType:       REGISTRATION_SOURCE,
+                    sourceId:         user.id,
+                    createdBy:        registeredBy,
+                }, account);
+                account = posted.account;
+                charges.push({ ...posted.charge, allocations: posted.allocations });
+            }
+
+            // What the patient must settle at Accounts before services that require payment (11 §6)
+            const outstanding = charges
+                .flatMap(c => c.allocations)
+                .reduce((sum, a) => sum.plus(a.amount.minus(a.paidAmount)), toDecimal(0));
+
+            return {
+                ...patient,
+                user,
+                billingAccount: { id: billingAccountId, balance: account?.balance, unappliedCredit: account?.unappliedCredit },
+                charges,
+                outstanding,
+                temporaryPassword: plainPassword,
+            };
         });
     }
 
@@ -154,84 +201,6 @@ export class PatientsService {
 
         return this.databaseService.client.nextOfKin.create({
             data: { ...dto, patientId },
-        });
-    }
-
-    // ── Step 5: Registration Payment ─────────────────────────────────────────
-
-    /**
-     * Deposit (if any) into the patient's billing account, then post the card and registration
-     * fees as charges. Prepaid credit pays them immediately; any shortfall stays owed and puts the
-     * patient in the Cashier queue (PRD 10 §6.6).
-     */
-    async registerPayment(patientId: string, dto: RegistrationPaymentDto, organizationId: string, receivedBy: string) {
-        // One read: fees, current account, and whether registration was already charged
-        const patient = await this.databaseService.client.patient.findFirst({
-            where: { id: patientId, hospitalId: organizationId },
-            select: {
-                hospital:           { select: { registrationFee: true, nfcCardFee: true } },
-                billingMemberships: { where: { leftAt: null }, select: { accountId: true } },
-                charges: {
-                    where:  { sourceType: REGISTRATION_SOURCE, status: $Enums.ChargeStatus.POSTED },
-                    select: { id: true },
-                    take:   1,
-                },
-            },
-        });
-        if (!patient) throw new NotFoundException('Patient not found');
-        if (patient.charges.length) throw new ConflictException('Registration fees have already been charged');
-
-        const accountId = patient.billingMemberships[0]?.accountId;
-        if (!accountId) throw new ConflictException('Patient has no billing account');
-
-        return this.databaseService.transaction(async () => {
-            let account = await this.ledger.lockAccount(accountId, organizationId);
-
-            if (dto.amount > 0) {
-                ({ account } = await withConstraintErrors(
-                    () => this.ledger.postEntry({
-                        accountId,
-                        entryType:     $Enums.AccountEntryType.DEPOSIT,
-                        amount:        toDecimal(dto.amount),
-                        modeOfPayment: dto.modeOfPayment as $Enums.PaymentMode,
-                        reference:     dto.paymentReference,
-                        description:   'Registration deposit',
-                        branchId:      dto.branchId,
-                        createdBy:     receivedBy,
-                    }, account),
-                    { notFound: 'Branch not found' },
-                ));
-            }
-
-            const fees = [
-                { description: 'NFC card fee',     unitPrice: patient.hospital.nfcCardFee },
-                { description: 'Registration fee', unitPrice: patient.hospital.registrationFee },
-            ];
-            const charges = [];
-            for (const fee of fees) {
-                const posted = await this.charges.post({
-                    patientId,
-                    branchId:    dto.branchId,
-                    category:    $Enums.ServiceCategory.REGISTRATION,
-                    description: fee.description,
-                    unitPrice:   fee.unitPrice.toString(),
-                    sourceType:  REGISTRATION_SOURCE,
-                    sourceId:    patientId,
-                    createdBy:   receivedBy,
-                }, account);
-                account = posted.account;
-                charges.push({ ...posted.charge, allocations: posted.allocations });
-            }
-
-            return {
-                charges,
-                billingAccount: {
-                    id:              account.id,
-                    accountNumber:   account.accountNumber,
-                    balance:         account.balance,
-                    unappliedCredit: account.unappliedCredit,
-                },
-            };
         });
     }
 
@@ -293,10 +262,9 @@ export class PatientsService {
 }
 
 // ── Inline step DTOs ──────────────────────────────────────────────────────────
-import { IsEnum, IsOptional, IsString, IsArray, IsBoolean, IsNumber, IsUUID, Min } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsArray, IsBoolean } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { BLOOD_GROUP, GENOTYPE, MaritalStatus, AddressType } from '@shared/enums/users/user.enums';
-import { PaymentMode } from '@shared/enums/billing/billing.enums';
 
 export class UpdateMedicalDto {
     @ApiProperty({ enum: BLOOD_GROUP,    required: false }) @IsEnum(BLOOD_GROUP)    @IsOptional() bloodGroup?:    BLOOD_GROUP;
@@ -327,11 +295,4 @@ export class AddNextOfKinDto {
     @ApiProperty({ required: false }) @IsString() @IsOptional() email?:   string;
     @ApiProperty({ required: false }) @IsString() @IsOptional() address?: string;
     @ApiProperty({ default: false }) @IsBoolean() @IsOptional() isEmergencyContact?: boolean;
-}
-
-export class RegistrationPaymentDto {
-    @ApiProperty({ example: 5000, description: 'Amount received now; 0 leaves the fees owed' }) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) amount!: number;
-    @ApiProperty({ enum: PaymentMode }) @IsEnum(PaymentMode) modeOfPayment!: PaymentMode;
-    @ApiProperty({ required: false }) @IsString() @IsOptional() paymentReference?: string;
-    @ApiProperty({ description: 'Branch where the patient is being registered' }) @IsUUID() branchId!: string;
 }

@@ -37,7 +37,8 @@ temporary password under the same forced-change rule, ready for when a patient p
   refresh token in an httpOnly cookie.
 - **Login is the only place permissions are read from the database.** The response lists the
   user's permissions and queues, which the frontend uses to decide what to show. The access token
-  carries `organizationId`, permission keys and duty profile ids, plus a unique token id (`jti`).
+  carries `organizationId`, `branchId` (the staff member's home branch), permission keys and duty
+  profile ids, plus a unique token id (`jti`).
   Neither refresh nor ordinary requests read the database (§9).
 
 ## 3. Temporary Passwords and the Forced Change
@@ -132,8 +133,12 @@ restarts.
 
 | Token | Lifetime | Carries | Where it lives |
 |---|---|---|---|
-| Access | **15 minutes** (pending, §11) | `sub`, `type`, `organizationId`, permission keys, duty profile ids, `jti` | `Authorization` header |
-| Refresh | 30 days | `sub`, the same claims, its own `jti` | httpOnly cookie |
+| Access | `JWT_ACCESS_TOKEN_EXPIRES_IN` | `sub`, `type`, `organizationId`, `branchId`, permission keys, duty profile ids, `jti` | `Authorization` header |
+| Refresh | `JWT_REFRESH_TOKEN_EXPIRES_IN` | `sub`, the same claims, its own `jti` | httpOnly cookie, expiring with the token |
+| Password change only (§3) | `JWT_PASSWORD_CHANGE_TOKEN_EXPIRES_IN` | `sub`, `type`, `passwordChangeRequired`, `jti` | `Authorization` header |
+
+Every lifetime is set in `.env`; nothing is hardcoded. A short access lifetime (minutes) is
+recommended: refresh costs no database read, and it bounds how long a revoked token could survive.
 
 `User.refreshToken` (a stored hash) is no longer needed and is removed. Refresh tokens are checked
 against Redis, not the database.
@@ -202,8 +207,9 @@ with a machine-readable code:
 per user, and the first successful login deletes it. If the user is signed in on two devices, say
 the ward PC and a phone, and logs in again on only one, the other device's old tokens stop being
 caught:
-- its access token works until it expires (≤ 15 minutes), and
-- **its refresh token can keep issuing access tokens with the old permissions for up to 30 days.**
+- its access token works until it expires (`JWT_ACCESS_TOKEN_EXPIRES_IN`), and
+- **its refresh token can keep issuing access tokens with the old permissions until it expires
+  (`JWT_REFRESH_TOKEN_EXPIRES_IN`).**
 
 After a permission change, that device keeps the old access. After a **password reset**, a device
 that was lost or stolen *before* the reset stays signed in once the real user logs in elsewhere.
@@ -213,12 +219,18 @@ Current mitigation: **the user's responsibility.** Every forced re-login message
 in again on every device they use. Closing the gap needs per-session tracking (recording each
 user's token ids at login, so a forced re-login can revoke each one individually). That's deferred.
 
-**10.2 What happens when Redis is unavailable** (decision pending, §11). The guard can't check
-revocations without it.
+## 11. Redis
 
-## 11. Pending Decisions
+**Redis is required infrastructure, like Postgres.** The API doesn't start without it
+(`REDIS_URL`), and while it's down, authenticated requests fail with 503 rather than skipping the
+revocation check. Allowing requests without the check would let revoked users back in during an
+outage.
 
-| # | Question | Recommendation |
-|---|---|---|
-| 1 | Access token lifetime | **15 minutes.** Refresh is cheap (no database read), and it limits how long a revoked access token survives if a check is ever missed |
-| 2 | Redis down: reject requests (fail closed) or allow them on the token alone (fail open)? | **Fail closed**, with Redis set to restart automatically. Failing open lets revoked users back in during an outage |
+## 12. Configuration
+
+| Variable | Purpose |
+|---|---|
+| `JWT_ACCESS_TOKEN_SECRET`, `JWT_ACCESS_TOKEN_EXPIRES_IN` | Access tokens |
+| `JWT_REFRESH_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_EXPIRES_IN` | Refresh tokens and the refresh cookie |
+| `JWT_PASSWORD_CHANGE_TOKEN_EXPIRES_IN` | The restricted token from a temporary-password login (§3) |
+| `REDIS_URL` | Revocation cache (§9) |

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
+import { CacheModule } from './cache/cache.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { PatientsModule } from './patients/patients.module';
 import { OrganizationsModule } from './organizations/organizations.module';
@@ -22,6 +23,7 @@ import { StaffModule } from './staff/staff.module';
     imports: [
         ConfigModule.forRoot({ isGlobal: true }),
         DatabaseModule,
+        CacheModule,
         CloudinaryModule,
         PatientsModule,
         OrganizationsModule,

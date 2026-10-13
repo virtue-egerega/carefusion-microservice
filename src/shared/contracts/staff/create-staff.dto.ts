@@ -40,6 +40,11 @@ export class CreateStaffDto {
     @IsOptional()
     departmentId?: string;
 
+    @ApiProperty({ description: 'Home branch: where this staff member works; carried in their login token' })
+    @IsUUID()
+    @IsNotEmpty()
+    branchId!: string;
+
     @ApiProperty({ description: "Duty profile to assign: it decides the staff member's permissions and queues" })
     @IsUUID()
     @IsNotEmpty()

@@ -1,8 +1,8 @@
 import { Body, Controller, DefaultValuePipe, ForbiddenException, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { PatientsService, UpdateMedicalDto, AddAddressDto, AddNextOfKinDto, RegistrationPaymentDto } from './patients.service';
+import { PatientsService, UpdateMedicalDto, AddAddressDto, AddNextOfKinDto } from './patients.service';
 import { CreatePatientDto } from '@shared/contracts/patients';
-import { Authorize, CurrentUser, OrganizationId } from '../auth/auth.decorators';
+import { Authorize, BranchId, CurrentUser, OrganizationId } from '../auth/auth.decorators';
 import type { AuthUser } from '../auth/permissions.guard';
 import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
 
@@ -14,15 +14,20 @@ export class PatientsController {
         private readonly billingAccountsService: BillingAccountsService,
     ) {}
 
-    @ApiOperation({ summary: 'Step 1 — Register patient (personal info; opens or joins a billing account)' })
+    @ApiOperation({ summary: 'Step 1 — Register patient at your branch; opens or joins a billing account and bills the registration fees' })
     @Authorize('patient.register')
     @Post()
-    create(@Body() dto: CreatePatientDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
+    create(
+        @Body() dto: CreatePatientDto,
+        @OrganizationId() organizationId: string,
+        @BranchId() branchId: string,
+        @CurrentUser() user: AuthUser,
+    ) {
         // Registering straight onto a family account is also adding an account member
         if (dto.billingAccountId && !user.permissions.includes('billing.account.member.add')) {
             throw new ForbiddenException('Missing permission: billing.account.member.add');
         }
-        return this.patientsService.create(dto, orgId, user.sub);
+        return this.patientsService.create(dto, { organizationId, branchId }, user.sub);
     }
 
     @ApiOperation({ summary: 'Step 2 — Update medical profile (blood group, genotype, etc.)' })
@@ -44,13 +49,6 @@ export class PatientsController {
     @Post(':id/next-of-kin')
     addNextOfKin(@Param('id') id: string, @Body() dto: AddNextOfKinDto) {
         return this.patientsService.addNextOfKin(id, dto);
-    }
-
-    @ApiOperation({ summary: 'Step 5 — Deposit and charge card + registration fees to the billing account' })
-    @Authorize('billing.payment.receive')
-    @Post(':id/payment')
-    registerPayment(@Param('id') id: string, @Body() dto: RegistrationPaymentDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
-        return this.patientsService.registerPayment(id, dto, orgId, user.sub);
     }
 
     @ApiOperation({ summary: 'List patients — paginated with optional search' })

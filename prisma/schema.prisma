@@ -70,6 +70,8 @@ model Branch {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   charges        Charge[]
   accountEntries AccountEntry[]
+  staff          HospitalStaff[]
+  patients       Patient[]
 
   @@index([organizationId])
 }
@@ -86,7 +88,6 @@ model User {
   status                UserStatus @default(ACTIVE)
   loginAttempts         Int       @default(0)
   mustChangePassword    Boolean   @default(false) // set when an admin issues a temporary password (creation or reset)
-  refreshToken          String?
   lastLogin             DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
@@ -243,12 +244,14 @@ model HospitalStaff {
   user           User        @relation(fields: [id], references: [id], onDelete: Cascade)
   departmentId   String?
   hospitalId     String?
+  branchId       String                        // home branch; carried in the login token (09 §9.1)
   role           HospitalStaffRole?
   createdAt      DateTime    @default(now())
   createdBy      String?                       // admin who created the account (and issued its first password)
 
   department     Department?    @relation(fields: [departmentId], references: [id])
   hospital       Organization?  @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  branch         Branch         @relation(fields: [branchId], references: [id])
   assignments    StaffAssignment[]
 }
 
@@ -293,18 +296,22 @@ model Patient {
   emergencyContactId    String?
   emergencyContact       NextOfKin[]
   hospitalId             String  @map("hospital_id")
+  branchId               String                        // registering branch (06 §2.1), from the staff member's token
 
   createdAt               DateTime @default(now())
   updatedAt               DateTime @updatedAt
 
   user                      User    @relation(fields: [id], references: [id], onDelete: Cascade)
   hospital                  Organization    @relation(fields: [hospitalId], references: [id], onDelete: Cascade)
+  branch                    Branch          @relation(fields: [branchId], references: [id])
 
   heldBillingAccounts       BillingAccount[]       @relation("AccountHolder")
   billingMemberships        BillingAccountMember[]
   principalPolicies         Policy[]               @relation("PolicyPrincipal")
   coverages                 Coverage[]
   charges                   Charge[]
+
+  @@index([branchId])
 
 }
 
@@ -895,6 +902,14 @@ enum HospitalStaffRole {
   PHLEBOTOMIST
   OPTOMETRIST
   DENTIST
+  MIDWIFE
+  PHYSIOTHERAPIST
+  RADIOGRAPHER
+  ANAESTHETIST
+  DIETITIAN
+  SOCIAL_WORKER
+  MEDICAL_RECORDS_OFFICER
+  HEALTH_ASSISTANT
   OTHER
 }
 

@@ -405,6 +405,10 @@ enum ChargeStatus {
 }
 ```
 
+- **Billing happens at the point of use; settlement happens at Accounts.** A charge posts the
+  moment the service is incurred: registration when the patient is registered, a drug when the
+  prescription is placed, a test when it's ordered. Paying is a separate event, at the cashier,
+  never at the lab, pharmacy or front desk.
 - **Every billable event posts a `Charge` (D7)**: self-pay, insured, staff and waived alike. A
   waiver is not "don't post the charge". The charge is posted and then written off through §8, so
   it stays on record.
@@ -976,8 +980,14 @@ something the administrator role gets by default.
 - `CreatePatientDto` drops `billingType` and `insuranceSchemeId` and gains an optional
   `billingAccountId` (join a family). Without it, an `INDIVIDUAL` account is created in the same
   transaction as the patient.
-- Step 5 (`registerPayment`) becomes: post a `DEPOSIT`, then post the `REGISTRATION` charge
-  through §6. A plan that covers registration then works with no special handling.
+- **The registration and card fees are billed at registration**, in the same transaction, as
+  `REGISTRATION` charges against the account the patient lands on (fees set to 0 aren't billed).
+  Credit already on the account pays them immediately; otherwise they're owed. The response
+  includes the outstanding amount.
+- **Reception never takes money.** The old registration-payment step is removed. The patient
+  settles at Accounts (`POST /billing-accounts/:id/deposits`, §7.2), now or later.
+- The patient's branch and the cashier's branch both come from the staff member's token, never
+  the request.
 - Coverage is enrolled as a separate step, because it often needs the payer's card or list.
 
 **Newborns (`06` §4):** added to the mother's `BillingAccount`, with a `CHILD` coverage on her

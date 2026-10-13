@@ -214,9 +214,10 @@ export class BillingAccountsService {
     // ── Money ────────────────────────────────────────────────────────────────
 
     /** PRD 10 §7.2: record the deposit, then pay targeted bills, then the oldest unpaid ones. */
-    async deposit(accountId: string, dto: DepositDto, organizationId: string, receivedBy: string) {
+    /** `at.branchId` is the cashier's branch, from their token. */
+    async deposit(accountId: string, dto: DepositDto, at: { organizationId: string; branchId: string }, receivedBy: string) {
         return this.databaseService.transaction(async () => {
-            const account = await this.ledger.lockAccount(accountId, organizationId);
+            const account = await this.ledger.lockAccount(accountId, at.organizationId);
             if (account.accountType === $Enums.BillingAccountType.PAYER) {
                 throw new BadRequestException('Payer payments are recorded as remittances');
             }
@@ -230,7 +231,7 @@ export class BillingAccountsService {
                     modeOfPayment: dto.modeOfPayment,
                     reference:     dto.reference,
                     description:   'Deposit',
-                    branchId:      dto.branchId,
+                    branchId:      at.branchId,
                     createdBy:     receivedBy,
                 }, account),
                 { notFound: 'Branch not found' },

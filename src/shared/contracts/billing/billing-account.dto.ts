@@ -48,11 +48,6 @@ export class DepositDto {
     @IsOptional()
     reference?: string;
 
-    @ApiProperty({ description: 'Branch where the money was received' })
-    @IsUUID()
-    @IsNotEmpty()
-    branchId!: string;
-
     @ApiProperty({
         type: [String], required: false,
         description: 'Allocation ids to pay first, in order. Any remainder pays the oldest unpaid bills.',

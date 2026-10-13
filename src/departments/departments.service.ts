@@ -59,12 +59,15 @@ export class DepartmentsService {
         });
     }
 
-    async findQueues(departmentId: string) {
-        const dept = await this.databaseService.client.department.findUnique({ where: { id: departmentId } });
+    async findQueues(departmentId: string, isActive?: boolean) {
+        const dept = await this.databaseService.client.department.findFirst({
+            where: { id: departmentId, deletedAt: null },
+            select: { id: true },
+        });
         if (!dept) throw new NotFoundException('Department not found');
 
         return this.databaseService.client.queue.findMany({
-            where: { departmentId, deletedAt: null },
+            where: { departmentId, deletedAt: null, ...(isActive !== undefined && { isActive }) },
             orderBy: { name: 'asc' },
         });
     }

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { SessionsService } from '../auth/sessions.service';
 import {
     CreateDutyProfileDto,
     UpdateDutyProfileDto,
@@ -10,7 +11,10 @@ import {
 
 @Injectable()
 export class DutyProfileService {
-    constructor(private readonly databaseService: DatabaseService) {}
+    constructor(
+        private readonly databaseService: DatabaseService,
+        private readonly sessions: SessionsService,
+    ) {}
 
     // ── CRUD ────────────────────────────────────────────────────────────────
 
@@ -18,12 +22,15 @@ export class DutyProfileService {
         const existing = await this.databaseService.client.dutyProfile.findUnique({ where: { name: dto.name } });
         if (existing) throw new ConflictException(`A duty profile named "${dto.name}" already exists`);
 
-        const profile = await this.databaseService.client.dutyProfile.create({
-            data: { name: dto.name, role: dto.role, departmentId: dto.departmentId },
+        // One transaction: an unknown queue or permission must not leave a half-built profile behind
+        const profile = await this.databaseService.transaction(async () => {
+            const created = await this.databaseService.client.dutyProfile.create({
+                data: { name: dto.name, role: dto.role, departmentId: dto.departmentId },
+            });
+            if (dto.queueIds?.length) await this.linkQueues(created.id, dto.queueIds);
+            if (dto.permissionKeys?.length) await this.linkPermissionKeys(created.id, dto.permissionKeys);
+            return created;
         });
-
-        if (dto.queueIds?.length) await this.linkQueues(profile.id, dto.queueIds);
-        if (dto.permissionKeys?.length) await this.linkPermissionKeys(profile.id, dto.permissionKeys);
 
         return this.findOne(profile.id);
     }
@@ -95,10 +102,12 @@ export class DutyProfileService {
 
     async remove(id: string, deletedBy: string) {
         await this.assertExists(id);
-        return this.databaseService.client.dutyProfile.update({
+        const removed = await this.databaseService.client.dutyProfile.update({
             where: { id },
             data: { deletedAt: new Date(), deletedBy },
         });
+        await this.requireHoldersRelogin(id);
+        return removed;
     }
 
     // ── QUEUES ───────────────────────────────────────────────────────────────
@@ -106,6 +115,7 @@ export class DutyProfileService {
     async addQueues(id: string, dto: ManageQueuesDto) {
         await this.assertExists(id);
         await this.linkQueues(id, dto.queueIds);
+        await this.requireHoldersRelogin(id);
         return this.findOne(id);
     }
 
@@ -114,6 +124,7 @@ export class DutyProfileService {
         await this.databaseService.client.dutyProfileQueue.deleteMany({
             where: { dutyProfileId: id, queueId },
         });
+        await this.requireHoldersRelogin(id);
         return this.findOne(id);
     }
 
@@ -122,6 +133,7 @@ export class DutyProfileService {
     async addPermissions(id: string, dto: ManagePermissionsDto) {
         await this.assertExists(id);
         await this.linkPermissionKeys(id, dto.permissionKeys);
+        await this.requireHoldersRelogin(id);
         return this.findOne(id);
     }
 
@@ -130,6 +142,7 @@ export class DutyProfileService {
         await this.databaseService.client.dutyProfilePermission.deleteMany({
             where: { dutyProfileId: id, permissionId },
         });
+        await this.requireHoldersRelogin(id);
         return this.findOne(id);
     }
 
@@ -146,7 +159,7 @@ export class DutyProfileService {
         });
         if (existing) throw new ConflictException('This duty profile is already assigned to this staff member');
 
-        return this.databaseService.client.staffAssignment.create({
+        const assignment = await this.databaseService.client.staffAssignment.create({
             data: {
                 staffId,
                 dutyProfileId: dto.dutyProfileId,
@@ -155,6 +168,8 @@ export class DutyProfileService {
             },
             include: { dutyProfile: { select: { id: true, name: true } } },
         });
+        await this.sessions.requireRelogin([staffId], 'ACCESS_CHANGED');
+        return assignment;
     }
 
     async unassignFromStaff(staffId: string, dutyProfileId: string) {
@@ -166,6 +181,7 @@ export class DutyProfileService {
         await this.databaseService.client.staffAssignment.delete({
             where: { staffId_dutyProfileId: { staffId, dutyProfileId } },
         });
+        await this.sessions.requireRelogin([staffId], 'ACCESS_CHANGED');
         return { message: 'Duty profile unassigned successfully' };
     }
 
@@ -189,12 +205,33 @@ export class DutyProfileService {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * A profile's permissions or queues changed: everyone holding it must log in again so their
+     * token and their UI pick up the change (09 §9.3).
+     */
+    private async requireHoldersRelogin(dutyProfileId: string) {
+        const holders = await this.databaseService.client.staffAssignment.findMany({
+            where:  { dutyProfileId, OR: [{ endsAt: null }, { endsAt: { gt: new Date() } }] },
+            select: { staffId: true },
+        });
+        await this.sessions.requireRelogin(holders.map(h => h.staffId), 'ACCESS_CHANGED');
+    }
+
     private async assertExists(id: string) {
         const p = await this.databaseService.client.dutyProfile.findUnique({ where: { id, deletedAt: null } });
         if (!p) throw new NotFoundException('Duty profile not found');
     }
 
     private async linkQueues(dutyProfileId: string, queueIds: string[]) {
+        // Only seeded, active queues can be assigned
+        const found = await this.databaseService.client.queue.findMany({
+            where:  { id: { in: queueIds }, isActive: true, deletedAt: null },
+            select: { id: true },
+        });
+        const foundIds = new Set(found.map(q => q.id));
+        const missing = queueIds.filter(id => !foundIds.has(id));
+        if (missing.length) throw new NotFoundException(`Unknown or inactive queues: ${missing.join(', ')}`);
+
         for (const queueId of queueIds) {
             await this.databaseService.client.dutyProfileQueue.upsert({
                 where: { dutyProfileId_queueId: { dutyProfileId, queueId } },

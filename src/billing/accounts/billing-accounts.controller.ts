@@ -1,6 +1,6 @@
 import { Body, Controller, DefaultValuePipe, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { Authorize, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
+import { Authorize, BranchId, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
 import type { AuthUser } from '../../auth/permissions.guard';
 import { AddAccountMemberDto, CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
 import { BillingAccountType } from '@shared/enums/billing/billing.enums';
@@ -63,8 +63,14 @@ export class BillingAccountsController {
     @ApiOperation({ summary: 'Record a deposit; pays targeted bills first, then the oldest unpaid' })
     @Authorize('billing.payment.receive')
     @Post(':id/deposits')
-    deposit(@Param('id') id: string, @Body() dto: DepositDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
-        return this.billingAccountsService.deposit(id, dto, orgId, user.sub);
+    deposit(
+        @Param('id') id: string,
+        @Body() dto: DepositDto,
+        @OrganizationId() organizationId: string,
+        @BranchId() branchId: string,
+        @CurrentUser() user: AuthUser,
+    ) {
+        return this.billingAccountsService.deposit(id, dto, { organizationId, branchId }, user.sub);
     }
 
     @ApiOperation({ summary: 'Ledger entries and open bills, optionally per member and date range' })
