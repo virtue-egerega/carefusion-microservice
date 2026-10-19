@@ -8,7 +8,10 @@ import {
   AccountStatus, BillingAccountType, MemberType, OverLimitAction, PayerType, PaymentMode, PaymentStatus,
   PolicyStatus, ServiceCategory, SettlementMode,
 } from '@shared/enums/billing/billing.enums';
-import { PaymentPlan, BusinessType, OrgType } from '@shared/enums/organizations/organization.enums';
+import { PaymentPlan, BusinessType, OrgType, ConsultationPayment } from '@shared/enums/organizations/organization.enums';
+import {
+  Acuity, Disposition, EncounterStatus, EncounterType, HoldReason, QueueEntryStatus, QueuePriority, VisitType,
+} from '@shared/enums/encounters/encounter.enums';
 import { NotificationType } from '@shared/contracts/notifications/create-notification.dto';
 
 function toOptions(enumObj: Record<string, string>) {
@@ -40,6 +43,7 @@ export class EnumsController {
         paymentPlan: toOptions(PaymentPlan),
         businessType: toOptions(BusinessType),
         orgType: toOptions(OrgType),
+        consultationPayment: toOptions(ConsultationPayment),
       },
       billing: {
         billingAccountType: toOptions(BillingAccountType),
@@ -52,6 +56,16 @@ export class EnumsController {
         overLimitAction: toOptions(OverLimitAction),
         memberType: toOptions(MemberType),
         policyStatus: toOptions(PolicyStatus),
+      },
+      encounters: {
+        visitType: toOptions(VisitType),
+        encounterType: toOptions(EncounterType),
+        encounterStatus: toOptions(EncounterStatus),
+        acuity: toOptions(Acuity),
+        disposition: toOptions(Disposition),
+        queuePriority: toOptions(QueuePriority),
+        queueEntryStatus: toOptions(QueueEntryStatus),
+        holdReason: toOptions(HoldReason),
       },
       notifications: {
         notificationType: toOptions(NotificationType),

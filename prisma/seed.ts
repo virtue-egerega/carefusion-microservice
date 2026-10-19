@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from '../src/departments/departments.catalog';
+import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from '../src/departments/departments.catalog';
 import { PERMISSION_CATALOG, SYSTEM_DUTY_PROFILES } from '../src/access-control/permissions.catalog';
 import { AccessControlService } from '../src/access-control/access-control.service';
 
@@ -34,7 +34,22 @@ async function seedDepartments(businessType = 'HOSPITAL') {
         data:  { isActive: false, deletedAt: new Date() },
     });
 
-    console.log(`✓ Departments & queues seeded (${businessType})`);
+    for (const clinic of CLINIC_CATALOG) {
+        await prisma.clinic.upsert({
+            where:  { systemKey: clinic.systemKey },
+            create: {
+                systemKey:         clinic.systemKey,
+                name:              clinic.name,
+                isActive:          activeKeys.has(clinic.departmentKey),
+                department:        { connect: { systemKey: clinic.departmentKey } },
+                triageQueue:       { connect: { systemKey: clinic.triageQueue } },
+                consultationQueue: { connect: { systemKey: clinic.consultationQueue } },
+            },
+            update: {},
+        });
+    }
+
+    console.log(`✓ Departments, queues & clinics seeded (${businessType})`);
 }
 
 async function seedAccessControl() {

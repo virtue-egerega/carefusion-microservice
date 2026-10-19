@@ -39,7 +39,7 @@ export class AccessControlService {
             });
         }
 
-        // 2. System duty profiles, their permissions and queues
+        // 2. System duty profiles, their permissions, queues and send queues
         for (const def of SYSTEM_DUTY_PROFILES) {
             const dept = await prisma.department.findUnique({ where: { systemKey: def.departmentKey } });
             const profile = await prisma.dutyProfile.upsert({
@@ -66,6 +66,18 @@ export class AccessControlService {
             });
             for (const queue of queues) {
                 await prisma.dutyProfileQueue.upsert({
+                    where:  { dutyProfileId_queueId: { dutyProfileId: profile.id, queueId: queue.id } },
+                    create: { dutyProfileId: profile.id, queueId: queue.id },
+                    update: {},
+                });
+            }
+
+            const sendQueues = await prisma.queue.findMany({
+                where: { systemKey: { in: def.sendQueueKeys ?? [] } },
+                select: { id: true },
+            });
+            for (const queue of sendQueues) {
+                await prisma.dutyProfileSendQueue.upsert({
                     where:  { dutyProfileId_queueId: { dutyProfileId: profile.id, queueId: queue.id } },
                     create: { dutyProfileId: profile.id, queueId: queue.id },
                     update: {},

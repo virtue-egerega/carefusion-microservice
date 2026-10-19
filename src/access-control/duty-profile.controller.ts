@@ -71,6 +71,20 @@ export class DutyProfileController {
         return this.dutyProfileService.removeQueue(id, queueId);
     }
 
+    // ── Send queues (11 §5.7) ───────────────────────────────────────────────
+
+    @ApiOperation({ summary: "Let the profile put patients on these queues (e.g. reception → billing). Grants no access to the queues' lists." })
+    @Post(':id/send-queues')
+    addSendQueues(@Param('id') id: string, @Body() dto: ManageQueuesDto) {
+        return this.dutyProfileService.addSendQueues(id, dto);
+    }
+
+    @ApiOperation({ summary: 'Stop the profile sending patients to a queue' })
+    @Delete(':id/send-queues/:queueId')
+    removeSendQueue(@Param('id') id: string, @Param('queueId') queueId: string) {
+        return this.dutyProfileService.removeSendQueue(id, queueId);
+    }
+
     // ── Permissions ─────────────────────────────────────────────────────────
 
     @ApiOperation({ summary: 'Add permissions to a duty profile' })

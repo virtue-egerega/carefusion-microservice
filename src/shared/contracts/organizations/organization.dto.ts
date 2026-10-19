@@ -16,6 +16,9 @@ export interface OrganizationDto {
   pobox?: string;
   nfcCardFee: number;
   registrationFee: number;
+  consultationFee: number;
+  consultationPayment: string;
+  maxUnpaidBeforeHold: number;
   patientNumberStart: number;
   neonateMaxDays: number;
   infantBelowYears: number;

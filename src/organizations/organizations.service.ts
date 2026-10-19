@@ -54,6 +54,9 @@ export class OrganizationsService {
                     pobox: org.pobox,
                     nfcCardFee: org.nfcCardFee,
                     registrationFee: org.registrationFee,
+                    consultationFee: org.consultationFee,
+                    consultationPayment: org.consultationPayment as $Enums.ConsultationPayment | undefined,
+                    maxUnpaidBeforeHold: org.maxUnpaidBeforeHold,
                     patientNumberStart: org.patientNumberStart,
                     neonateMaxDays: org.neonateMaxDays,
                     infantBelowYears: org.infantBelowYears,
@@ -204,6 +207,8 @@ export class OrganizationsService {
             healthcareNetworkName: organization.healthcareNetworkName ?? undefined,
             nfcCardFee:  organization.nfcCardFee as unknown as number,
             registrationFee: organization.registrationFee as unknown as number,
+            consultationFee: organization.consultationFee as unknown as number,
+            maxUnpaidBeforeHold: organization.maxUnpaidBeforeHold as unknown as number,
         };
         return organizationAccount;
 
@@ -227,6 +232,7 @@ export class OrganizationsService {
                 paymentPlan: updateOrganizationDto.paymentPlan as $Enums.PaymentPlan ?? undefined,
                 businessType: updateOrganizationDto.businessType as $Enums.BusinessType ?? undefined,
                 orgType: updateOrganizationDto.orgType as $Enums.OrgType ?? undefined,
+                consultationPayment: updateOrganizationDto.consultationPayment as $Enums.ConsultationPayment ?? undefined,
             };
 
             const organization = await this.databaseService.client.organization.update({
@@ -247,6 +253,8 @@ export class OrganizationsService {
             healthcareNetworkName: organization.healthcareNetworkName ?? undefined,
             nfcCardFee:  organization.nfcCardFee as unknown as number,
             registrationFee: organization.registrationFee as unknown as number,
+            consultationFee: organization.consultationFee as unknown as number,
+            maxUnpaidBeforeHold: organization.maxUnpaidBeforeHold as unknown as number,
         };
             return organizationAccount;
 
@@ -282,6 +290,8 @@ export class OrganizationsService {
             healthcareNetworkName: organization.healthcareNetworkName ?? undefined,
             nfcCardFee:  organization.nfcCardFee as unknown as number,
             registrationFee: organization.registrationFee as unknown as number,
+            consultationFee: organization.consultationFee as unknown as number,
+            maxUnpaidBeforeHold: organization.maxUnpaidBeforeHold as unknown as number,
         };
         return organizationAccount;
 
@@ -309,6 +319,8 @@ export class OrganizationsService {
             healthcareNetworkName: organization.healthcareNetworkName ?? undefined,
             nfcCardFee:  organization.nfcCardFee as unknown as number,
             registrationFee: organization.registrationFee as unknown as number,
+            consultationFee: organization.consultationFee as unknown as number,
+            maxUnpaidBeforeHold: organization.maxUnpaidBeforeHold as unknown as number,
         };
         return organizationAccount;
 
@@ -415,6 +427,8 @@ export class OrganizationsService {
             healthcareNetworkName: organization.healthcareNetworkName ?? undefined,
             nfcCardFee:  organization.nfcCardFee as unknown as number,
             registrationFee: organization.registrationFee as unknown as number,
+            consultationFee: organization.consultationFee as unknown as number,
+            maxUnpaidBeforeHold: organization.maxUnpaidBeforeHold as unknown as number,
         };
     }
 }

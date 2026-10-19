@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional, IsArray, IsEmail, IsNotEmpty, IsEnum, IsDecimal, IsInt, Min, Max } from 'class-validator';
-import { BusinessType, OrgType, PaymentPlan } from '@shared/enums/organizations/organization.enums';
+import { BusinessType, ConsultationPayment, OrgType, PaymentPlan } from '@shared/enums/organizations/organization.enums';
 
 export class CreateOrganizationDto {
 
@@ -123,6 +123,33 @@ export class CreateOrganizationDto {
   @IsNotEmpty()
   @IsDecimal()
   registrationFee!: number;
+
+  @ApiProperty({
+    description: 'Consultation fee posted when a patient is checked in to a clinic (11 §10.4); 0 = free',
+    example: '5000.00',
+    required: false,
+  })
+  @IsOptional()
+  @IsDecimal()
+  consultationFee?: number;
+
+  @ApiProperty({
+    enum: ConsultationPayment,
+    required: false,
+    description: "BEFORE (default): the doctor's task waits until the visit's bill is paid; vitals and triage go ahead. AFTER: the patient pays everything at the end. Emergencies never wait (11 §6).",
+  })
+  @IsOptional()
+  @IsEnum(ConsultationPayment)
+  consultationPayment?: ConsultationPayment;
+
+  @ApiProperty({
+    description: "A patient owing no more than this, beyond their account's credit limit, isn't held for payment (default 0)",
+    example: '2000.00',
+    required: false,
+  })
+  @IsOptional()
+  @IsDecimal()
+  maxUnpaidBeforeHold?: number;
 
   @ApiProperty({ description: 'NEONATE up to this many days (default 28)', required: false, example: 28 })
   @IsOptional()

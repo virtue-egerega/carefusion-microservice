@@ -10,6 +10,9 @@ export const isUniqueViolation = (e: unknown) => isKnown(e, 'P2002');
 /** Foreign key violated (P2003): the referenced row doesn't exist. */
 export const isForeignKeyViolation = (e: unknown) => isKnown(e, 'P2003');
 
+/** The row to update wasn't found, or no longer matches the update's conditions (P2025). */
+export const isRecordNotFound = (e: unknown) => isKnown(e, 'P2025');
+
 /**
  * Lets a write rely on DB constraints instead of a pre-check query: runs fn and maps
  * FK / unique violations to 404 / 409 with the given messages.

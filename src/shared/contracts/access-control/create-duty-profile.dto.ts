@@ -24,6 +24,12 @@ export class CreateDutyProfileDto {
     @IsOptional()
     queueIds?: string[];
 
+    @ApiProperty({ description: "Queue ids the profile may send patients to (e.g. billing); grants no access to their lists", type: [String], required: false })
+    @IsArray()
+    @IsUUID('all', { each: true })
+    @IsOptional()
+    sendQueueIds?: string[];
+
     @ApiProperty({ description: 'Permission keys to grant, e.g. ["patient.view","vitals.record"]', type: [String], required: false })
     @IsArray()
     @IsString({ each: true })

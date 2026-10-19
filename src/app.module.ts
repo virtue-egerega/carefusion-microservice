@@ -18,6 +18,7 @@ import { DepartmentsModule } from './departments/departments.module';
 import { AuthModule } from './auth/auth.module';
 import { AccessControlModule } from './access-control/access-control.module';
 import { StaffModule } from './staff/staff.module';
+import { EncountersModule } from './encounters/encounters.module';
 
 @Module({
     imports: [
@@ -38,6 +39,7 @@ import { StaffModule } from './staff/staff.module';
         AuthModule,
         AccessControlModule,
         StaffModule,
+        EncountersModule,
     ],
     controllers: [AppController],
     providers: [AppService],

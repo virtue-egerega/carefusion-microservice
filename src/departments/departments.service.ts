@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from './departments.catalog';
+import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from './departments.catalog';
 
 export type UpdateDepartmentDto = { name?: string; isActive?: boolean; updatedBy?: string };
 export type UpdateQueueDto     = { name?: string; isActive?: boolean; updatedBy?: string };
@@ -39,6 +39,21 @@ export class DepartmentsService {
             where: { systemKey: { in: RETIRED_QUEUE_KEYS }, deletedAt: null },
             data:  { isActive: false, deletedAt: new Date() },
         });
+
+        for (const clinic of CLINIC_CATALOG) {
+            await prisma.clinic.upsert({
+                where: { systemKey: clinic.systemKey },
+                create: {
+                    systemKey: clinic.systemKey,
+                    name: clinic.name,
+                    isActive: activeKeys.has(clinic.departmentKey),
+                    department: { connect: { systemKey: clinic.departmentKey } },
+                    triageQueue: { connect: { systemKey: clinic.triageQueue } },
+                    consultationQueue: { connect: { systemKey: clinic.consultationQueue } },
+                },
+                update: {},
+            });
+        }
     }
 
     async findAll() {

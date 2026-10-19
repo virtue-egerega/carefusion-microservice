@@ -27,6 +27,9 @@ model Organization {
   pobox                 String?
   nfcCardFee            Decimal @default(1000.00)
   registrationFee       Decimal @default(0.00)
+  consultationFee       Decimal @default(0.00) // posted at check-in to a clinic (11 §10.4); one flat fee until the price catalog (11 Q5)
+  consultationPayment   ConsultationPayment @default(BEFORE) // pay before seeing the doctor, or everything at the end (11 §6)
+  maxUnpaidBeforeHold   Decimal @default(0.00) // a patient owing no more than this (beyond their credit limit) isn't held (11 §6)
   patientNumberStart    Int     @default(1001) // first patient number; numbers never go below it (06 §3). Raised, never lowered.
   // Age-group settings (06 §2.7). Early-life bands default to the standard values; the hospital may change them.
   neonateMaxDays        Int     @default(28)    // NEONATE up to this many days
@@ -53,6 +56,7 @@ model Organization {
   payers                 Payer[]
   financialRequests      FinancialRequest[]
   approvalPolicies       ApprovalPolicy[]
+  encounters             Encounter[]
 
 }
 
@@ -80,6 +84,8 @@ model Branch {
   accountEntries AccountEntry[]
   staff          HospitalStaff[]
   patients       Patient[]
+  encounters     Encounter[]
+  queueEntries   QueueEntry[]
 
   @@index([organizationId])
 }
@@ -169,12 +175,26 @@ model DutyProfile {
 
   department  Department? @relation(fields: [departmentId], references: [id])
   queues      DutyProfileQueue[]
+  sendQueues  DutyProfileSendQueue[]
   permissions DutyProfilePermission[]
   assignments StaffAssignment[]
   approvalLimits ApprovalLimit[]
 }
 
 model DutyProfileQueue {
+  id            String @id @default(uuid())
+  dutyProfileId String
+  queueId       String
+
+  dutyProfile DutyProfile @relation(fields: [dutyProfileId], references: [id], onDelete: Cascade)
+  queue       Queue       @relation(fields: [queueId], references: [id], onDelete: Cascade)
+
+  @@unique([dutyProfileId, queueId])
+}
+
+// Queues this profile may put patients on (11 §5.7): reception → billing, nursing stations. Unlike
+// DutyProfileQueue it grants no access to the queue's list or its patients (05 §7).
+model DutyProfileSendQueue {
   id            String @id @default(uuid())
   dutyProfileId String
   queueId       String
@@ -226,6 +246,8 @@ model Department {
   staff        HospitalStaff[]
   queues       Queue[]
   dutyProfiles DutyProfile[]
+  encounters   Encounter[]
+  clinics      Clinic[]
 }
 
 model Queue {
@@ -242,6 +264,33 @@ model Queue {
 
   department        Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   dutyProfileQueues DutyProfileQueue[]
+  sendingProfiles   DutyProfileSendQueue[]
+  entries           QueueEntry[]
+  triageForClinics  Clinic[]   @relation("ClinicTriage")
+  doctorsForClinics Clinic[]   @relation("ClinicConsultation")
+
+  @@index([departmentId])
+}
+
+// What a patient comes to see (11 §3.3): reception checks patients into clinics, not departments.
+// System-defined like queues (departments.catalog.ts); hospitals may rename or deactivate them.
+// Several clinics can share one nursing station (Diabetes and Hypertension → Medical Nursing Station).
+model Clinic {
+  id                  String     @id @default(uuid())
+  systemKey           String     @unique
+  name                String
+  departmentId        String                         // who runs it
+  triageQueueId       String                         // the nursing station patients wait at first
+  consultationQueueId String                         // the doctors' task list
+  isActive            Boolean    @default(true)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  updatedBy           String?
+
+  department          Department @relation(fields: [departmentId], references: [id])
+  triageQueue         Queue      @relation("ClinicTriage", fields: [triageQueueId], references: [id])
+  consultationQueue   Queue      @relation("ClinicConsultation", fields: [consultationQueueId], references: [id])
+  encounters          Encounter[]
 
   @@index([departmentId])
 }
@@ -318,6 +367,8 @@ model Patient {
   principalPolicies         Policy[]               @relation("PolicyPrincipal")
   coverages                 Coverage[]
   charges                   Charge[]
+  encounters                Encounter[]
+  queueEntries              QueueEntry[]
 
   @@unique([hospitalId, patientNumber])
 
@@ -424,6 +475,7 @@ model Appointment {
   deletedAt                   DateTime?       // soft delete
   deletedBy                   String?
   consultationType            ConsultationType @relation(fields: [consultationTypeId], references: [id], onDelete: NoAction)
+  encounter                   Encounter?
 
   @@index([patientId])
   @@index([hospitalId])
@@ -431,6 +483,112 @@ model Appointment {
   @@index([checkinAt])
   @@index([status])
   @@index([doctorId])
+}
+
+
+// ============ ENCOUNTERS & QUEUES (PRD 11) ============
+// Constraints Prisma can't express (partial unique indexes) live in the migration SQL — see 11 §4, §5.1.
+
+model Encounter {
+  id                 String          @id @default(uuid())
+  organizationId     String
+  patientId          String
+  branchId           String
+  encounterType      EncounterType   @default(OUTPATIENT)
+  status             EncounterStatus @default(OPEN)
+  visitType          VisitType                            // how the patient came: walk-in, referral, ambulance…
+  departmentId       String                               // the clinic's department (or Emergency); the ward's department once admitted
+  clinicId           String?                              // the clinic the patient came to see (11 §3.3); null for emergency arrivals
+  appointmentId      String?         @unique              // when checked in from a booking (07)
+  parentEncounterId  String?                              // a newborn's encounter → the mother's delivery encounter (11 §4.2)
+  followUpOfId       String?                              // the earlier encounter this one follows up (11 §15.3)
+  attendingStaffId   String?                              // responsible clinician; consultant for inpatients
+  reasonForVisit     String?                              // the chief complaint, recorded by the nurse at triage (11 §8), never by reception
+  ageAtArrivalDays   Int?                                 // snapshot at check-in (06 §2.7); null if DOB unknown
+  ageGroup           AgeGroup?                            // snapshot under the cutoffs in force that day
+  acuity             Acuity?                              // latest emergency triage acuity, for task-list ordering
+  coverageId         String?                              // chosen at check-in (10 §5); null = self-pay
+  referringFacility  String?
+  referringClinician String?
+  isMedicoLegal      Boolean         @default(false)
+  policeReportNumber String?
+  arrivedAt          DateTime        @default(now())
+  firstSeenAt        DateTime?                            // first clinician contact (door-to-clinician)
+  disposition        Disposition?
+  dispositionAt      DateTime?
+  dispositionBy      String?
+  dispositionNote    String?
+  dischargedAt       DateTime?
+  closedAt           DateTime?                            // when the last task was completed or cancelled (11 §14)
+  closedBy           String?
+  closedAtQueueId    String?                              // the station that finished the last task
+  cancelledReason    String?
+  createdBy          String
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  organization       Organization    @relation(fields: [organizationId], references: [id])
+  patient            Patient         @relation(fields: [patientId], references: [id])
+  branch             Branch          @relation(fields: [branchId], references: [id])
+  department         Department      @relation(fields: [departmentId], references: [id])
+  clinic             Clinic?         @relation(fields: [clinicId], references: [id])
+  appointment        Appointment?    @relation(fields: [appointmentId], references: [id])
+  parent             Encounter?      @relation("EncounterChain", fields: [parentEncounterId], references: [id])
+  children           Encounter[]     @relation("EncounterChain")
+  followUpOf         Encounter?      @relation("FollowUp", fields: [followUpOfId], references: [id])
+  followUps          Encounter[]     @relation("FollowUp")
+  coverage           Coverage?       @relation(fields: [coverageId], references: [id])
+  queueEntries       QueueEntry[]
+  charges            Charge[]
+
+  @@index([patientId, arrivedAt])
+  @@index([branchId, status, encounterType])
+}
+
+// A patient's place at one station (11 §5)
+model QueueEntry {
+  id              String           @id @default(uuid())
+  encounterId     String
+  patientId       String                              // denormalised for worklist queries
+  queueId         String
+  branchId        String
+  ticketNumber    Int                                 // per queue, per branch, per day (11 §5.4)
+  priority        QueuePriority    @default(ROUTINE)
+  priorityReason  String?
+  status          QueueEntryStatus @default(WAITING)
+  holdReason      HoldReason?                         // when status = HELD
+  roomId          String?
+  sourceType      String?                             // what the task is for: "ENCOUNTER_BILL" (a billing task), "LAB_ORDER"…
+  sourceId        String?
+  fromEntryId     String?                             // the entry that routed the patient here
+  enteredAt       DateTime         @default(now())
+  readyAt         DateTime         @default(now())    // when it became callable (after a hold); orders the queue
+  calledAt        DateTime?
+  calledBy        String?
+  callCount       Int              @default(0)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  servedBy        String?                             // who did the work: for a doctors' task, the doctor the patient saw
+  outcomeNote     String?
+  createdBy       String
+
+  encounter       Encounter        @relation(fields: [encounterId], references: [id])
+  patient         Patient          @relation(fields: [patientId], references: [id])
+  queue           Queue            @relation(fields: [queueId], references: [id])
+  branch          Branch           @relation(fields: [branchId], references: [id])
+  fromEntry       QueueEntry?      @relation("QueueRouting", fields: [fromEntryId], references: [id])
+  routedTo        QueueEntry[]     @relation("QueueRouting")
+
+  @@index([queueId, branchId, status, priority, readyAt])
+  @@index([encounterId, status])
+  @@index([sourceType, sourceId])
+}
+
+/// Counters incremented in one SQL statement (INSERT … ON CONFLICT … RETURNING), so concurrent
+/// check-ins never share a number. Today: queue tickets per queue per branch per day (11 §5.4).
+model SequenceCounter {
+  scope      String @id   // "ticket:<queueId>:<branchId>:2026-10-19"
+  lastNumber Int
 }
 
 
@@ -619,6 +777,7 @@ model Coverage {
   patient      Patient      @relation(fields: [patientId], references: [id])
   charges      Charge[]
   allocations  ChargeAllocation[]
+  encounters   Encounter[]
 
   @@unique([policyId, patientId])
   @@index([patientId, status])
@@ -631,6 +790,7 @@ model Charge {
   patientId        String
   branchId         String
   appointmentId    String?
+  encounterId      String?                         // the visit it was incurred in (11 §17); null for registration fees
   billingAccountId String          // patient's account at posting time (snapshot)
   coverageId       String?
   category         ServiceCategory
@@ -646,6 +806,7 @@ model Charge {
 
   patient          Patient         @relation(fields: [patientId], references: [id])
   branch           Branch          @relation(fields: [branchId], references: [id])
+  encounter        Encounter?      @relation(fields: [encounterId], references: [id])
   billingAccount   BillingAccount  @relation(fields: [billingAccountId], references: [id])
   coverage         Coverage?       @relation(fields: [coverageId], references: [id])
   allocations      ChargeAllocation[]
@@ -655,6 +816,7 @@ model Charge {
   @@index([billingAccountId, createdAt])
   @@index([sourceType, sourceId])
   @@index([appointmentId])
+  @@index([encounterId])
 }
 
 model ChargeAllocation {
@@ -1167,7 +1329,101 @@ enum FinancialReason {
   OTHER
 }
 
+// When patients pay for a consultation (11 §6)
+enum ConsultationPayment {
+  BEFORE   // the doctor's task is held until the visit's bill is paid (vitals and triage go ahead)
+  AFTER    // nothing is held; the patient pays everything at the end
+}
+
 enum PasswordChangeReason {
   ADMIN_RESET   // an admin issued a temporary password; the user must change it at next login
   USER_CHANGE   // the user changed their own password
+}
+
+// ------------ Encounters & queues (PRD 11) ------------
+
+/// Whether the patient was admitted to a bed. Not the kind of visit:
+/// the clinic is clinicId, how they came is visitType.
+enum EncounterType {
+  OUTPATIENT   // not admitted (clinic, emergency, service-only)
+  INPATIENT    // admitted; set once, at bed assignment (11 §13.4), and never reverts
+}
+
+// Open while any station still has a task for the patient (11 §4.1). firstSeenAt records whether
+// a clinician has seen them; disposition records the clinical outcome.
+enum EncounterStatus {
+  OPEN        // at least one task (queue entry) is active, or none finished the visit yet
+  CLOSED      // the last task was completed with nowhere next, or cancelled
+  CANCELLED   // opened in error; nothing clinical recorded
+}
+
+// How the patient came (11 §3.1)
+enum VisitType {
+  WALK_IN
+  APPOINTMENT
+  REFERRAL_IN
+  SELF_PRESENTED_EMERGENCY
+  AMBULANCE
+  POLICE
+  TRANSFER_IN
+  SERVICE_ONLY
+  BIRTH
+}
+
+// Emergency triage acuity (11 §8), as clinical levels; the colour each scale shows is the
+// frontend's concern. Declaration order is most urgent first: task lists sort by it ascending.
+enum Acuity {
+  IMMEDIATE         // treat now
+  VERY_URGENT       // within 10 minutes
+  URGENT            // within 60 minutes
+  ROUTINE           // within 4 hours
+  DEAD_ON_ARRIVAL
+}
+
+enum Disposition {
+  DISCHARGED_HOME
+  TRANSFERRED_OUT
+  REFERRED_OUT
+  LEFT_WITHOUT_BEING_SEEN
+  LEFT_BEFORE_COMPLETION    // seen, then left with tasks unfinished; recorded by staff after following up
+  LEFT_AGAINST_ADVICE
+  ABSCONDED
+  DIED
+  BROUGHT_IN_DEAD
+  SERVICE_COMPLETED
+}
+
+// Same values as the shared AgeGroup enum (06 §2.7)
+enum AgeGroup {
+  NEONATE
+  INFANT
+  UNDER_FIVE
+  CHILD
+  ADOLESCENT
+  ADULT
+  OLDER_ADULT
+}
+
+// Declaration order is the call order: worklists sort by it ascending
+enum QueuePriority {
+  EMERGENCY
+  URGENT
+  ROUTINE
+}
+
+enum QueueEntryStatus {
+  WAITING      // callable
+  HELD         // in the queue but not callable yet (holdReason)
+  CALLED
+  IN_SERVICE
+  COMPLETED
+  NO_SHOW      // reserved: nothing marks a task no-show automatically (11 §5.5)
+  TRANSFERRED
+  CANCELLED
+}
+
+enum HoldReason {
+  AWAITING_PAYMENT   // the payment gate (11 §6)
+  AWAITING_PREAUTH
+  AWAITING_RESULT
 }

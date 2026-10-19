@@ -28,6 +28,7 @@ export class DutyProfileService {
                 data: { name: dto.name, role: dto.role, departmentId: dto.departmentId },
             });
             if (dto.queueIds?.length) await this.linkQueues(created.id, dto.queueIds);
+            if (dto.sendQueueIds?.length) await this.linkSendQueues(created.id, dto.sendQueueIds);
             if (dto.permissionKeys?.length) await this.linkPermissionKeys(created.id, dto.permissionKeys);
             return created;
         });
@@ -70,6 +71,7 @@ export class DutyProfileService {
             include: {
                 department: { select: { id: true, name: true, systemKey: true } },
                 queues: { include: { queue: { select: { id: true, name: true, systemKey: true } } } },
+                sendQueues: { include: { queue: { select: { id: true, name: true, systemKey: true } } } },
                 permissions: { include: { permission: { select: { id: true, key: true, name: true, description: true } } } },
             },
         });
@@ -125,6 +127,24 @@ export class DutyProfileService {
             where: { dutyProfileId: id, queueId },
         });
         await this.requireHoldersRelogin(id);
+        return this.findOne(id);
+    }
+
+    // ── SEND QUEUES ──────────────────────────────────────────────────────────
+    // Checked from the database when a patient is sent (not carried in the token), so changing them
+    // needs no re-login.
+
+    async addSendQueues(id: string, dto: ManageQueuesDto) {
+        await this.assertExists(id);
+        await this.linkSendQueues(id, dto.queueIds);
+        return this.findOne(id);
+    }
+
+    async removeSendQueue(id: string, queueId: string) {
+        await this.assertExists(id);
+        await this.databaseService.client.dutyProfileSendQueue.deleteMany({
+            where: { dutyProfileId: id, queueId },
+        });
         return this.findOne(id);
     }
 
@@ -239,6 +259,21 @@ export class DutyProfileService {
                 update: {},
             });
         }
+    }
+
+    private async linkSendQueues(dutyProfileId: string, queueIds: string[]) {
+        const found = await this.databaseService.client.queue.findMany({
+            where:  { id: { in: queueIds }, isActive: true, deletedAt: null },
+            select: { id: true },
+        });
+        const foundIds = new Set(found.map(q => q.id));
+        const missing = queueIds.filter(id => !foundIds.has(id));
+        if (missing.length) throw new NotFoundException(`Unknown or inactive queues: ${missing.join(', ')}`);
+
+        await this.databaseService.client.dutyProfileSendQueue.createMany({
+            data: queueIds.map(queueId => ({ dutyProfileId, queueId })),
+            skipDuplicates: true,
+        });
     }
 
     private async linkPermissionKeys(dutyProfileId: string, keys: string[]) {

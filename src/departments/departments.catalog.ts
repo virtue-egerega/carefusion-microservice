@@ -1,5 +1,12 @@
 export type QueueEntry = { systemKey: string; name: string };
 export type DeptEntry  = { systemKey: string; name: string; queues: QueueEntry[] };
+export type ClinicEntry = {
+    systemKey: string;
+    name: string;               // what reception picks: "Eye Clinic"
+    departmentKey: string;      // who runs it
+    triageQueue: string;        // the nursing station patients wait at first
+    consultationQueue: string;  // the doctors' task list
+};
 
 // Queues are stations where a kind of work happens (04 §3). They are defined here, never by a
 // hospital; hospitals may only rename or deactivate them. More doctors or rooms in a clinic does
@@ -286,6 +293,31 @@ export const RETIRED_QUEUE_KEYS = [
   'NURSING_QUEUE', 'THEATRE_QUEUE', 'MEDICAL_RECORDS_QUEUE',
   'PEDIATRICS_QUEUE', 'CARDIOLOGY_QUEUE', 'NEUROLOGY_QUEUE', 'ORTHOPEDICS_QUEUE',
   'DENTAL_QUEUE', 'PHYSIOTHERAPY_QUEUE',
+];
+
+// Clinics run inside a department: its nursing station, then a doctors' queue (11 §3.3)
+const specialtyClinic = (systemKey: string, name: string, departmentKey: string, consultationQueue: string): ClinicEntry =>
+    ({ systemKey, name, departmentKey, triageQueue: `${departmentKey}_TRIAGE`, consultationQueue });
+
+/**
+ * What reception checks patients into (11 §3.3). Every department built with the standard clinic
+ * stations runs a main clinic, named after its doctors' queue; some also run specialty clinics
+ * that share the department's nursing station. Departments without clinics (Pharmacy, Laboratory,
+ * Accounts…) are never chosen at reception.
+ */
+export const CLINIC_CATALOG: ClinicEntry[] = [
+    { systemKey: 'GOPD', name: 'General Outpatient (GOPD)', departmentKey: 'OUTPATIENT', triageQueue: 'OUTPATIENT_TRIAGE', consultationQueue: 'GENERAL_CONSULTATION' },
+    ...DEPARTMENT_CATALOG.flatMap(dept => {
+        const consultation = dept.queues.find(q => q.systemKey === `${dept.systemKey}_CONSULTATION`);
+        const hasTriage    = dept.queues.some(q => q.systemKey === `${dept.systemKey}_TRIAGE`);
+        return consultation && hasTriage
+            ? [{ systemKey: dept.systemKey, name: consultation.name, departmentKey: dept.systemKey, triageQueue: `${dept.systemKey}_TRIAGE`, consultationQueue: consultation.systemKey }]
+            : [];
+    }),
+    specialtyClinic('DIABETES',     'Diabetes Clinic',     'INTERNAL_MEDICINE',      'DIABETES_CLINIC'),
+    specialtyClinic('HYPERTENSION', 'Hypertension Clinic', 'INTERNAL_MEDICINE',      'HYPERTENSION_CLINIC'),
+    specialtyClinic('ANTENATAL',    'Antenatal Clinic',    'OBSTETRICS_GYNAECOLOGY', 'ANTENATAL_CLINIC'),
+    specialtyClinic('POSTNATAL',    'Postnatal Clinic',    'OBSTETRICS_GYNAECOLOGY', 'POSTNATAL_CLINIC'),
 ];
 
 export function getActiveKeys(businessType: string): Set<string> {

@@ -1,6 +1,6 @@
 # Feature PRD — Encounters: Arrival, Queues, Consultation, Emergency & Admission
 
-Status: Draft — decisions pending (§20) · Last updated: 2026-10-13
+Status: Draft — Q1–Q3 decided, others pending (§20) · Last updated: 2026-10-19
 Depends on: `04-departments.md` (`Department`, `Queue`), `05-access-control-clinical-scoping.md`
 (`DutyProfile`, `PatientAssignment`, the effective-access rule), `06-patient-management.md`
 (`Patient`, registration), `07-appointment-management.md` (`Appointment`),
@@ -42,28 +42,38 @@ Consultation, vitals, triage, orders and charges all attach to the `Encounter`.
 
 | Term | Meaning here |
 |---|---|
-| **Encounter** | One continuous episode of care at one branch. "Visit" in everyday language. Outpatient encounters usually last hours; inpatient encounters last days or weeks. |
+| **Encounter** | One continuous episode of care at one branch. "Visit" in everyday language. Outpatient encounters usually last hours; inpatient encounters last days or weeks. An emergency visit that ends in admission is **one** encounter. |
+| **Encounter type** | Whether the patient was admitted: `OUTPATIENT` or `INPATIENT`. Not the kind of visit: *GOPD* or *Eye* is the clinic (`clinicId`), *emergency* the department, and how they came is the **visit type** (`visitType`: walk-in, referral, ambulance…). |
+| **Clinic** | What a patient comes to see: "what kind of doctor are you seeing today?" (GOPD, Eye Clinic, Antenatal Clinic). Run by a department, but not every department runs one. Reception checks patients into clinics, never departments (§3.3). |
+| **Nursing station** | A clinic's first station (`<DEPT>_TRIAGE`, e.g. "GOPD Nursing Station"): nurses take vitals and triage before the doctor. Several clinics can share one. The Emergency department's equivalent is its Triage Queue. |
 | **Appointment** | A booking for a future outpatient encounter (`07`). It does nothing clinically until check-in creates the encounter. |
-| **Queue entry / ticket** | The patient's place at one station. An encounter produces many queue entries over its life. |
+| **Queue / task** | A queue is a **staff task list**, not a physical line. A queue entry is one station's task for the patient. A patient can be on several lists at once (lab and pharmacy; on the ward, the medication round and the ward round). The ticket number is what gets called aloud. |
 | **Consultation** | A clinician's structured, signed note within an encounter. An encounter can have several. |
 | **Disposition** | How an encounter ended clinically: home, admitted, transferred, left before being seen, died… |
-| **Discharge vs close** | *Discharged* = clinically finished (the patient may still be at the cashier). *Closed* = financially finished: no more charges can post. |
+| **Closed** | No station has a task for the patient any more: the last task was completed with nowhere next, or cancelled (§14). No more charges can post. |
 
 ## 3. Arrival and Identification
 
 ### 3.1 Every way a patient arrives
 
-| Arrival mode | Typical path | Encounter class |
-|---|---|---|
-| `WALK_IN` | Reception → cashier → triage → doctor | `OUTPATIENT` |
-| `APPOINTMENT` | Check-in of an existing `Appointment` → (cashier) → triage → doctor | `OUTPATIENT` |
-| `REFERRAL_IN` | From another facility with a letter; reception records the referrer | `OUTPATIENT` or `EMERGENCY` |
-| `SELF_PRESENTED_EMERGENCY` | Walks or is carried into the emergency department | `EMERGENCY` |
-| `AMBULANCE` | Brought by ambulance | `EMERGENCY` |
-| `POLICE` | Brought by police (assault, accident, custody): medico-legal by default | `EMERGENCY` |
-| `TRANSFER_IN` | Inter-facility transfer, usually straight to a ward | `INPATIENT` (or `EMERGENCY` first) |
-| `SERVICE_ONLY` | Comes only for a lab test, scan or pharmacy purchase, with no consultation (`01` §3.6, §3.7) | `SERVICE_ONLY` |
-| `BIRTH` | Born in the hospital (newborn registration, `06` §4) | `INPATIENT` (linked to the mother's) |
+| Arrival mode | Typical path | Department | Type at opening |
+|---|---|---|---|
+| `WALK_IN` | Reception → clinic's nursing station → doctor | The clinic's | `OUTPATIENT` |
+| `APPOINTMENT` | Check-in of an existing `Appointment` → nursing station → doctor | The booked clinic's | `OUTPATIENT` |
+| `REFERRAL_IN` | From another facility with a letter. Checked in like a walk-in; the **nursing station** records the referral at triage (§8) | A clinic's, or Emergency | `OUTPATIENT` |
+| `SELF_PRESENTED_EMERGENCY` | Walks or is carried into the emergency department | Emergency | `OUTPATIENT` |
+| `AMBULANCE` | Brought by ambulance | Emergency | `OUTPATIENT` |
+| `POLICE` | Brought by police (assault, accident, custody): medico-legal by default | Emergency | `OUTPATIENT` |
+| `TRANSFER_IN` | Inter-facility transfer, usually straight to a ward | The ward's department (or Emergency first) | `INPATIENT` (or `OUTPATIENT` via Emergency) |
+| `SERVICE_ONLY` | Comes only for a lab test, scan or pharmacy purchase, with no consultation. Standalone Lab and Pharmacy businesses (`01` §4–5); hospital reception sends patients to clinics, not service departments (§16) | Laboratory / Radiology / Pharmacy | `OUTPATIENT` |
+| `BIRTH` | Born in the hospital (newborn registration, `06` §4) | The mother's | `INPATIENT` (linked to the mother's) |
+
+**Emergency is a department, not an encounter type.** An emergency visit is an `OUTPATIENT`
+encounter in the Emergency department. If the patient is sent home it stays `OUTPATIENT`; if
+they're admitted, the same encounter becomes `INPATIENT` (§13.4). Observation in the emergency
+department, even overnight, is not admission. Emergency-specific rules (no payment gate, formal
+triage, quick registration, medico-legal handling) key off the Emergency department and its queues,
+never off the encounter type (§12.2).
 
 ### 3.2 Finding or creating the patient
 
@@ -78,42 +88,92 @@ Consultation, vitals, triage, orders and charges all attach to the `Encounter`.
    printed on a wristband. When identified, either the record is updated or, if it turns out the
    person was already registered, the two records are merged. **[Q 9]**
 
-### 3.3 Opening the encounter
+### 3.3 Check-in: "what kind of doctor are you seeing today?"
 
-On arrival, reception (or emergency triage) records:
+Reception asks the patient which doctor they've come to see, and the patient answers in their own
+words: "a general doctor", "eye doctor", "antenatal". Reception picks the matching **clinic**
+(`GET /clinics`). Departments never appear at reception: Pharmacy, Laboratory, Radiology and
+Accounts run no clinics, and patients reach them only through orders and routing. In a hospital
+you see a doctor first. Walking straight into a specialist clinic is allowed.
 
-- `encounterClass`, `arrivalMode`, `departmentId` (the clinic or service being visited)
-- `reasonForVisit` (in the patient's words, short)
-- **coverage for this encounter** (`10` §5): by default the patient's highest-priority active
-  coverage, or self-pay if the patient chooses. Requires `coverage.select`.
-- referral details, if `REFERRAL_IN`
-- the first `QueueEntry` (§5): usually the cashier or triage queue, depending on the path.
+```prisma
+model Clinic {
+  id                  String  @id @default(uuid())
+  systemKey           String  @unique   // "GOPD", "OPHTHALMOLOGY", "ANTENATAL", "DIABETES"…
+  name                String            // what reception picks: "Eye Clinic"
+  departmentId        String            // who runs it
+  triageQueueId       String            // the nursing station patients wait at first
+  consultationQueueId String            // the doctors' task list
+  isActive            Boolean @default(true)
+}
+```
 
-An encounter can't be opened for a patient who already has an open encounter of the same class at
-the same branch. Reception gets the existing one instead, which stops double check-ins. A patient
-*can* have one open outpatient encounter and one open inpatient encounter at the same time, which
-happens when an admitted patient is taken to an outpatient specialist clinic. **[Q 2]**
+Clinics are system-defined like queues (`CLINIC_CATALOG` in `departments.catalog.ts`) and seeded
+with them; hospitals may rename or deactivate one. Every department built with the standard clinic
+stations runs a main clinic named after its doctors' queue (Eye Clinic, Paediatric Clinic…), plus
+GOPD and the specialty clinics that share a nursing station (Diabetes and Hypertension → Medical
+Nursing Station; Antenatal and Postnatal → O&G Nursing Station).
+
+**Check-in** (`POST /encounters`) records, in one transaction:
+- the encounter, at the clinic (`clinicId`; `departmentId` = the clinic's department), with
+  `visitType = WALK_IN`, the age snapshot, and the coverage (by default the
+  patient's highest-priority active coverage, or self-pay; overriding needs `coverage.select`)
+- the consultation fee (§10.4)
+- a task on each list reception chose (`sendTo`): **billing, the clinic's nursing station, or
+  both**. The default is the nursing station. Anything else must be on reception's send lists
+  (§5.7). Being on both lists at once is normal: the patient pays while the nurse takes their
+  vitals.
+
+**Reception records no clinical details.** The reason for the visit and any referral are recorded
+at the nursing station during triage (§8): the nurse's chief complaint becomes the encounter's
+`reasonForVisit`.
+
+**No doctor is chosen at check-in, or anywhere in the system.** Reception records clinics and
+queues, never a doctor. A patient who wants a particular doctor sorts it out where the doctors' list
+is, offline; the system doesn't need to know who they wanted. It records only **who they eventually
+saw**: the doctor who starts or completes their task on the doctors' list (`servedBy`). Any doctor
+working that list (through their duty profiles, whatever their own department) can take any patient
+on it.
+
+**Billing and nursing tasks are never held.** When the hospital collects before consultation, it's
+the **doctor's** task that waits for payment (§6). Hospitals usually have patients fund their account
+first, often before registration, so the account's credit usually pays the fee at check-in.
+
+**One open encounter per patient per branch.** If the patient has an unfinished visit (§14.2),
+check-in answers `409` with code `OPEN_ENCOUNTER`. Reception then either:
+- **continues it** (`continueEncounter: true`): the clinic they came for now becomes the
+  encounter's clinic and its nursing station gets a task. Returning to the same clinic isn't
+  charged again; or
+- **follows it up first**: cancels its remaining tasks with the reason (§14.2), which closes it,
+  then checks in afresh.
+
+`GET /encounters/open?patientId=` shows the unfinished visit and its remaining tasks.
+
+Registration (`06`) and check-in are separate acts, usually one after the other at the same desk.
+Emergency arrivals don't go through clinic check-in: they're taken to the Emergency department's
+Triage Queue (§12). Appointment check-in uses the booked clinic (`07`).
 
 ## 4. `Encounter`
 
 ```prisma
 model Encounter {
   id                String          @id @default(uuid())
-  encounterNumber   String          @unique              // human-readable, e.g. "E-2026-004211"
+  organizationId    String                               // tenant scope without joining the branch
   patientId         String
   branchId          String
-  encounterClass    EncounterClass
-  status            EncounterStatus @default(ARRIVED)
-  arrivalMode       ArrivalMode
-  departmentId      String?                              // clinic / service visited (Outpatient, Dental, Emergency…)
+  encounterType     EncounterType   @default(OUTPATIENT)
+  status            EncounterStatus @default(OPEN)
+  visitType         VisitType                            // how the patient came (§3.1)
+  departmentId      String                               // the clinic's department (or Emergency); the ward's department once admitted
+  clinicId          String?                              // the clinic the patient came to see (§3.3); null for emergency arrivals
   appointmentId     String?         @unique              // when checked in from a booking (07)
-  parentEncounterId String?                              // e.g. the ED encounter an admission came from
+  parentEncounterId String?                              // a newborn's encounter → the mother's delivery encounter (§4.2)
   followUpOfId      String?                              // the earlier encounter this one follows up (§15.3)
   attendingStaffId  String?                              // responsible clinician; consultant for inpatients
-  reasonForVisit    String?
+  reasonForVisit    String?                              // the chief complaint, recorded by the nurse at triage (§8)
   ageAtArrivalDays  Int?                                 // snapshot: age on the day the encounter opened (06 §2.7); null if DOB unknown
   ageGroup          AgeGroup?                            // snapshot: group under the cutoffs in force that day
-  acuity            Acuity?                              // latest triage acuity, denormalised for queue ordering
+  acuity            Acuity?                              // latest emergency triage acuity, for task-list ordering
   coverageId        String?                              // chosen at check-in (10 §5); null = self-pay
   referringFacility String?
   referringClinician String?
@@ -125,9 +185,10 @@ model Encounter {
   dispositionAt     DateTime?
   dispositionBy     String?
   dispositionNote   String?
-  dischargedAt      DateTime?
-  closedAt          DateTime?
+  dischargedAt      DateTime?                            // inpatients: physical discharge from the ward
+  closedAt          DateTime?                            // the last task was completed or cancelled (§14)
   closedBy          String?
+  closedAtQueueId   String?                              // the station that finished the last task
   cancelledReason   String?
   createdBy         String
   createdAt         DateTime        @default(now())
@@ -135,7 +196,7 @@ model Encounter {
 
   patient           Patient         @relation(fields: [patientId], references: [id])
   branch            Branch          @relation(fields: [branchId], references: [id])
-  department        Department?     @relation(fields: [departmentId], references: [id])
+  department        Department      @relation(fields: [departmentId], references: [id])
   appointment       Appointment?    @relation(fields: [appointmentId], references: [id])
   parent            Encounter?      @relation("EncounterChain", fields: [parentEncounterId], references: [id])
   children          Encounter[]     @relation("EncounterChain")
@@ -146,29 +207,27 @@ model Encounter {
   triages           TriageAssessment[]
   vitals            Vitals[]
   consultations     Consultation[]
-  admission         Admission?
+  admissions        Admission[]                          // at most one ADMITTED; earlier requests may be CANCELLED
   charges           Charge[]
 
   @@index([patientId, arrivedAt])
-  @@index([branchId, status, encounterClass])
+  @@index([branchId, status, encounterType])
 }
 
-enum EncounterClass {
-  OUTPATIENT
-  EMERGENCY
-  INPATIENT
-  SERVICE_ONLY      // lab / imaging / pharmacy only, no consultation
+/// Whether the patient was admitted to a bed. Not the kind of visit:
+/// the clinic is clinicId, how they came is visitType.
+enum EncounterType {
+  OUTPATIENT   // not admitted (clinic, emergency, service-only)
+  INPATIENT    // admitted; set once, at bed assignment (§13.4), and never reverts
 }
 
 enum EncounterStatus {
-  ARRIVED           // checked in, not yet seen by a clinician
-  IN_PROGRESS       // seen by at least one clinician
-  DISCHARGED        // clinical disposition recorded; may still owe at the cashier
-  CLOSED            // financially closed: no further charges may post
+  OPEN              // some station still has a task for the patient
+  CLOSED            // the last task was completed with nowhere next, or cancelled (§14)
   CANCELLED         // opened in error; nothing clinical recorded
 }
 
-enum ArrivalMode {
+enum VisitType {
   WALK_IN
   APPOINTMENT
   REFERRAL_IN
@@ -180,27 +239,39 @@ enum ArrivalMode {
   BIRTH
 }
 
+// Clinical levels, most urgent first. The colour a scale shows (SATS red/orange/yellow/green/blue)
+// is the frontend's concern.
 enum Acuity {
-  RED               // immediate
-  ORANGE            // very urgent (≤10 min)
-  YELLOW            // urgent (≤60 min)
-  GREEN             // routine (≤4 h)
-  BLUE              // dead on arrival
+  IMMEDIATE         // treat now
+  VERY_URGENT       // within 10 minutes
+  URGENT            // within 60 minutes
+  ROUTINE           // within 4 hours
+  DEAD_ON_ARRIVAL
 }
 
 enum Disposition {
   DISCHARGED_HOME
-  ADMITTED                  // an INPATIENT child encounter was opened (§13)
   TRANSFERRED_OUT           // to another facility
   REFERRED_OUT              // sent elsewhere for care, not as an inpatient transfer
   LEFT_WITHOUT_BEING_SEEN   // left before a clinician saw them
+  LEFT_BEFORE_COMPLETION    // seen, then left with tasks unfinished; recorded after following up (§14.2)
   LEFT_AGAINST_ADVICE       // discharged against medical advice (DAMA), documented
   ABSCONDED                 // left without notice after being seen / while admitted
   DIED
   BROUGHT_IN_DEAD
-  SERVICE_COMPLETED         // SERVICE_ONLY encounters
+  SERVICE_COMPLETED         // service-only visits (visitType = SERVICE_ONLY)
 }
 ```
+
+There is no `ADMITTED` disposition. Admission doesn't end the encounter: it changes its type and
+the encounter carries on (§13.4). "Emergency visits that ended in admission" are emergency
+encounters with an `ADMITTED` `Admission`.
+
+**Integrity rule** (migration SQL): one encounter per `(patientId, branchId)` with
+`status = 'OPEN'` (§3.3).
+
+All encounter enums are mirrored in `src/shared/enums/encounters/encounter.enums.ts` and served to
+the frontend by `GET /enums` (`encounters` group); a spec keeps them identical to the schema.
 
 **Age snapshot.** `ageAtArrivalDays` and `ageGroup` are computed from the patient's date of birth
 and the organisation's cutoffs when the encounter opens, and never recalculated. Reports, billing
@@ -213,35 +284,56 @@ calls.
 ### 4.1 Lifecycle
 
 ```
-ARRIVED ──first clinician contact──▶ IN_PROGRESS ──disposition──▶ DISCHARGED ──bill closed──▶ CLOSED
-   │                                                                  ▲
-   └──── left before being seen (LEFT_WITHOUT_BEING_SEEN) ────────────┘
-ARRIVED ──opened in error, nothing recorded──▶ CANCELLED
+check-in ──▶ OPEN ──last task completed (nowhere next) or cancelled──▶ CLOSED
+OPEN ──opened in error, nothing recorded──▶ CANCELLED
 ```
 
-- **`firstSeenAt`** is set by the first triage, vitals, consultation or service-delivery action.
-  It's the door-to-clinician timestamp.
-- **Disposition** is a clinical decision (§14). Recording it ends the clinical part and closes or
-  redirects every open queue entry.
-- **`DISCHARGED` → `CLOSED`** happens when the encounter's charges are final (§14.3). Outpatient
-  encounters close automatically **[Q 3]**. Inpatient encounters close through discharge billing
-  clearance (§13.8).
-- **`CANCELLED`** is only allowed while nothing clinical or financial is attached. Otherwise the
-  encounter needs a disposition.
+**An encounter is open while any station still has a task for the patient.** Queues are staff
+task lists (§5), and the encounter's tasks are its queue entries. When a station finishes its task
+it either sends the patient on (a new task elsewhere) or lets them go. If it lets them go and no
+other station still has a task for them, the encounter closes there: pharmacy after dispensing,
+the cashier after payment, the lab after the sample, the doctor after the consultation, whichever
+is last. Sent to lab and pharmacy, lab finishes first: the pharmacy task is still there, so the
+encounter stays open until pharmacy finishes.
+
+- **`firstSeenAt`** is set the first time any task of the encounter is started or completed. It's
+  the door-to-clinician timestamp, and the only "has anyone seen them" state needed.
+- **`disposition`** is the clinical outcome (died, referred out, left against advice, left before
+  being seen…). Doctors record it where it matters; staff following up a patient who left record
+  it when cancelling their last task (§14.2). It doesn't open or close anything.
+- **Admission** is not a status change. `encounterType` goes `OUTPATIENT` → `INPATIENT` at bed
+  assignment (§13.4), once. The admitted patient's **ward task** stays on the ward's list for the
+  whole stay (§13.6), so the encounter stays open between medication rounds and ward rounds;
+  physical discharge completes it.
+- **Nothing closes on its own.** A patient who walks out leaves their tasks open. It's the
+  hospital's duty to reach them and record what happened (§14.2).
+- **`CANCELLED`** is only allowed while nothing clinical or financial is attached.
 
 ### 4.2 Linked encounters
 
-- **Emergency → admission:** the admission is a **new `INPATIENT` encounter** whose
-  `parentEncounterId` points at the emergency encounter. The emergency encounter ends with
-  `disposition = ADMITTED`. **[Q 2]**
+What is **not** a new encounter:
+- **Emergency → admission, clinic → admission:** the same encounter. It becomes `INPATIENT` at bed
+  assignment (§13.4). Time in the emergency department is `arrivedAt` → `Admission.admittedAt`;
+  boarding time is `Admission.requestedAt` → `admittedAt`. A payer that wants the emergency part
+  and the stay claimed separately gets them split at `admittedAt`.
+- **Inpatient → specialist clinic → back to ward:** a queue entry in the clinic's queue and a
+  `Consultation(REFERRAL)`, within the inpatient encounter.
 - **Inpatient → theatre → back to ward:** stays *within* the inpatient encounter. Theatre is a
   queue and a procedure record, not a new encounter (the Theatre PRD).
+
+What **is** a new encounter, linked:
 - **Mother → newborn:** the baby's `INPATIENT` encounter has `parentEncounterId` = the mother's
   delivery encounter. The two are linked, but the baby's care is billed and recorded separately.
 - **Follow-up:** `followUpOfId` points at the encounter being followed up. This drives the
-  follow-up fee window (§15.3).
+  follow-up fee window (§15.3). Coming back to have a result looked at by a doctor is a follow-up
+  encounter when the original has closed (§14).
 
-## 5. `QueueEntry`: a patient's place at a station
+## 5. `QueueEntry`: a station's task for the patient
+
+**Queues are staff task lists, not physical lines.** A queue entry is one station's task for the
+patient: "take this patient's vitals", "see this patient", "dispense this prescription", "give the
+8pm drugs". A patient can be on several lists at once (lab and pharmacy; on a ward, the medication
+round and the ward round), and the encounter stays open while any of them still has a task (§4.1).
 
 ### 5.1 Model
 
@@ -252,18 +344,17 @@ model QueueEntry {
   patientId       String                              // denormalised for worklist queries
   queueId         String
   branchId        String
-  ticketNumber    String                              // "OPD-023": per queue, per day (§5.4)
+  ticketNumber    Int                                 // per queue, per branch, per day (§5.4)
   priority        QueuePriority    @default(ROUTINE)
   priorityReason  String?                             // why it was raised (audited)
   status          QueueEntryStatus @default(WAITING)
   holdReason      HoldReason?                         // when status = HELD
-  assignedStaffId String?                             // a specific clinician (booked doctor, named referral)
   roomId          String?
-  sourceType      String?                             // what put them here: "LAB_ORDER", "PRESCRIPTION", "REFERRAL"…
+  sourceType      String?                             // what put them here or holds them: "CONSULTATION_FEE", "LAB_ORDER"…
   sourceId        String?
   fromEntryId     String?                             // the entry that routed the patient here
   enteredAt       DateTime         @default(now())
-  readyAt         DateTime         @default(now())    // when it became callable (after a hold); orders the queue
+  readyAt         DateTime         @default(now())    // when it became workable (after a hold); orders the list
   calledAt        DateTime?
   calledBy        String?
   callCount       Int              @default(0)
@@ -280,7 +371,6 @@ model QueueEntry {
 
   @@index([queueId, status, priority, readyAt])
   @@index([encounterId, status])
-  @@index([assignedStaffId, status])
 }
 
 enum QueuePriority {
@@ -292,70 +382,74 @@ enum QueuePriority {
 enum QueueEntryStatus {
   WAITING          // callable
   HELD             // in the queue but not callable yet (holdReason)
-  CALLED           // called to the station; patient walking over
+  CALLED           // the patient was called for this task
   IN_SERVICE       // being attended to
   COMPLETED
-  NO_SHOW          // called repeatedly, didn't come (§5.5)
+  NO_SHOW          // reserved; not set automatically (§5.5)
   TRANSFERRED      // moved to another queue without being served here
   CANCELLED        // order cancelled / encounter ended
 }
 
 enum HoldReason {
-  AWAITING_PAYMENT     // the payment gate (§6)
+  AWAITING_PAYMENT     // a clinic doctors' task waiting for the visit's bill (§6)
   AWAITING_PREAUTH     // payer pre-authorisation pending (10 §6.3)
   AWAITING_RESULT      // e.g. doctor review waiting on a lab result
-  PATIENT_AWAY         // patient is being served at another station (§5.6)
 }
 ```
 
-**Database integrity rules** (in migration SQL, since Prisma can't express them):
-- At most one *active* entry (`WAITING`, `HELD`, `CALLED`, `IN_SERVICE`) per encounter per queue.
-- At most one `CALLED` or `IN_SERVICE` entry per encounter across all patient-facing queues.
-  A person can only be physically in one place.
+**Database integrity rule** (in migration SQL, since Prisma can't express it): at most one
+*active* task (`WAITING`, `HELD`, `CALLED`, `IN_SERVICE`) per encounter per queue. There is **no**
+"one task in service at a time" rule: a nurse can give drugs while a doctor does the ward round.
 
 ### 5.2 Ordering
 
 A queue's callable list is the `WAITING` entries ordered by **priority** (`EMERGENCY` > `URGENT` >
-`ROUTINE`), then **acuity** for emergency queues (RED > ORANGE > YELLOW > GREEN), then
-**`readyAt`**. `readyAt` is reset when a hold is released, so time spent unpaid doesn't count as
-time in line. **[Q 4]** Booked appointments are ordered by their slot time, plus a configurable
+`ROUTINE`), then **acuity** for emergency queues (`IMMEDIATE` > `VERY_URGENT` > `URGENT` > `ROUTINE`),
+then **`readyAt`**. `readyAt` is reset when a hold is released, so time spent unpaid doesn't count
+as time waiting. **[Q 4]** Booked appointments are ordered by their slot time, plus a configurable
 grace window; walk-ins fill the gaps. **[Q 10]**
 
 Raising priority requires `queue.manage` and a `priorityReason`, and is audited.
 
-### 5.3 Calling and serving
+### 5.3 Working a task
 
-- **Call next:** an atomic update (`… WHERE status = 'WAITING'`). Two doctors pressing "call next"
-  at once can never get the same patient. Sets `CALLED`, `calledAt`, `calledBy`, `callCount + 1`,
-  and the room.
-- **Start:** `IN_SERVICE`, `startedAt`. The first clinical start sets `Encounter.firstSeenAt` and
-  moves the encounter to `IN_PROGRESS`.
-- **Complete:** `COMPLETED`, `completedAt`, `servedBy`. The clinician then routes the patient
-  (§5.7).
-- **Assigned entries:** an entry with `assignedStaffId` only appears in that clinician's "call
-  next", unless reassigned. Unassigned entries can be called by anyone on duty in that queue.
+Built as `POST /queue-entries/:id/{call,start,complete,cancel}`. Only tasks on queues in the
+caller's duty profiles, at their branch (`05` §7); anything else is a 404. Each move is an update
+conditioned on the task's current status, so two staff acting at once can't both succeed: the
+second gets "changed by someone else; refresh".
+
+| Action | From | Effect |
+|---|---|---|
+| **call** (`queue.call`) | `WAITING`, `CALLED` | `CALLED`, `calledAt`, `calledBy`, `callCount + 1`. Calling again is allowed. |
+| **start** (`queue.call`) | `WAITING`, `CALLED` | `IN_SERVICE`, `startedAt`, `servedBy`; sets `Encounter.firstSeenAt` if unset |
+| **complete** (`queue.call`) | `WAITING`, `CALLED`, `IN_SERVICE` | `COMPLETED`; then send the patient on (`nextQueueId`) or let them go (§5.7) |
+| **cancel** (`queue.manage`) | any active, including `HELD` | `CANCELLED` with a reason (§14.2) |
+
+A `HELD` task can't be called, started or completed: the patient is waiting for payment.
+Tasks aren't assigned to a person: anyone working the list can take any task on it. Who did the
+work is recorded as `servedBy` when the task is started or completed.
 
 ### 5.4 Ticket numbers
 
-`ticketNumber` = the queue's short code + a daily sequence (`OPD-023`), reset every day per queue.
-It's what gets announced or shown on a display board, so patients never hear their name called
-across a waiting room. The daily sequence uses a `QueueTicketCounter(queueId, date, lastNumber)`
-row, incremented under a row lock.
+`ticketNumber` is a daily sequence **per queue per branch** (queues are shared across branches),
+starting at 1 each day (UTC). It's what gets announced or shown on a display board next to the
+queue's name, so patients never hear their name called across a waiting room. Tickets come from
+`SequenceCounter(scope, lastNumber)` rows, incremented in one
+`INSERT … ON CONFLICT … RETURNING` statement inside the transaction that creates the task. A letter prefix
+(`OPD-023`) can be added later from the catalog if display boards need it.
 
 ### 5.5 Patients who don't respond
 
-Each call increments `callCount`. After **3** calls (configurable per queue), the entry becomes
-`NO_SHOW`. Reception can re-queue it, keeping its original `enteredAt` but taking a new `readyAt`.
-An encounter whose every entry ended `NO_SHOW` before any clinician saw the patient gets the
-disposition `LEFT_WITHOUT_BEING_SEEN` at end of day (§14.2).
+Each call increments `callCount`, so the list shows who has been called several times without
+coming. Nothing is marked no-show or closed automatically: a patient who left still has an
+unfinished visit, and staff follow it up (§14.2).
 
-### 5.6 Parallel tracks
+### 5.6 Parallel tasks
 
-One consultation can send the patient to the lab *and* the pharmacy (`01` §2). Both entries
-are `WAITING`, but only one can be `CALLED`/`IN_SERVICE` at a time (§5.1). While the patient is
-being served in one queue, their entry in the other queue shows **"with another station"**
-(`HELD / PATIENT_AWAY`, set automatically). They don't lose their place: when the first station
-completes, the hold lifts with their original `readyAt` kept. **[Q 10]**
+One consultation can send the patient to the lab *and* the pharmacy (`01` §2). Each station gets
+its own task and works it independently; there's no "with another station" hold, because these are
+task lists, not lines the patient stands in. When the lab finishes first and lets the patient go,
+the pharmacy task is still there, so the encounter stays open until pharmacy finishes (§4.1).
 
 Object worklists (sample processing, result verification, image reporting) are **not** queue
 entries. Those are records waiting in their department's worklist, and the patient isn't
@@ -363,18 +457,38 @@ involved (`04`, `01` §2).
 
 ### 5.7 Routing: where next?
 
-When a station completes an entry, the clinician chooses where the patient goes next. The system
-**suggests** a default per queue:
+When a station completes its task, it chooses where the patient goes next (`nextQueueId`), or
+nowhere. Pharmacy, for example, asks "are you seeing the doctor again?" and, if not, lets the
+patient go. Defaults the frontend should suggest:
 
 | From | Default next |
 |---|---|
-| Reception | Cashier (if the payment gate applies), otherwise Triage |
-| Cashier | Whatever queue the held entry was waiting for |
-| Triage | The doctor queue of the encounter's department |
-| Doctor | Created by orders: lab, imaging, pharmacy, procedure room… Otherwise the cashier, or discharge |
+| Check-in | The clinic's nursing station (§3.3) |
+| Nursing station | The clinic's doctors' queue |
+| Doctor | Created by orders: lab, imaging, pharmacy, procedure room… Otherwise nowhere |
+| Pharmacy, lab, cashier… | Back to the doctor if they're seeing them again, otherwise nowhere |
 
-Routing creates the next `QueueEntry` with `fromEntryId` set. Orders create their own entries
-(`sourceType`/`sourceId` = the order), so a lab order puts the patient in Sample Collection
+**Sending a patient without working a task.** Reception (and anyone else allowed) can put a patient
+on another station's list: `POST /encounters/:id/tasks`, or `sendTo` at check-in. Only to queues on
+the caller's duty profiles' **send lists**:
+
+```prisma
+model DutyProfileSendQueue {   // queues this profile may put patients on
+  dutyProfileId String
+  queueId       String
+  @@unique([dutyProfileId, queueId])
+}
+```
+
+Separate from `DutyProfileQueue` on purpose: that one grants access to a queue's list and its
+patients (`05` §7); sending a patient to billing must not let reception open billing's list. The
+seeded Receptionist profile can send to billing (Cashier) and every clinic's nursing station;
+`GET /queues/sendable` lists the caller's targets, and `POST/DELETE /duty-profiles/:id/send-queues`
+manages them. Send lists are read when a patient is sent, so changing them needs no re-login.
+
+Sending on creates the next task with `fromEntryId` set and a new ticket. Letting the patient go
+closes the encounter if no other station still has a task for them (§14). Orders will create their own tasks
+(`sourceType`/`sourceId` = the order), so a lab order puts the patient on Sample Collection's list
 automatically.
 
 ### 5.8 Access
@@ -384,71 +498,75 @@ Staff whose duty profiles include Q can open that patient's record and act withi
 permissions. The entry stays the access basis until the encounter is closed. After that, access
 needs a `PatientAssignment` or a new encounter. **[Q 12]**
 
-## 6. The Payment Gate
+## 6. Payment: Billing Tasks and the Consultation Hold
 
-`01-application-flow.md` puts the cashier *before* service in most chains: the consultation fee is
-paid before seeing the doctor, and lab tests are paid before the sample is taken. This is
-configured **per queue**:
+**Billing is a station like any other.** "Collect what this patient owes" is a task on the Cashier
+list (`sourceType = ENCOUNTER_BILL`). Reception sends the patient there at check-in or later; it
+runs in parallel with their other tasks; and because it's a task, an unpaid bill keeps the visit
+open. Billing is often the last station, and closes the encounter like any other (§14.1).
 
-```prisma
-// added to Queue (04)
-paymentGate   Boolean @default(false)   // entries arrive HELD until their charges are settled
-shortCode     String                    // "OPD" — ticket prefix (§5.4)
-noShowAfterCalls Int  @default(3)
-```
+**Paying completes the billing task.** When a deposit leaves nothing of the patient's own share of
+the visit unpaid, its billing task completes automatically (`QueueHoldsService.settle`, run inside
+the deposit). If that was the visit's last task, the encounter closes at billing. The cashier can
+also complete it by hand (a payment arrangement, an insured visit with nothing to collect).
 
-**How it works:**
-1. When an entry is created in a gated queue, the charges it depends on post first. For a
-   consultation, the consultation fee (§10.4) posts against the entry. For an order, the order's
-   charges post (§11.3). The entry starts `HELD / AWAITING_PAYMENT`.
-2. The gate is satisfied when every **`ACCOUNT`** allocation of those charges (`10` §6) is
-   `PAID`, *or* the account's outstanding amount is within its `creditLimit`. The payer's
-   share doesn't need to be paid now, but a payer share in `PENDING_AUTH` holds the entry as
-   `AWAITING_PREAUTH`.
-3. The hold lifts automatically when a deposit or approval satisfies it. The cashier doesn't
-   have to "send the patient back".
-4. **Override:** `queue.payment.override` releases a held entry without payment (for example, the
-   consultant says "see him now"). The debt stays on the account. The override is audited with a
-   reason and shows on the Cashier queue.
+**The hospital decides whether consultation waits for payment.** Two organisation settings:
 
-**Never gated** **[Q 4]**:
-- **Emergency queues.** Stabilise first, bill after. Nigerian law requires it for gunshot
-  victims (Compulsory Treatment and Care for Victims of Gunshot Act, 2017), and it's sound
-  practice for every emergency.
-- **Inpatient encounters.** Charges accrue to the stay. The admission deposit (§13.3) is the
-  inpatient gate.
+| Setting | Values | Effect |
+|---|---|---|
+| `consultationPayment` | `BEFORE` (default) / `AFTER` | `BEFORE`: a task on a clinic's **doctors'** list waits (`HELD / AWAITING_PAYMENT`) until the visit's bill is paid. Vitals, triage and billing go ahead meanwhile. `AFTER`: nothing waits; the patient pays everything at the end. |
+| `maxUnpaidBeforeHold` | amount, default 0 | No hold while the account owes no more than its own `creditLimit` plus this. |
 
-Default gates by queue: General Consultation ✔, specialist clinics ✔, Sample Collection ✔,
-Imaging ✔, Dispensing ✔, Triage ✗, every Emergency queue ✗.
+The hold decision (`holdsConsultation`) applies whenever a task is created on a clinic's doctors'
+list: by a station sending the patient on, or by reception sending them straight there. It holds
+only when the policy is `BEFORE`, this visit's own share is unpaid, and the account owes more than
+its credit limit plus the tolerance. A deposit releases held tasks automatically (`readyAt` resets,
+so time spent unpaid doesn't count as time waiting). A payer's share never holds the patient.
+
+**Never held** **[Q 4]**:
+- **Emergency.** Stabilise first, bill after. Nigerian law requires it for gunshot victims
+  (Compulsory Treatment and Care for Victims of Gunshot Act, 2017), and it's sound practice for
+  every emergency.
+- **Admitted patients** (`encounterType = INPATIENT`). Charges accrue to the stay; the admission
+  deposit (§13.3) is the inpatient gate.
+- **Nursing stations and billing.**
+
+**Not built yet:** holds for orders (lab, imaging, dispensing) once orders post charges (§11.3),
+pre-authorisation holds (`AWAITING_PREAUTH`), and the manual override (`queue.payment.override`:
+"see him now", audited, the debt stays on the account).
 
 ## 7. Outpatient Flow, End to End
 
-| # | Station (queue) | Who | Data written |
+| # | Station (task list) | Who | Data written |
 |---|---|---|---|
-| 1 | Reception | Receptionist | Patient found/registered (`06`); `Encounter(OUTPATIENT, ARRIVED)`; coverage selected; `QueueEntry` for the doctor queue (held if gated) or triage |
-| 2 | Cashier | Cashier | Consultation fee `Charge` (posted at step 1); deposit / payment applied (`10` §7); hold lifts |
-| 3 | Triage | Nurse | `TriageAssessment` (basic) + `Vitals`; `firstSeenAt`; route to the doctor queue |
-| 4 | Doctor | Doctor | `Consultation` (DRAFT → SIGNED), `Diagnosis`, orders; each order creates `Charge`s and a `QueueEntry` in its service queue |
+| 0 | Cashier (often first) | Cashier | Patient funds their account (`10` §7), frequently before registration |
+| 1 | Reception | Receptionist | Patient found/registered (`06`); "what kind of doctor are you seeing today?" → clinic (never a doctor); `Encounter(OUTPATIENT, OPEN)` at the clinic; coverage; consultation fee posted and paid from credit if there is any; tasks on billing, the clinic's nursing station, or both (§3.3) |
+| 2 | Billing (in parallel) | Cashier | Deposit; the billing task completes when the visit is paid, and any held doctor's task is released (§6) |
+| 3 | Nursing station (in parallel) | Nurse | `TriageAssessment` (basic, with referral details if referred) + `Vitals`; `firstSeenAt`; send to the clinic's doctors' list, where the task waits for payment if the hospital collects first |
+| 4 | Doctor | Doctor | `Consultation` (DRAFT → SIGNED), `Diagnosis`, orders; each order creates `Charge`s and a task on its service's list |
 | 5a | Sample Collection / Imaging | Lab / radiology | Fulfilment (their PRDs); results go to the doctor's results-ready worklist |
-| 5b | Pharmacy (Dispensing) | Pharmacist | Dispensing (Pharmacy PRD) |
+| 5b | Pharmacy (Dispensing) | Pharmacist | Dispensing (Pharmacy PRD); "are you seeing the doctor again?" |
 | 5c | Procedure room | Nurse | Injection / dressing recorded |
-| 6 | Doctor (review) | Doctor | Optional same-day result review: a new entry in the doctor queue, assigned to the same doctor, `sourceType = RESULT_REVIEW`; a second `Consultation(RESULT_REVIEW)` |
-| 7 | — | Doctor | Disposition: `DISCHARGED_HOME` (+ follow-up `Appointment`), `ADMITTED` (§13), `REFERRED_OUT`… |
-| 8 | Cashier | Cashier | Anything still owed is collected or left on the account (`10` §6.6) |
-| 9 | — | System | Encounter `CLOSED` (§14.3) |
+| 6 | Doctor (review) | Doctor | Optional same-day result review: a new task on the doctors' list, assigned to the same doctor; a second `Consultation(RESULT_REVIEW)` |
+| 7 | Whichever station is last | That station | Completes its task with nowhere next. No other task left → encounter `CLOSED` there, even if results are pending (§14) |
 
-Specialist clinics (dental, eye, ENT, antenatal, physiotherapy) use exactly this chain with their
-own department, queue, consultation template and fees (`01` §3.2).
+Every clinic (dental, eye, ENT, antenatal, physiotherapy…) uses exactly this chain with its own
+nursing station, doctors' queue, consultation template and fees (`01` §3.2).
 
 ## 8. Triage
 
 Two flavours share one model:
 
-- **Outpatient triage:** vitals plus a short chief complaint, to prioritise the doctor queue. No
-  acuity scale required.
-- **Emergency triage:** a formal acuity scale. Recommended default: the **South African Triage
-  Scale** (colour-coded RED/ORANGE/YELLOW/GREEN/BLUE, with a vitals-based early warning score),
-  which is widely used in Nigerian emergency departments. The scale is configurable per
+- **Outpatient triage** (at the clinic's nursing station): vitals plus a short chief complaint, to
+  prioritise the doctors' list. No acuity scale required. The chief complaint is copied to
+  `Encounter.reasonForVisit`, so every task list shows why the patient came. **Referrals are recorded here**: the
+  nurse sets `visitType = REFERRAL_IN` and the referring facility and clinician (internal or
+  external), from the referral letter.
+- **Emergency triage** (the Emergency department's Triage Queue): a formal acuity scale. Recommended default: the **South African Triage
+  Scale** (with a vitals-based early warning score), which is widely used in Nigerian emergency
+  departments. Acuity is stored as clinical levels (`IMMEDIATE`, `VERY_URGENT`, `URGENT`,
+  `ROUTINE`, `DEAD_ON_ARRIVAL`); the frontend shows each scale's colours (SATS red, orange,
+  yellow, green, blue). The scale is configurable per
   organisation. **[Q 8]**
 
 ```prisma
@@ -483,8 +601,8 @@ enum TriageScale {
 
 **Re-triage** adds a new row. It never edits the old one. The latest acuity is copied to
 `Encounter.acuity` and reorders the patient's open emergency queue entries. A patient whose
-waiting time exceeds their acuity's target (RED immediately, ORANGE 10 min, YELLOW 60 min,
-GREEN 4 h) is flagged on the queue board for re-triage.
+waiting time exceeds their acuity's target (`IMMEDIATE` at once, `VERY_URGENT` 10 min, `URGENT`
+60 min, `ROUTINE` 4 h) is flagged on the task list for re-triage.
 
 ## 9. Vitals (re-anchored from `08` §3)
 
@@ -544,9 +662,13 @@ specialty-specific findings go in the free-text sections. **[Q 15]**
 
 ### 10.4 Consultation fee
 
-The fee posts when the patient is queued for the doctor, against that `QueueEntry`
-(`sourceType = CONSULTATION_FEE`). That way the payment gate (§6) can hold the entry, and the
-cashier sees a concrete bill before the patient sees anyone. The amount depends on:
+The fee posts **at check-in to a clinic** (`Charge.sourceType = CONSULTATION_FEE`, `sourceId` =
+the encounter). It's what the visit's billing task collects, and what a hospital that collects
+before consultation waits on before the doctor's task is released (§6).
+Insured visits aren't charged at check-in until payer allocation (`10` step 4) is built.
+
+**Interim price:** one flat `Organization.consultationFee` (default 0 = free), like
+`registrationFee`. The real amount depends on:
 
 - the **department / clinic** (general outpatient vs specialist clinic)
 - the **clinician grade** (medical officer vs consultant): very common in Nigerian practice
@@ -594,28 +716,34 @@ Recommended rule:
 
 ## 12. Emergency Flow
 
+An emergency visit is an `OUTPATIENT` encounter in the Emergency department (§3.1). If the patient
+is admitted, the same encounter becomes `INPATIENT` (§13.4).
+
 ### 12.1 Path
 
 | # | Station (seeded queues, `04` §3) | Data written |
 |---|---|---|
-| 1 | Arrival: triage desk or resuscitation bay directly | Quick registration if needed (§3.2); `Encounter(EMERGENCY)`; `arrivalMode`; medico-legal flag |
-| 2 | **Triage Queue** | `TriageAssessment(SATS)` with acuity; RED goes straight to Resuscitation |
-| 3 | **Resuscitation Queue** (RED) / **Emergency Queue** (others) | `Consultation(EMERGENCY)`, STAT orders, procedures, vitals |
+| 1 | Arrival: triage desk or resuscitation bay directly (not clinic check-in) | Quick registration if needed (§3.2); `Encounter(OUTPATIENT)` in Emergency, no clinic; `visitType`; medico-legal flag |
+| 2 | **Triage Queue** | `TriageAssessment(SATS)` with acuity; `IMMEDIATE` goes straight to Resuscitation |
+| 3 | **Resuscitation Queue** (`IMMEDIATE`) / **Emergency Queue** (others) | `Consultation(EMERGENCY)`, STAT orders, procedures, vitals |
 | 4 | **Observation Queue** | Held for monitoring: repeated vitals, response to treatment, waiting for results |
-| 5 | Disposition | Home / admit (§13) / theatre / transfer out / DAMA / died / absconded |
+| 5 | Disposition or admission | Home / transfer out / DAMA / died / absconded; or admit (§13): the encounter continues as `INPATIENT` |
 | 6 | Cashier | After stabilisation, never before (§6) |
 
 ### 12.2 Emergency-specific rules
+
+These apply because of the **department** (Emergency) and its queues, not the encounter type.
 
 - **No payment gate**, anywhere in the emergency department (§6).
 - **Treatment before identity:** quick registration (§3.2). Unidentified patients are allowed.
 - **Medico-legal cases** (`isMedicoLegal`: assault, road traffic accident, gunshot, police
   custody): record `policeReportNumber`. Reports, photographs and certificates for the police are
   generated documents (out of scope, §22). Access to these records may be restricted. **[Q 12]**
-- **Brought in dead:** `Encounter(EMERGENCY)` with `disposition = BROUGHT_IN_DEAD` and the time
+- **Brought in dead:** an encounter in Emergency with `disposition = BROUGHT_IN_DEAD` and the time
   confirmed. No queue path. `Patient.status = DECEASED` (`06`).
-- **Boarding:** a patient admitted but waiting for a bed stays in the emergency encounter, in the
-  Observation queue, until a bed is assigned (§13.4). Time spent boarding is a reportable KPI.
+- **Boarding:** a patient admitted but waiting for a bed stays `OUTPATIENT` with an Observation
+  task until a bed is assigned (§13.4). Boarding time (`Admission.requestedAt` → `admittedAt`) is
+  a reportable KPI.
 - **Mass-casualty incidents** (rapid bulk registration, incident tagging): out of scope (§22).
 
 ## 13. Inpatient: Admission, Stay and Discharge
@@ -680,14 +808,14 @@ assignments. Staff access to inpatients works through a duty profile listing **w
 
 ### 13.2 Deciding to admit
 
-A doctor with `admission.request` creates an **`Admission`** request from an outpatient or
-emergency encounter:
+A doctor with `admission.request` creates an **`Admission`** request on the patient's current
+`OUTPATIENT` encounter, whether in a clinic or in Emergency. The request is the record of the admit
+decision; the encounter itself carries on:
 
 ```prisma
 model Admission {
   id                   String          @id @default(uuid())
-  sourceEncounterId    String                         // the OPD/ED encounter that decided it
-  inpatientEncounterId String?         @unique         // set when the patient is admitted (§13.4)
+  encounterId          String                         // the encounter being admitted; it becomes INPATIENT at §13.4
   requestedBy          String
   attendingConsultantId String                        // who owns the patient's care
   admittingDiagnosis   String
@@ -704,7 +832,9 @@ model Admission {
   cancelledReason      String?
   preAuthorizationCode String?                        // payer's admission authorisation (10 §6.3)
 
-  encounter            Encounter?      @relation(fields: [inpatientEncounterId], references: [id])
+  encounter            Encounter       @relation(fields: [encounterId], references: [id])
+
+  @@index([encounterId])
 }
 
 enum AdmissionStatus {
@@ -714,6 +844,8 @@ enum AdmissionStatus {
   CANCELLED           // patient declined, condition changed, transferred elsewhere
 }
 ```
+
+Integrity rule (migration SQL): at most one non-`CANCELLED` admission per encounter.
 
 ### 13.3 Admission deposit and pre-authorisation
 
@@ -731,10 +863,12 @@ enum AdmissionStatus {
 The **bed management worklist** shows `REQUESTED`/`AWAITING_BED` admissions, ordered by urgency.
 The bed manager or ward nurse (`bed.assign`) chooses a bed matching the ward type, bed class and
 gender policy. Then, in one transaction:
-1. An `INPATIENT` encounter opens, with `parentEncounterId = sourceEncounterId`, coverage carried
-   over, and `attendingStaffId` set to the consultant.
+1. The encounter's `encounterType` becomes `INPATIENT`, `departmentId` becomes the ward's
+   department, and `attendingStaffId` becomes the consultant. Coverage, charges, consultations and
+   orders so far stay where they are: it's the same encounter.
 2. A `BedAssignment(ADMISSION)` is created and the bed becomes `OCCUPIED`.
-3. The admission becomes `ADMITTED` and the source encounter gets `disposition = ADMITTED`.
+3. The admission becomes `ADMITTED` (`admittedAt`). The encounter's open emergency/clinic tasks
+   (e.g. Observation) are completed, and a **ward task** is created on the ward's list (§13.6).
 4. The `ADMISSION_CLERKING` consultation is due: shown on the ward's worklist until it's signed.
 
 ### 13.5 Transfers within the hospital
@@ -745,6 +879,14 @@ another consultant too (`attendingStaffId` changes, audited). It's the same enco
 
 ### 13.6 The stay
 
+- **The ward task.** Admission puts the patient on their ward's task list, and that task stays
+  open for the whole stay: it's what the ward nurse's list of patients is, and it keeps the
+  encounter open between medication rounds and ward rounds (§4.1). Physical discharge
+  (§13.8) completes it; it's normally the last task, so the encounter closes then. Wards are
+  tenant-defined but queues are system-seeded, so the ward list is one seeded ward queue per
+  clinical department ("Surgical Ward"), with the ward and bed on the task. **[Q 11]**
+- **Other tasks come and go on top of it:** the medication round, the ward round, procedures,
+  theatre. Each is its own task on its own list.
 - **Ward round worklist** (derived): each admitted patient on the wards in the doctor's duty
   profiles, flagged when there's no `WARD_ROUND` consultation yet today.
 - **Orders** during the stay work as in §11. Inpatient prescriptions feed the ward medication
@@ -770,7 +912,7 @@ Discharge is a **four-step sequence**, because in practice it's done by four dif
 | 1 | **Discharge decision** | Attending doctor (`discharge.approve`) | Disposition recorded (`DISCHARGED_HOME`, `TRANSFERRED_OUT`, `LEFT_AGAINST_ADVICE`…); take-home prescriptions ordered |
 | 2 | **Discharge summary** | Doctor (`consultation.sign`) | `DischargeSummary` signed: diagnoses, procedures, course in hospital, medication on discharge, follow-up plan |
 | 3 | **Billing clearance** | Cashier / billing (`discharge.clear`) | Final charges posted (last bed day, take-home drugs); bill settled, covered, or a documented arrangement recorded **[Q 7]** |
-| 4 | **Physical discharge** | Ward nurse (`discharge.complete`) | `dischargedAt`; `BedAssignment` ended; bed → `CLEANING`; encounter `DISCHARGED` → `CLOSED` once clearance is done |
+| 4 | **Physical discharge** | Ward nurse (`discharge.complete`) | `dischargedAt`; `BedAssignment` ended; bed → `CLEANING`; the ward task is completed, which closes the encounter if nothing else is open |
 
 ```prisma
 model DischargeSummary {
@@ -800,41 +942,58 @@ Disposition `DIED`, with `timeOfDeath`, the certifying doctor, and cause of deat
 open queue entry is cancelled, and every appointment cancelled. The bed is freed. Death
 certificates, mortuary and body release: out of scope (§22).
 
-## 14. Disposition and Closing Encounters
+## 14. Closing Encounters and Dispositions
 
-### 14.1 Recording a disposition
+### 14.1 Closing: the last task
 
-Requires `encounter.disposition` (doctors). Recording a disposition:
-- completes or cancels every open `QueueEntry` of the encounter (except those still needed: the
-  cashier and the pharmacy for take-home drugs)
-- sets `DISCHARGED`, except for `ADMITTED` (the admission flow continues, §13) and `DIED`
-- requires a note for `LEFT_AGAINST_ADVICE`, `ABSCONDED`, `TRANSFERRED_OUT`, `REFERRED_OUT`
+An encounter **closes when its last task ends**: a station completes its task and sends the
+patient nowhere next, or a task is cancelled, and no other station still has a task for the
+patient. It's recorded where it happened (`closedAt`, `closedBy`, `closedAtQueueId`). Pharmacy
+after dispensing, the cashier after payment, the lab after the sample, the doctor after the
+consultation: whichever is last closes it. Completing and cancelling lock the encounter row first,
+so two stations finishing at the same moment can't both conclude the other is still working.
 
-### 14.2 Automatic dispositions (end of day job)
-
-- **Outpatient encounters never seen by a clinician**, all of whose entries ended `NO_SHOW` or are
-  still waiting at close of clinic: `LEFT_WITHOUT_BEING_SEEN`. The unpaid consultation fee is
-  reversed under §11.3's rule.
-- **`SERVICE_ONLY` encounters** whose orders are all fulfilled: `SERVICE_COMPLETED`.
-
-### 14.3 Closing **[Q 3]**
-
-An encounter is **closed** when no more charges can post to it. Recommended rules:
-- **Outpatient / emergency:** auto-close at the end of the day after disposition, *unless* it has
-  unfulfilled orders. Lab results may legitimately arrive tomorrow, and their *results* attach to
-  the order whether the encounter is open or not. Only new *charges* are blocked.
-- **Inpatient:** closes at physical discharge, once billing clearance is recorded.
+- **Results pending don't keep it open.** A result that arrives tomorrow attaches to its order,
+  whether the encounter is open or not, and can be delivered to the patient. Having it looked at by
+  a doctor is a new encounter: a follow-up (`followUpOfId`, §15.3). Nobody is assigned to review
+  results for a patient who doesn't return. (Critical values phoned through by the lab are the
+  Laboratory PRD's process.)
+- **Closed means no more charges post**, so orders are charged when placed (§11.3).
+- **Inpatients** close at physical discharge, when the ward task completes (§13.8).
 - **Reopening** a closed encounter (a charge was missed) needs `encounter.reopen`, a reason, and
-  is audited. The missed charge is then posted normally.
+  is audited.
+
+### 14.2 Unfinished visits: the hospital follows up
+
+**Nothing closes on its own.** A patient who leaves while waiting at the lab didn't finish their
+encounter. It's the hospital's duty to reach them and update the system.
+
+- **`GET /encounters/follow-up`** (`encounter.follow_up`) lists open outpatient encounters at the
+  branch with no task activity today, with the patient's phone number and remaining tasks.
+  Emergency patients (observation can run overnight) and admitted patients aren't listed.
+- After reaching the patient, staff either leave the task (they're coming back; check-in continues
+  the visit, §3.3) or **cancel the remaining tasks** with the reason and `patientLeft`. Staff with
+  `encounter.follow_up` can cancel tasks on any queue at their branch, since the patient's tasks are
+  rarely on their own lists. Cancelling the last task closes the encounter with the disposition:
+  - `LEFT_WITHOUT_BEING_SEEN` if no clinician ever saw the patient (`firstSeenAt` unset)
+  - `LEFT_BEFORE_COMPLETION` if they were seen, then left with tasks unfinished
+- An unpaid consultation fee for a patient who left is reversed under §11.3's rule.
+
+### 14.3 Clinical dispositions
+
+`disposition` records the clinical outcome: `DISCHARGED_HOME`, `REFERRED_OUT`, `TRANSFERRED_OUT`,
+`LEFT_AGAINST_ADVICE`, `ABSCONDED`, `DIED`, `BROUGHT_IN_DEAD`… Doctors record it where it matters
+(`encounter.disposition`), with a note for `LEFT_AGAINST_ADVICE`, `ABSCONDED`, `TRANSFERRED_OUT`
+and `REFERRED_OUT`. It doesn't open or close the encounter; tasks do. Deciding to admit is not a
+disposition: it's an admission request (§13.2), and the encounter continues.
 
 ## 15. Referrals and Follow-up
 
 ### 15.1 Internal referral (same hospital)
 
-A doctor refers the patient to another department or a named clinician *within the same
-encounter*:
-- a `QueueEntry` in the receiving clinic's queue (`assignedStaffId` if a named clinician,
-  `sourceType = REFERRAL`)
+A doctor refers the patient to another clinic *within the same encounter*:
+- a task on the receiving clinic's list (`sourceType = REFERRAL`). Which of its doctors sees the
+  patient is settled there, as for any doctors' list (§3.3)
 - a `PatientAssignment(reason = REFERRAL)` (`05` §6), which `05` already identifies as triggered
   by referral booking
 - the referral note as a `ClinicalNote`. The receiving clinician writes a `Consultation(REFERRAL)`.
@@ -856,13 +1015,16 @@ and the window. **[Q 5]**
 
 ## 16. Service-Only Visits
 
-A patient who walks in only for a lab test, a scan or a pharmacy purchase (`01` §3.6, §3.7, §5)
-gets a `SERVICE_ONLY` encounter. There's no consultation, triage or doctor queue. Reception records
+In a hospital, reception sends patients to clinics: you see a doctor first (§3.3). Service-only
+visits are mainly for the standalone **Lab** and **Pharmacy** businesses (`01` §4–5), and get their
+own check-in flow later. A patient who walks in only for a lab test, a scan or a pharmacy purchase
+gets an `OUTPATIENT` encounter with `visitType = SERVICE_ONLY`, in the service's department.
+There's no consultation, triage or doctor queue. Reception records
 the request (with an external prescription or referral as an attachment when there is one), the
 orders are created with `orderedBy` = the receptionist and `externalRequester` = the outside
 doctor, and the patient goes straight to the cashier and then the service queue.
 
-Standalone **Lab** and **Pharmacy** businesses (`01` §4–5) use only this encounter class.
+Standalone Lab and Pharmacy businesses use only this kind of visit.
 
 ## 17. Billing Touchpoints (changes to `10`)
 
@@ -895,18 +1057,23 @@ Added here:
 - `PROCEDURE_ROOM_QUEUE` (Nursing): injections and dressings (`01` §3.4)
 - `BED_MANAGEMENT_QUEUE` (Nursing or Administration): an admission-request worklist, derived from
   `Admission` rows rather than `QueueEntry` rows
-- Every queue gets `shortCode`, `paymentGate` and `noShowAfterCalls` (§5.4, §6)
+- One **ward queue** per clinical department, for the whole-stay ward task (§13.6) **[Q 11]**
+- **Clinics** (§3.3) are seeded with the queues from `CLINIC_CATALOG` in `departments.catalog.ts`:
+  each names its department, its nursing station and its doctors' queue. Reception checks patients
+  into clinics; departments without clinics (Pharmacy, Laboratory, Accounts…) never appear there.
 
 ### 18.2 Permissions
 
 | Key | Grants | Typical holder |
 |---|---|---|
-| `encounter.create` *(exists)* | Open an encounter / check in | Reception, emergency nurse |
+| `encounter.create` *(exists)* | Check in; see clinics and their doctors; see a patient's unfinished visit | Reception, emergency nurse |
+| `encounter.follow_up` *(built)* | See unfinished visits; cancel any task at the branch when following up (§14.2) | Reception |
 | `encounter.cancel` | Cancel an encounter opened in error | Reception supervisor |
 | `encounter.disposition` | Record a disposition | Doctor |
 | `encounter.reopen` | Reopen a closed encounter | Billing supervisor, records |
-| `queue.view`, `queue.manage` *(exist)* | See / reorder, re-prioritise, re-queue | — |
-| `queue.call` | Call, start and complete entries in one's queues | Every station's staff |
+| `queue.view`, `queue.manage` *(exist)* | See a task list; re-prioritise; cancel a task with a reason | — |
+| `queue.call` *(built)* | Call, start and complete tasks on one's queues, and send the patient on | Every station's staff |
+| `queue.send` *(built)* | Put patients on the queues of one's send lists (billing, nursing stations) | Reception |
 | `queue.payment.override` | Release a payment-held entry / waive an admission deposit | Consultant, emergency lead, supervisor |
 | `triage.record` | Triage assessment | Nurse |
 | `vitals.record` *(exists)* | Vitals | Nurse |
@@ -929,19 +1096,26 @@ are done by different people.
 
 | Endpoint | Method | Permission | Purpose |
 |---|---|---|---|
-| `/encounters` | POST | `encounter.create` | Check in / open an encounter (with the first queue entry) |
+| `/clinics` | GET | `encounter.create` | **Built.** Clinics reception picks from (§3.3) |
+| `/clinics/:id/consultation-fee?patientId=` | GET | `encounter.create` | **Built.** The fee before check-in; with a patient, whether check-in would charge them (`charged`, `exemption`: `INSURED` / `CONTINUING_SAME_CLINIC`) and their account's balance, credit and credit limit (§10.4) |
+| `/encounters` | POST | `encounter.create` | **Built.** Start the encounter (`startEncounter`) at a clinic: the encounter, the fee and the nursing-station task, in one transaction; 409 `OPEN_ENCOUNTER`, or `continueEncounter` |
+| `/encounters/open?patientId=` | GET | `encounter.create` | **Built.** The patient's unfinished visit at this branch and its remaining tasks |
+| `/encounters/follow-up` | GET | `encounter.follow_up` | **Built.** Unfinished visits with no task activity today (§14.2) |
+| `/queues/sendable` | GET | `queue.send` | **Built.** The queues the caller can send patients to (§5.7) |
+| `/encounters/:id/tasks` | POST | `queue.send` | **Built.** Put the patient on one of those lists, e.g. billing |
+| `/duty-profiles/:id/send-queues` | POST / DELETE | `duty_profile.manage` | **Built.** Manage a profile's send list |
 | `/appointments/:id/check-in` | POST | `encounter.create` | Check in a booking: creates the encounter |
 | `/encounters/:id` | GET | access rule (`05` §7) | Encounter with its entries, triage, consultations, orders, charges |
 | `/encounters/:id/cancel` | POST | `encounter.cancel` | Opened in error |
 | `/encounters/:id/disposition` | POST | `encounter.disposition` | Record the disposition |
 | `/encounters/:id/reopen` | POST | `encounter.reopen` | With reason |
 | `/patients/:id/encounters` | GET | `patient.view` | Encounter history (the timeline `06` §6 aggregates) |
-| `/queues/:id/entries` | GET | queue membership | Live worklist (ordered, §5.2) |
-| `/queues/:id/call-next` | POST | `queue.call` | Atomic call (§5.3) |
-| `/queue-entries/:id/{call,start,complete,no-show}` | POST | `queue.call` | Entry transitions |
-| `/queue-entries/:id/route` | POST | `queue.call` | Send to the next queue (§5.7) |
+| `/queues/:id/entries` | GET | `queue.view` + queue in duty profile | **Built.** Live task list at this branch (ordered, §5.2) |
+| `/queue-entries/:id/{call,start}` | POST | `queue.call` | **Built.** §5.3 |
+| `/queue-entries/:id/complete` | POST | `queue.call` | **Built.** Finish the task; `nextQueueId` sends the patient on, otherwise the encounter closes if it was the last task (§5.7, §14.1) |
+| `/queue-entries/:id/cancel` | POST | `queue.manage` | **Built.** Cancel with a reason; `patientLeft` records the leaving disposition (§14.2) |
 | `/queue-entries/:id/priority` | PATCH | `queue.manage` | Raise / lower, with reason |
-| `/queue-entries/:id/release-hold` | POST | `queue.payment.override` | Override the payment gate, with reason |
+| `/queue-entries/:id/release-hold` | POST | `queue.payment.override` | Override a payment hold, with reason |
 | `/encounters/:id/triage` | POST | `triage.record` | Triage / re-triage |
 | `/encounters/:id/vitals` | POST | `vitals.record` | Vitals |
 | `/encounters/:id/consultations` | POST | `consultation.create` | Start a consultation |
@@ -965,17 +1139,17 @@ Each has a recommended answer, which is what the document above assumes.
 
 | # | Question | Recommendation |
 |---|---|---|
-| **Q1** | Make `Encounter` the anchor for all care, demoting `Appointment` to "a booking that creates an encounter at check-in"? This revises `07` and `08`. | **Yes.** Nothing else covers emergency, inpatient and service-only visits. |
-| **Q2** | Emergency → admission: one encounter that changes class, or two linked encounters? | **Two, linked** (`parentEncounterId`). Payers and reports treat the emergency visit and the stay differently, and the boarding time stays measurable. |
-| **Q3** | When does an outpatient encounter close? What about results that arrive tomorrow? | **Auto-close at end of day** after disposition, unless orders are unfulfilled. Results attach to orders, not the open encounter. Reopening is audited. |
-| **Q4** | Which queues gate on payment? Admission deposit amounts? Does time spent unpaid count as time in the queue? | Gates as in §6. **Never** in emergency. Deposit per ward type / bed class. `readyAt` resets on release, so paid patients aren't pushed behind people who were holding. |
+| **Q1** | Make `Encounter` the anchor for all care, demoting `Appointment` to "a booking that creates an encounter at check-in"? This revises `07` and `08`. | **Decided (2026-10-19): yes.** Nothing else covers emergency, inpatient and service-only visits. |
+| **Q2** | Emergency → admission: one encounter that changes class, or two linked encounters? | **Decided (2026-10-19): one encounter.** It changes `encounterType` from `OUTPATIENT` to `INPATIENT` at bed assignment. The same applies to clinic → admission. Emergency is a department, not an encounter type (§3.1). Boarding and emergency time come from `Admission` timestamps. |
+| **Q3** | When does an outpatient encounter close? What about results that arrive tomorrow? | **Decided (2026-10-19): when its last task ends** (completed with nowhere next, or cancelled), regardless of pending results (§14.1). Nothing closes on its own: unfinished visits are followed up by staff (§14.2). Results attach to orders and can be sent to the patient; having them reviewed by a doctor is a new follow-up encounter. Nobody is assigned to review results for patients who don't return. Reopening (for a missed charge) is audited. |
+| **Q4** | Which queues gate on payment? Admission deposit amounts? Does time spent unpaid count as time in the queue? | **Decided (2026-10-19) for consultation:** billing is a task, not a gate; each hospital chooses `consultationPayment` (`BEFORE` holds the doctor's task, `AFTER` holds nothing) and a `maxUnpaidBeforeHold` tolerance (§6). **Never** in emergency. `readyAt` resets on release. Still open: holds for orders, and deposit amounts per ward type / bed class. |
 | **Q5** | Price catalog: build a minimal one now (consultation fees by clinic × clinician grade × first/follow-up, bed rates, review window), or as its own PRD first? | **Its own PRD (12), before building this.** Every module here needs prices, and they'd otherwise be invented piecemeal. |
 | **Q6** | Charge orders when placed or when fulfilled? Must cancelling an unpaid, undelivered order need a second approver? | **Charge when placed.** **Auto-void on cancellation if unpaid and undelivered**: a narrow exception to `10` D12, attributed and reasoned. |
 | **Q7** | Bed-day rule (midnight census?). May discharge be blocked by an unpaid bill? | **Midnight census** (§13.7). **Billing clearance is recorded but never physically blocks discharge.** The debt stays on the account, with a documented arrangement. Detaining patients over bills is something the system shouldn't facilitate. |
 | **Q8** | Emergency triage scale? | **SATS** by default, configurable. |
 | **Q9** | Unidentified patients: who merges a temporary record with an existing one, and is patient merge in scope now? | Quick registration now. **Patient merge is its own feature**: it rewrites history across every table and needs its own approval and audit design. |
-| **Q10** | Can a patient wait in two queues at once (lab and pharmacy)? How do booked appointments interleave with walk-ins? | **Yes,** with automatic "with another station" holds (§5.6). Bookings ordered by slot time with a grace window. |
-| **Q11** | Wards are tenant-defined but queues are system-seeded. How do staff get inpatient access? | **`DutyProfileWard`**, alongside `DutyProfileQueue`, with ward worklists derived from bed assignments. |
+| **Q10** | Can a patient wait in two queues at once (lab and pharmacy)? How do booked appointments interleave with walk-ins? | **Decided (2026-10-19): yes.** Queues are staff task lists, not lines: each station works its own task, with no "with another station" hold (§5.6). Bookings ordered by slot time with a grace window (still open). |
+| **Q11** | Wards are tenant-defined but queues are system-seeded. How do staff get inpatient access? | Admission creates a **ward task** that lasts the whole stay (§13.6). Recommended: one seeded ward queue per clinical department, with the ward and bed on the task; ward staff get it through their duty profiles. |
 | **Q12** | After an encounter closes, who can still open the record? Are medico-legal / sensitive records (HIV, psychiatric) restricted? | Post-encounter access needs a `PatientAssignment` (`05`). **Restricted records with "break-the-glass" access** are a separate feature, flagged as needed. |
 | **Q13** | Do junior doctors' consultations need senior co-signature? Do nurse practitioners consult? | **Configurable per duty profile** (`requiresCosign`). Off by default. |
 | **Q14** | Does nursing (medication administration, observation charts, care plans, handover) belong in this PRD? | **No: a Nursing PRD.** This one only defines the encounter they write against. |
@@ -991,14 +1165,42 @@ Each has a recommended answer, which is what the document above assumes.
   from money state), "this patient is waiting at this station" is primary information. Nothing
   else implies it, and its timestamps (entered, called, started, completed) are the raw material
   for every waiting-time measure a hospital is judged by.
-- **Why one active call per encounter is a database rule.** Two stations calling the same patient
-  at once is the commonest real-world queue failure. The database preventing it is cheaper than
-  every client trying to.
-- **Why the payment gate is per queue, not per hospital.** Real hospitals gate the doctor and the
-  lab but not triage, and never the emergency department. One global switch can't express that.
-- **Why emergency → admission is two encounters.** They have different payers' rules, different
-  KPIs and different responsible clinicians. Linking keeps the continuity without merging the
-  accounting.
+- **Why billing is a task, not a gate.** A hold on every station made the patient stop and pay before
+  anything happened, even vitals. As a task, payment runs in parallel with the nurse, keeps the
+  visit open until it's settled, and lets each hospital decide where (and whether) to wait for it.
+- **Why send lists are separate from work queues.** A work queue gives access to its patients'
+  records (`05` §7). Reception sending a patient to billing must not be able to read billing's list.
+- **Why queues are task lists, not lines.** A queue entry is a station's job for the patient, and
+  a patient legitimately has several at once: lab and pharmacy, or on a ward the medication round
+  and the ward round, with a nurse and a doctor at the bedside together. A "one place at a time"
+  rule would block real work. Only one active task per encounter per queue is enforced.
+- **Why an encounter closes on its last task.** It matches how the visit actually ends: whichever
+  station sees the patient last lets them go. No doctor has to remember to record a disposition,
+  and no end-of-day job has to guess.
+- **Why nothing closes automatically.** A patient who left mid-visit didn't finish it. Closing it
+  silently hides that from the hospital, whose job is to reach them (§14.2).
+- **Why clinics, not departments, at reception.** Patients say what kind of doctor they're seeing,
+  not which department. Not every department runs a clinic, and some run several.
+- **Why the system never records the doctor a patient wanted.** Which doctor sees a patient is
+  settled at the doctors' list, between the patient and whoever is working it. The system only needs
+  the fact of who saw them (`servedBy`); a requested doctor would be a promise it can't keep and
+  doesn't need.
+- **Why emergency → admission is one encounter.** It's one episode of care for the patient, the
+  clinicians and the bill. Everything two encounters would have given is still available: emergency
+  time and boarding time from `Admission` timestamps, and a payer split of emergency vs stay charges
+  at `admittedAt`.
+- **Why emergency isn't an encounter type.** An emergency visit can end in going home (outpatient)
+  or admission (inpatient), so it can't sit alongside them. "Emergency" is where the patient was
+  treated (the department) and how they came (`visitType`). The type only answers "was the patient
+  admitted?", the question bed-day charges, discharge, ward access and admission pre-auth depend on.
+- **Why encounters have no human-readable number.** Patients remember dates, not visit numbers,
+  and staff find a visit by the patient's number and the date. The system uses the UUID. An
+  organisation-wide counter would also make every check-in in the organisation queue on one locked
+  row. If claims or printouts ever need one, it can be added and backfilled in `arrivedAt` order.
+  Queue tickets are different: they're called aloud, and their counter is per queue, branch and day.
+- **Why check-in places the patient in a queue in the same transaction.** An encounter with no
+  queue entry is a patient nobody can see on any worklist. Doing both in one write means reception
+  can't forget to send the patient anywhere.
 - **Why discharge is four steps.** The decision, the summary, the money and the bed are four
   people's jobs, at four different times. One "discharge" button either blocks on whoever's
   slowest or lets someone skip a step.
@@ -1034,7 +1236,11 @@ Each has a recommended answer, which is what the document above assumes.
 | `08` `Consultation` | `appointmentId @unique` → `encounterId` (+ `queueEntryId?`), `consultationType`, `Diagnosis.certainty` |
 | `08` `Vitals` | `appointmentId` → `encounterId`; new fields and `context` (§9) |
 | `08` orders | `encounterId` required, `consultationId` optional, `STAT` priority |
-| `04` `Queue` | `shortCode`, `paymentGate`, `noShowAfterCalls`; new Procedure Room and Bed Management queues |
+| `04` `Queue` | New Procedure Room, Bed Management and per-department ward queues. No per-queue payment flag: payment holds follow hospital policy (§6) |
+| `04` `Clinic` | **Built.** New model and `CLINIC_CATALOG`, seeded with departments and queues (§3.3, §18.1) |
+| Frontend enums | **Built.** `src/shared/enums/encounters/encounter.enums.ts`, served by `GET /enums` (`encounters` group) |
+| `Organization` | `consultationFee` (interim flat fee until PRD 12); `consultationPayment`, `maxUnpaidBeforeHold` (§6) |
+| `05` | `DutyProfileSendQueue` (send lists); Receptionist seeded with billing + clinic nursing stations |
 | `05` | `DutyProfileWard`; the access rule's "in queue Q" is a `QueueEntry` |
 | `06` `Patient` | `isUnidentified`; quick-registration path |
 | `10` | `Charge.encounterId`, `Encounter.coverageId`, admission pre-auth, the D12 exception |

@@ -7,8 +7,10 @@ import { CoverageService } from './coverage/coverage.service';
 import { LedgerService } from './ledger/ledger.service';
 import { PayersController } from './payers/payers.controller';
 import { PayersService } from './payers/payers.service';
+import { QueueHoldsModule } from '../encounters/queue-holds/queue-holds.module';
 
 @Module({
+    imports: [QueueHoldsModule],
     controllers: [BillingAccountsController, PayersController, CoverageController],
     providers: [LedgerService, BillingAccountsService, ChargesService, PayersService, CoverageService],
     exports: [LedgerService, BillingAccountsService, ChargesService, CoverageService],

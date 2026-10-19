@@ -5,6 +5,7 @@ import { $Enums } from '../../../generated/prisma/client';
 import type { BillingAccount } from '../../../generated/prisma/client';
 import { CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
 import { LedgerService, toDecimal } from '../ledger/ledger.service';
+import { QueueHoldsService } from '../../encounters/queue-holds/queue-holds.service';
 
 const ACCOUNT_SUMMARY = {
     id: true, accountNumber: true, accountType: true, name: true, status: true,
@@ -37,6 +38,7 @@ export class BillingAccountsService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly ledger: LedgerService,
+        private readonly queueHolds: QueueHoldsService,
     ) {}
 
     // ── Accounts ─────────────────────────────────────────────────────────────
@@ -285,6 +287,8 @@ export class BillingAccountsService {
                 appliedBy: receivedBy,
                 targetAllocationIds: dto.targetAllocationIds,
             }, posted.account);
+            // Held patients can now be seen, and paid visits' billing tasks are done (11 §6)
+            await this.queueHolds.settle(accountId, receivedBy);
 
             return {
                 entry:        posted.entry,

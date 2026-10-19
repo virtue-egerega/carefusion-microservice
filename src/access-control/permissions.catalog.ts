@@ -1,3 +1,5 @@
+import { CLINIC_CATALOG } from '../departments/departments.catalog';
+
 export type PermissionEntry = { key: string; name: string; description: string };
 
 export const PERMISSION_CATALOG: PermissionEntry[] = [
@@ -36,9 +38,12 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     // Queue & Appointments
     { key: 'queue.view',         name: 'View Queue',           description: 'View queue entries' },
     { key: 'queue.manage',       name: 'Manage Queue',         description: 'Add, remove or reorder queue entries' },
+    { key: 'queue.call',         name: 'Work Queue Tasks',     description: 'Call, start and complete tasks on your queues, and send the patient on' },
+    { key: 'queue.send',         name: 'Send Patients',        description: "Put patients on other stations' lists (billing, nursing stations) from your duty profiles' send lists" },
     { key: 'appointment.create', name: 'Book Appointment',     description: 'Book appointments' },
     { key: 'appointment.manage', name: 'Manage Appointments',  description: 'Reschedule or cancel appointments' },
     { key: 'encounter.create',   name: 'Create Encounter',     description: 'Open a patient visit or walk-in encounter' },
+    { key: 'encounter.follow_up', name: 'Follow Up Encounters', description: 'See unfinished visits and record what happened when the patient left' },
 
     // Billing (PRD 10 §10)
     { key: 'billing.view',                 name: 'View Billing',                 description: 'View charges, allocations and account statements' },
@@ -94,6 +99,7 @@ export type SystemDutyProfile = {
     role: 'SUPERADMIN' | 'RECEPTIONIST' | 'ACCOUNTANT' | 'MANAGER';
     departmentKey: string;
     queueKeys: string[];
+    sendQueueKeys?: string[];   // queues the profile may put patients on (11 §5.7)
     permissions: string[];
 };
 
@@ -130,11 +136,13 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         role: 'RECEPTIONIST',
         departmentKey: 'RECEPTION',
         queueKeys: ['RECEPTION_QUEUE'],
+        // Reception sends checked-in patients to billing, a clinic's nursing station, or both
+        sendQueueKeys: ['CASHIER_QUEUE', ...new Set(CLINIC_CATALOG.map(c => c.triageQueue))],
         permissions: [
             'patient.register', 'patient.list', 'patient.view', 'patient.edit', 'patient.assign',
-            'queue.view', 'queue.manage',
+            'queue.view', 'queue.manage', 'queue.send',
             'appointment.create', 'appointment.manage',
-            'encounter.create',
+            'encounter.create', 'encounter.follow_up',
             'billing.view', 'billing.account.create', 'billing.account.member.add', 'coverage.view', 'coverage.select',
         ],
     },

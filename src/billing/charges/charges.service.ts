@@ -16,6 +16,7 @@ export type PostChargeInput = {
     sourceType: string;                    // "PATIENT_REGISTRATION", "LAB_ORDER", ...
     sourceId: string;
     appointmentId?: string;
+    encounterId?: string;                  // the visit it was incurred in (11 §17)
     coverageId?: string;
     billingAccountId?: string;             // pass when the caller already knows it
     createdBy: string;
@@ -61,6 +62,7 @@ export class ChargesService {
                         patientId:        input.patientId,
                         branchId:         input.branchId,
                         appointmentId:    input.appointmentId,
+                        encounterId:      input.encounterId,
                         billingAccountId: accountId,
                         category:         input.category,
                         description:      input.description,
