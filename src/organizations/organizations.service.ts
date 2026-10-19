@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { AGE_SETTINGS_SELECT, AgeSettings, ageSettingsProblem } from '../patients/age-group';
 import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
 import { DepartmentsService } from '../departments/departments.service';
@@ -19,6 +20,8 @@ export class OrganizationsService {
 
     async create(dto: OnboardOrganizationDto) {
         const { org, admin, mainBranchName } = dto;
+        // Unset early-life bands take the column defaults; validate what will actually be stored
+        assertAgeSettings({ ...STANDARD_EARLY_BANDS, ...definedOnly(org) });
 
         const hashedPassword = await bcrypt.hash(admin.password, 10);
 
@@ -51,6 +54,13 @@ export class OrganizationsService {
                     pobox: org.pobox,
                     nfcCardFee: org.nfcCardFee,
                     registrationFee: org.registrationFee,
+                    patientNumberStart: org.patientNumberStart,
+                    neonateMaxDays: org.neonateMaxDays,
+                    infantBelowYears: org.infantBelowYears,
+                    underFiveBelowYears: org.underFiveBelowYears,
+                    childMaxYears: org.childMaxYears,
+                    paediatricMaxAge: org.paediatricMaxAge,
+                    geriatricMinAge: org.geriatricMinAge,
                     paymentPlan: org.paymentPlan as $Enums.PaymentPlan,
                     businessType: (org.businessType ?? 'HOSPITAL') as $Enums.BusinessType,
                     orgType: (org.orgType ?? 'STANDALONE') as $Enums.OrgType,
@@ -200,6 +210,16 @@ export class OrganizationsService {
     }
 
     async update(id: string, updateOrganizationDto: UpdateOrganizationDto): Promise<OrganizationDto> {
+        const current = await this.databaseService.client.organization.findUnique({
+            where: { id }, select: { ...AGE_SETTINGS_SELECT, patientNumberStart: true },
+        });
+        if (!current) throw new NotFoundException('Organization not found');
+        const { patientNumberStart, ...ageSettings } = current;
+        assertAgeSettings({ ...ageSettings, ...definedOnly(updateOrganizationDto) });
+        // Lowering it would read as "numbers restart here", which they can't once higher ones exist
+        if (updateOrganizationDto.patientNumberStart !== undefined && updateOrganizationDto.patientNumberStart < patientNumberStart) {
+            throw new BadRequestException(`patientNumberStart can only be raised (currently ${patientNumberStart})`);
+        }
 
         try {
             const updateOrganizationInput: Prisma.OrganizationUpdateInput = {
@@ -397,4 +417,19 @@ export class OrganizationsService {
             registrationFee: organization.registrationFee as unknown as number,
         };
     }
+}
+
+// Matches the column defaults on Organization
+const STANDARD_EARLY_BANDS = { neonateMaxDays: 28, infantBelowYears: 1, underFiveBelowYears: 5, childMaxYears: 12 };
+
+/** The age-setting fields present in a DTO (undefined ones keep the stored or default value). */
+function definedOnly(dto: Partial<AgeSettings>): Partial<AgeSettings> {
+    const keys = Object.keys(AGE_SETTINGS_SELECT) as (keyof AgeSettings)[];
+    return Object.fromEntries(keys.filter(k => dto[k] !== undefined).map(k => [k, dto[k]]));
+}
+
+/** The age bands must run in order (06 §2.7). */
+function assertAgeSettings(settings: Partial<AgeSettings>) {
+    const problem = ageSettingsProblem({ paediatricMaxAge: null, geriatricMinAge: null, ...STANDARD_EARLY_BANDS, ...settings });
+    if (problem) throw new BadRequestException(problem);
 }

@@ -28,10 +28,10 @@ at, and isn't visible from another branch unless explicitly shared (`05` §6).
 
 | Field | Type | Constraints | Why |
 |---|---|---|---|
-| `mrn` | `String` | unique across the org | Human-readable identifier — printed on cards, read aloud, searched by reception |
+| `patientNumber` (the MRN) | `Int` | unique per organisation | **The patient's hospital number**, given to every patient at registration and printed on their NFC card if one is issued. Sequential per organisation (§3); Never changes. Starts at the organisation's `patientNumberStart` (default `10001`). Read aloud and searched by reception. (`nfcId` is separate: the card chip's own ID, linked when the card is issued.) |
 | `branchId` | `String` | required | Registering/home branch (`02` §2.2) |
 | `firstName`, `middleName?`, `lastName` | `String` | required (except middle) | |
-| `dateOfBirth` | `Date` | required | |
+| `dateOfBirth` | `Date?` | **optional** | Recorded when known; drives the age group (§2.7) |
 | `sex` | enum (`MALE`, `FEMALE`) | required | Biological sex, distinct from any gender-identity field a future profile might add |
 | `phone` | `String[]` | at least one, unless `OTHER` | |
 | `email` | `String?` | optional | |
@@ -267,6 +267,48 @@ grouping is now `BillingAccount` (`10` §3): every patient belongs to exactly on
 `INDIVIDUAL` account or a shared `FAMILY` one. Employers covering their staff are not accounts
 there; they're `CORPORATE` payers with plans and caps (`10` §4).
 
+### 2.7 Age Groups
+
+A patient's age group is **computed, never stored on the patient**: a stored label would go stale on
+the patient's birthday. `ageGroup(dateOfBirth, onDate, organisationCutoffs)` returns:
+
+| Group | Age |
+|---|---|
+| `NEONATE` | 0–28 days |
+| `INFANT` | 29 days to under 1 year |
+| `UNDER_FIVE` | 1–4 years |
+| `CHILD` | 5 years up to the paediatric cutoff |
+| `ADOLESCENT` | 13 years up to the paediatric cutoff |
+| `ADULT` | Above the paediatric cutoff, below the geriatric cutoff |
+| `OLDER_ADULT` | From the geriatric cutoff |
+
+**Every boundary is a hospital setting**, stored on `Organization` and changeable at any time:
+
+| Setting | Meaning | Default |
+|---|---|---|
+| `neonateMaxDays` | `NEONATE` up to this many days | 28 |
+| `infantBelowYears` | `INFANT` below this age | 1 |
+| `underFiveBelowYears` | `UNDER_FIVE` below this age | 5 |
+| `childMaxYears` | `CHILD` up to this age, then `ADOLESCENT` | 12 |
+| `paediatricMaxAge` | Last age treated as paediatric (e.g. 12, 15, 17) | **none: the hospital must set it** |
+| `geriatricMinAge` | First age treated as an older adult (e.g. 60, the WHO convention for Africa, or 65) | **none: the hospital must set it** |
+
+The two cutoffs are required at onboarding. The bands must run in order, and every create or
+update is validated against the full, merged set of values.
+
+**When the group is unknown:** with no date of birth the group is `null`; patients from 5 years old
+also get `null` until the hospital has set its cutoffs. The bands up to 5 years are fixed and
+always computed.
+
+Patient responses include the current computed group. Each encounter keeps a **snapshot** of the age
+and group on the day it opened (`11` §4), so history never changes if a cutoff changes or a date
+of birth is corrected later.
+
+Uses: weight-based dosing, age-specific vital-sign and lab reference ranges, the paediatric triage
+scale, routing to paediatric / neonatal care, fees and insurance dependant limits, minor consent
+(§2.5), and age-banded national reporting (NHMIS). Pregnancy and chronic programmes (HIV, TB,
+diabetes) are **not** age groups. They're statuses or enrolments, designed separately.
+
 ## 3. Identification & Duplicate Prevention
 
 The single most important operational control in this document: **search before create.**
@@ -276,9 +318,29 @@ and returns candidate matches for a human to confirm or rule out, because two di
 sharing a name is routine, not an edge case, and creating a new record is the one mistake that's
 expensive to undo later (split history, missed allergies, duplicate billing).
 
-`mrn` generation: assigned at creation, branch-code-prefixed plus a sequential number (e.g.
-`MAIN-000123`) — human-readable enough to read aloud or print on a card, globally unique across
-the org so it stays a stable identifier even after a cross-branch share (`05` §6).
+Patient number generation: a plain sequential number per organisation (hospital numbers are
+numbers), unique across all its branches so it stays a stable identifier after a cross-branch
+share (`05` §6). It is handed out **from memory, with no database read at registration**:
+
+- Numbers start at the organisation's `patientNumberStart` (default `10001`), so even the first
+  patient has a full-length number and nothing needs zero-padding. A hospital moving from paper
+  sets it above its existing hospital numbers. It can be raised later (numbers jump to it), never
+  lowered.
+- At boot, before the API takes requests, one query loads the highest number per organisation.
+  Each number is the larger of "last handed out + 1" and `patientNumberStart`; the start comes
+  from the organisation read registration already makes for fees, so it costs no extra query.
+- Each registration takes the next number in one synchronous step (read and increment together),
+  so concurrent registrations in the process can't receive the same number. It is taken just
+  before the patient insert, so failures before that (e.g. a duplicate email) don't consume one.
+- A registration that fails after taking a number leaves a gap. Gaps are never refilled: the
+  number only identifies the patient (`createdAt` records order), refilling would risk handing out
+  a number whose insert actually committed, and an in-memory pool would be lost on restart anyway.
+- The unique `(hospitalId, patientNumber)` index is the backstop if a second API process ever
+  writes: the insert is rejected and the registration retried with the next number. If the API is
+  ever run as several instances permanently, the counter moves to Redis `INCR` (already in every
+  request path), still with no database read.
+- Bulk imports of existing paper numbers go through the API, or are followed by a restart so the
+  boot read picks up the new highest number.
 
 ## 4. Registration Process
 

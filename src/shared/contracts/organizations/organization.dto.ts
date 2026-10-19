@@ -16,6 +16,13 @@ export interface OrganizationDto {
   pobox?: string;
   nfcCardFee: number;
   registrationFee: number;
+  patientNumberStart: number;
+  neonateMaxDays: number;
+  infantBelowYears: number;
+  underFiveBelowYears: number;
+  childMaxYears: number;
+  paediatricMaxAge: number | null;
+  geriatricMinAge: number | null;
   paymentPlan?: PaymentPlan;
   businessType: BusinessType;
   orgType: OrgType;

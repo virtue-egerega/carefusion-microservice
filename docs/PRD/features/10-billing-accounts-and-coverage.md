@@ -128,11 +128,18 @@ model BillingAccountMember {
 ```
 
 **Invariant: every patient has exactly one membership with `leftAt = null`.** Registration
-creates an `INDIVIDUAL` account unless reception attaches the patient to an existing `FAMILY`
-account. It's enforced in the migration with a partial unique index
+creates an `INDIVIDUAL` account unless reception attaches the patient to an existing account.
+It's enforced in the migration with a partial unique index
 (`UNIQUE (patient_id) WHERE left_at IS NULL`), since Prisma can't express one. Moving a patient
 closes the old membership and opens a new one. Past charges stay with the account they were
 billed to (§5).
+
+**Joining an `INDIVIDUAL` account converts it to `FAMILY` in place.** It keeps its number,
+holder, balance, unapplied credit and history, so the new member can draw on the holder's
+deposit straight away. Reception confirms with the holder on `holderPhone` before attaching
+anyone. Conversion is one-way: the account stays `FAMILY` if members later leave. Creating a
+family account for a holder who is on their own active `INDIVIDUAL` account converts that account
+rather than opening a new one, so their money comes with them. `PAYER` accounts never have members.
 
 ### 3.3 `AccountEntry` (the ledger)
 

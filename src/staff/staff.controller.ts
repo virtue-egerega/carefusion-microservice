@@ -14,8 +14,8 @@ export class StaffController {
     @ApiOperation({ summary: 'Create a staff account. The response carries a one-time temporaryPassword; it is never shown again' })
     @Authorize('staff.manage')
     @Post()
-    create(@Body() dto: CreateStaffDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
-        return this.staffService.create(dto, orgId, user.sub);
+    create(@Body() dto: CreateStaffDto, @OrganizationId() organizationId: string, @CurrentUser() user: AuthUser) {
+        return this.staffService.create(dto, { organizationId, branchId: user.branchId }, user.sub);
     }
 
     @ApiOperation({ summary: 'Issue a new temporary password (shown once); the staff member must change it at next login' })

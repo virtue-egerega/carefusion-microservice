@@ -27,6 +27,14 @@ model Organization {
   pobox                 String?
   nfcCardFee            Decimal @default(1000.00)
   registrationFee       Decimal @default(0.00)
+  patientNumberStart    Int     @default(1001) // first patient number; numbers never go below it (06 §3). Raised, never lowered.
+  // Age-group settings (06 §2.7). Early-life bands default to the standard values; the hospital may change them.
+  neonateMaxDays        Int     @default(28)    // NEONATE up to this many days
+  infantBelowYears      Int     @default(1)     // INFANT below this age
+  underFiveBelowYears   Int     @default(5)     // UNDER_FIVE below this age
+  childMaxYears         Int     @default(12)    // CHILD up to this age, then ADOLESCENT
+  paediatricMaxAge      Int?                    // last age (years) treated as paediatric; set by the hospital
+  geriatricMinAge       Int?                    // first age (years) treated as older adult; set by the hospital
   paymentPlan           PaymentPlan?
   businessType          BusinessType @default(HOSPITAL)
   orgType               OrgType @default(STANDALONE)
@@ -279,8 +287,8 @@ model Address {
 
 model Patient {
   id                    String  @id @default(uuid())  @map("user_id")
-  patientId             Int     @default(autoincrement())
-  nfcId                 String @unique     // the NFC card’s UID or token
+  patientNumber         Int                // the patient's hospital number, given to every patient at registration (and printed on their NFC card if one is issued): sequential per organisation, handed out in memory (06 §3)
+  nfcId                 String? @unique    // the card chip's own ID; set when a card is scanned and linked, not at registration
   nfcLinkedAt           DateTime?          // when the card was linked to the patient
   nfcLinkedBy           String?          // who did the linking
   dateOfBirth           DateTime?
@@ -310,6 +318,8 @@ model Patient {
   principalPolicies         Policy[]               @relation("PolicyPrincipal")
   coverages                 Coverage[]
   charges                   Charge[]
+
+  @@unique([hospitalId, patientNumber])
 
   @@index([branchId])
 

@@ -45,16 +45,20 @@ export class StaffService {
      * The new user must change it at first login (09 §3). `createdBy` records the admin, who is
      * also who issued that first password.
      */
-    async create(dto: CreateStaffDto, organizationId: string, createdBy: string) {
+    /** Without `dto.branchId`, the staff member joins the creating admin's branch (`at.branchId`, from their token). */
+    async create(dto: CreateStaffDto, at: { organizationId: string; branchId: string | null }, createdBy: string) {
+        const { organizationId } = at;
+        const branchId = dto.branchId ?? at.branchId;
+        if (!branchId) throw new BadRequestException('branchId is required: your own account has no branch to default to');
+
         const [profile, branch] = await Promise.all([
             this.databaseService.client.dutyProfile.findFirst({
                 where:  { id: dto.dutyProfileId, deletedAt: null },
                 select: { id: true },
             }),
-            this.databaseService.client.branch.findFirst({
-                where:  { id: dto.branchId, organizationId },
-                select: { id: true },
-            }),
+            dto.branchId
+                ? this.databaseService.client.branch.findFirst({ where: { id: dto.branchId, organizationId }, select: { id: true } })
+                : Promise.resolve({ id: branchId }),
         ]);
         if (!profile) throw new NotFoundException('Duty profile not found');
         if (!branch) throw new NotFoundException('Branch not found');
@@ -87,7 +91,7 @@ export class StaffService {
                     data: {
                         id: user.id,
                         hospitalId: organizationId,
-                        branchId: dto.branchId,
+                        branchId,
                         role: dto.role as $Enums.HospitalStaffRole,
                         departmentId: dto.departmentId,
                         createdBy,

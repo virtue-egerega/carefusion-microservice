@@ -111,6 +111,8 @@ model Encounter {
   followUpOfId      String?                              // the earlier encounter this one follows up (§15.3)
   attendingStaffId  String?                              // responsible clinician; consultant for inpatients
   reasonForVisit    String?
+  ageAtArrivalDays  Int?                                 // snapshot: age on the day the encounter opened (06 §2.7); null if DOB unknown
+  ageGroup          AgeGroup?                            // snapshot: group under the cutoffs in force that day
   acuity            Acuity?                              // latest triage acuity, denormalised for queue ordering
   coverageId        String?                              // chosen at check-in (10 §5); null = self-pay
   referringFacility String?
@@ -199,6 +201,14 @@ enum Disposition {
   SERVICE_COMPLETED         // SERVICE_ONLY encounters
 }
 ```
+
+**Age snapshot.** `ageAtArrivalDays` and `ageGroup` are computed from the patient's date of birth
+and the organisation's cutoffs when the encounter opens, and never recalculated. Reports, billing
+rules and clinical history therefore keep showing what applied at the time, even if a cutoff
+changes or a date of birth is corrected later (`06` §2.7). Days, not years, because neonatal care
+needs that precision. Both are null when the date of birth is unknown. They're computed by
+`ageSnapshot()` (`src/patients/age-group.ts`), already built and tested, which encounter creation
+calls.
 
 ### 4.1 Lifecycle
 

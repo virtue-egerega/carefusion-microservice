@@ -42,7 +42,8 @@ export class CreatePatientDto {
 
     @ApiProperty({
         required: false,
-        description: "Join an existing FAMILY billing account. Omit to open the patient's own INDIVIDUAL account.",
+        description: "Join another patient's billing account; an INDIVIDUAL account becomes a FAMILY account " +
+            "(confirm with the holder on holderPhone first). Omit to open the patient's own INDIVIDUAL account.",
     })
     @IsUUID()
     @IsOptional()

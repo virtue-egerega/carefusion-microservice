@@ -13,7 +13,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
 
     // Patient
     { key: 'patient.register', name: 'Register Patient',    description: 'Register a new patient' },
-    { key: 'patient.view',     name: 'View Patients',       description: 'View patient records' },
+    { key: 'patient.list',     name: 'List Patients',       description: 'See and search the patient list and its statistics' },
+    { key: 'patient.view',     name: 'View Patient',        description: "Open a single patient's full record" },
     { key: 'patient.edit',     name: 'Edit Patient',        description: 'Edit patient demographics' },
     { key: 'patient.assign',   name: 'Assign Patient',      description: 'Assign a patient to a staff member or department' },
 
@@ -119,7 +120,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         permissions: [
             'org.manage', 'branch.manage', 'staff.manage', 'staff.password.reset', 'department.manage', 'duty_profile.manage',
             'report.view', 'metrics.view',
-            'patient.view', 'patient.assign',
+            'patient.list', 'patient.view', 'patient.assign',
             'appointment.create', 'appointment.manage',
             'billing.view', 'finance.report.view',
         ],
@@ -130,7 +131,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         departmentKey: 'RECEPTION',
         queueKeys: ['RECEPTION_QUEUE'],
         permissions: [
-            'patient.register', 'patient.view', 'patient.edit', 'patient.assign',
+            'patient.register', 'patient.list', 'patient.view', 'patient.edit', 'patient.assign',
             'queue.view', 'queue.manage',
             'appointment.create', 'appointment.manage',
             'encounter.create',

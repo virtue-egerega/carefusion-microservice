@@ -52,7 +52,7 @@ export class PatientsController {
     }
 
     @ApiOperation({ summary: 'List patients — paginated with optional search' })
-    @Authorize('patient.view')
+    @Authorize('patient.list')
     @Get()
     findAll(
         @OrganizationId() orgId: string,
@@ -63,6 +63,14 @@ export class PatientsController {
         return this.patientsService.findAll(orgId, limit, offset, search);
     }
 
+    // Declared before :id so "stats" isn't read as a patient id
+    @ApiOperation({ summary: 'Patient statistics for the list header — total, new this month, growth' })
+    @Authorize('patient.list')
+    @Get('stats')
+    stats(@OrganizationId() orgId: string) {
+        return this.patientsService.stats(orgId);
+    }
+
     @ApiOperation({ summary: "The patient's current billing account, balance and outstanding" })
     @Authorize('billing.view')
     @Get(':id/billing-account')
@@ -70,7 +78,7 @@ export class PatientsController {
         return this.billingAccountsService.getForPatient(id, orgId);
     }
 
-    @ApiOperation({ summary: 'Get full patient record' })
+    @ApiOperation({ summary: "Get one patient's full record" })
     @Authorize('patient.view')
     @Get(':id')
     findOne(@Param('id') id: string, @OrganizationId() orgId: string) {

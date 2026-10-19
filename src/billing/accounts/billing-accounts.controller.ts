@@ -11,7 +11,7 @@ import { BillingAccountsService } from './billing-accounts.service';
 export class BillingAccountsController {
     constructor(private readonly billingAccountsService: BillingAccountsService) {}
 
-    @ApiOperation({ summary: 'Create a FAMILY account (the holder, if a patient, is moved onto it)' })
+    @ApiOperation({ summary: 'Create a FAMILY account (a holder on their own INDIVIDUAL account has it converted instead)' })
     @Authorize('billing.account.create')
     @Post()
     create(@Body() dto: CreateFamilyAccountDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
@@ -46,7 +46,7 @@ export class BillingAccountsController {
         return this.billingAccountsService.updateDetails(id, dto, orgId, user.sub);
     }
 
-    @ApiOperation({ summary: 'Move a patient onto this family account' })
+    @ApiOperation({ summary: 'Move a patient onto this account (an INDIVIDUAL account becomes FAMILY)' })
     @Authorize('billing.account.member.add')
     @Post(':id/members')
     addMember(@Param('id') id: string, @Body() dto: AddAccountMemberDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {

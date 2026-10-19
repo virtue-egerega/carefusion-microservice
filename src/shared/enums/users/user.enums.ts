@@ -122,3 +122,14 @@ export enum BillingType {
     INSURANCE = 'INSURANCE',
     STAFF_INSURANCE = 'STAFF_INSURANCE',
   }
+
+/** Computed from date of birth and the organisation's cutoffs (PRD 06 §2.7). Never stored on the patient. */
+export enum AgeGroup {
+  NEONATE = "NEONATE",
+  INFANT = "INFANT",
+  UNDER_FIVE = "UNDER_FIVE",
+  CHILD = "CHILD",
+  ADOLESCENT = "ADOLESCENT",
+  ADULT = "ADULT",
+  OLDER_ADULT = "OLDER_ADULT",
+}

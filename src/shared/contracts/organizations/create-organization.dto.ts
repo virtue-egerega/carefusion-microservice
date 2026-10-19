@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsArray, IsEmail, IsNotEmpty, IsEnum, IsDecimal } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsOptional, IsArray, IsEmail, IsNotEmpty, IsEnum, IsDecimal, IsInt, Min, Max } from 'class-validator';
 import { BusinessType, OrgType, PaymentPlan } from '@shared/enums/organizations/organization.enums';
 
 export class CreateOrganizationDto {
@@ -123,6 +123,58 @@ export class CreateOrganizationDto {
   @IsNotEmpty()
   @IsDecimal()
   registrationFee!: number;
+
+  @ApiProperty({ description: 'NEONATE up to this many days (default 28)', required: false, example: 28 })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  neonateMaxDays?: number;
+
+  @ApiProperty({ description: 'INFANT below this age in years (default 1)', required: false, example: 1 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  infantBelowYears?: number;
+
+  @ApiProperty({ description: 'UNDER_FIVE below this age in years (default 5)', required: false, example: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  underFiveBelowYears?: number;
+
+  @ApiProperty({ description: 'CHILD up to this age, then ADOLESCENT (default 12)', required: false, example: 12 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  childMaxYears?: number;
+
+  @ApiPropertyOptional({
+    description: 'First patient number. Defaults to 10001. A hospital moving from paper sets it above its existing hospital numbers. Can be raised later, never lowered.',
+    example: 1001,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1_000_000)
+  patientNumberStart?: number;
+
+  @ApiProperty({
+    description: 'Last age (years) the hospital treats as paediatric, e.g. 12, 15 or 17. Drives patient age groups.',
+    example: 17,
+  })
+  @IsInt()
+  @Min(5)
+  @Max(21)
+  paediatricMaxAge!: number;
+
+  @ApiProperty({
+    description: 'First age (years) the hospital treats as an older adult, e.g. 60 or 65. Drives patient age groups.',
+    example: 60,
+  })
+  @IsInt()
+  @Min(40)
+  @Max(100)
+  geriatricMinAge!: number;
 
   @ApiProperty({
     description: 'Payment plan for the organization services',

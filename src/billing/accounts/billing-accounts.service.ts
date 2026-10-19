@@ -13,7 +13,7 @@ const ACCOUNT_SUMMARY = {
 
 const MEMBER_PATIENT = {
     select: {
-        id: true, patientId: true,
+        id: true, patientNumber: true,
         user: { select: { firstName: true, middleName: true, lastName: true, phone: true } },
     },
 };
@@ -64,6 +64,27 @@ export class BillingAccountsService {
         }
 
         return this.databaseService.transaction(async () => {
+            // A holder on their own account brings it along, money and history included: it becomes the family account
+            if (dto.holderPatientId) {
+                const current = await this.currentMembership(dto.holderPatientId);
+                if (current && current.account.organizationId !== organizationId) {
+                    throw new NotFoundException('Holder patient not found');
+                }
+                if (current?.account.accountType === $Enums.BillingAccountType.INDIVIDUAL
+                    && current.account.status === $Enums.AccountStatus.ACTIVE) {
+                    return this.databaseService.client.billingAccount.update({
+                        where: { id: current.accountId },
+                        data:  {
+                            accountType: $Enums.BillingAccountType.FAMILY,
+                            name:        dto.name,
+                            holderName:  dto.holderName,
+                            ...(dto.holderPhone && { holderPhone: dto.holderPhone }),
+                            updatedBy:   createdBy,
+                        },
+                    });
+                }
+            }
+
             const account = await withConstraintErrors(
                 async () => this.databaseService.client.billingAccount.create({
                     data: {
@@ -100,10 +121,25 @@ export class BillingAccountsService {
             client.billingAccount.count({ where }),
             client.billingAccount.findMany({
                 where, take: limit, skip: offset, orderBy: { createdAt: 'desc' },
-                select: { ...ACCOUNT_SUMMARY, _count: { select: { members: { where: { leftAt: null } } } } },
+                select: {
+                    ...ACCOUNT_SUMMARY,
+                    holderName: true,
+                    holderPhone: true,
+                    holder: { select: { user: { select: { firstName: true, lastName: true, phone: true } } } },
+                    _count: { select: { members: { where: { leftAt: null } } } },
+                },
             }),
         ]);
-        return { count, docs };
+
+        // Names repeat across families; the holder's phone is what tells same-named accounts apart
+        return {
+            count,
+            docs: docs.map(({ holder, holderName, holderPhone, ...account }) => ({
+                ...account,
+                holderName:  holderName ?? (holder ? `${holder.user.firstName} ${holder.user.lastName}` : null),
+                holderPhone: holderPhone.length ? holderPhone : holder?.user.phone ?? [],
+            })),
+        };
     }
 
     async findOne(accountId: string, organizationId: string) {
@@ -139,21 +175,29 @@ export class BillingAccountsService {
     // ── Members ──────────────────────────────────────────────────────────────
 
     /**
-     * Moves a patient onto a FAMILY account (PRD 10 §3.2). Closes their current membership; past
-     * charges stay on the account that was billed. An emptied INDIVIDUAL account with nothing
-     * owed either way is closed. Pass the account if already loaded.
+     * Moves a patient onto another patient's account (PRD 10 §3.2). Joining an INDIVIDUAL account
+     * makes it a FAMILY account, keeping its number, holder, balance and history; it stays FAMILY
+     * if members later leave. Closes the patient's current membership; past charges stay on the
+     * account that was billed. An emptied INDIVIDUAL account with nothing owed either way is
+     * closed. Pass the account if already loaded.
      */
     async moveMember(target: string | BillingAccount, patientId: string, by: string, organizationId: string) {
         return this.databaseService.transaction(async () => {
             const client  = this.databaseService.client;
             const account = typeof target === 'string' ? await this.findAccountOrThrow(target, organizationId) : target;
-            if (account.accountType !== $Enums.BillingAccountType.FAMILY) {
-                throw new BadRequestException('Patients can only be moved onto a FAMILY account');
+            if (account.accountType === $Enums.BillingAccountType.PAYER) {
+                throw new BadRequestException("Patients can't be members of a payer account");
             }
             if (account.status !== $Enums.AccountStatus.ACTIVE) throw new ConflictException('Account is not active');
 
             const current = await this.currentMembership(patientId);
             if (current?.accountId === account.id) throw new ConflictException('Patient is already on this account');
+
+            // Conditional, so an account that's already FAMILY (or a concurrent join) is a no-op
+            await client.billingAccount.updateMany({
+                where: { id: account.id, accountType: $Enums.BillingAccountType.INDIVIDUAL },
+                data:  { accountType: $Enums.BillingAccountType.FAMILY, updatedBy: by },
+            });
 
             if (current) {
                 await client.billingAccountMember.update({ where: { id: current.id }, data: { leftAt: new Date() } });

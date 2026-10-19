@@ -1,8 +1,10 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+    private readonly logger = new Logger('HttpExceptionFilter');
+
     catch(exception: unknown, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const res = ctx.getResponse<Response>();
@@ -12,6 +14,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
             exception instanceof HttpException
                 ? exception.getStatus()
                 : HttpStatus.INTERNAL_SERVER_ERROR;
+
+        // Unexpected errors (Prisma, constraint violations, bugs) get a generic 500 for the client,
+        // so they must be logged here with their stack or they're invisible
+        if (status >= 500) {
+            const detail = exception instanceof Error ? exception.stack ?? exception.message : String(exception);
+            this.logger.error(`${req.method} ${req.url} → ${status}\n${detail}`);
+        }
 
         const message =
             exception instanceof HttpException
