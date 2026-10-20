@@ -12,6 +12,19 @@ export enum AccountStatus {
     CLOSED = 'CLOSED',
 }
 
+/** A ledger row's type (PRD 10 §3.3). Credits: DEPOSIT, REMITTANCE, WRITE_OFF, TRANSFER_IN; debits: CHARGE, REFUND, TRANSFER_OUT; either: ADJUSTMENT, REVERSAL. */
+export enum AccountEntryType {
+    DEPOSIT = 'DEPOSIT',
+    REMITTANCE = 'REMITTANCE',
+    CHARGE = 'CHARGE',
+    WRITE_OFF = 'WRITE_OFF',
+    REFUND = 'REFUND',
+    TRANSFER_IN = 'TRANSFER_IN',
+    TRANSFER_OUT = 'TRANSFER_OUT',
+    ADJUSTMENT = 'ADJUSTMENT',
+    REVERSAL = 'REVERSAL',
+}
+
 export enum PaymentMode {
     CASH = 'CASH',
     POS = 'POS',

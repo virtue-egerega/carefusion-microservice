@@ -1,8 +1,8 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
-import { $Enums } from '../../generated/prisma/client';
 import { ACTIVE_TASK } from '../encounters/tasks/tasks.rules';
-import { countsByQueue } from './rules/queue.rules';
+import { WorklistQueryDto } from './dto/worklist-query.dto';
+import { countsByQueue, servingOrder, worklistSearch } from './rules/queue.rules';
 
 @Injectable()
 export class QueueManagementService {
@@ -38,53 +38,59 @@ export class QueueManagementService {
     }
 
     /**
-     * A queue's live task list at the caller's branch (11 §5.2): active entries, highest priority
-     * first, then longest ready. Only staff whose duty profiles include the queue may see it
-     * (05 §7); that check is part of the same query.
+     * A queue's live task list at the caller's branch (11 §5.2), optionally narrowed to some
+     * statuses and a search, in the order it's served. Only staff whose duty profiles include the
+     * queue may see it (05 §7); that check is part of the same query. The counts, run alongside,
+     * cover the whole list so the frontend can show them on status tabs.
      */
-    async worklist(queueId: string, branchId: string, dutyProfileIds: string[]) {
-        const queue = await this.databaseService.client.queue.findFirst({
-            where: {
-                id: queueId,
-                deletedAt: null,
-                dutyProfileQueues: { some: { dutyProfileId: { in: dutyProfileIds } } },
-            },
-            select: {
-                id: true,
-                name: true,
-                department: { select: { id: true, name: true } },
-                entries: {
-                    where:   { branchId, status: { in: [...ACTIVE_TASK] } },
-                    orderBy: [{ priority: 'asc' }, { readyAt: 'asc' }],
-                    select:  {
-                        id: true, ticketNumber: true, priority: true, status: true, holdReason: true,
-                        enteredAt: true, readyAt: true, calledAt: true,
-                        patient: {
-                            select: {
-                                id: true, patientNumber: true, sex: true,
-                                user: { select: { firstName: true, middleName: true, lastName: true } },
+    async worklist(queueId: string, branchId: string, dutyProfileIds: string[], query: WorklistQueryDto = {}) {
+        const client = this.databaseService.client;
+        const myQueue = { dutyProfileQueues: { some: { dutyProfileId: { in: dutyProfileIds } } } };
+
+        const [queue, rows] = await Promise.all([
+            client.queue.findFirst({
+                where: { id: queueId, deletedAt: null, ...myQueue },
+                select: {
+                    id: true,
+                    name: true,
+                    department: { select: { id: true, name: true } },
+                    entries: {
+                        where:   { branchId, status: { in: query.status?.length ? query.status : [...ACTIVE_TASK] }, ...worklistSearch(query.search) },
+                        select:  {
+                            id: true, ticketNumber: true, priority: true, status: true, holdReason: true,
+                            enteredAt: true, readyAt: true, calledAt: true,
+                            patient: {
+                                select: {
+                                    id: true, patientNumber: true, sex: true,
+                                    user: { select: { firstName: true, middleName: true, lastName: true } },
+                                },
                             },
-                        },
-                        encounter: {
-                            select: {
-                                id: true, visitType: true, reasonForVisit: true,
-                                ageAtArrivalDays: true, ageGroup: true, acuity: true, isMedicoLegal: true, arrivedAt: true,
-                                clinic: { select: { name: true } },
+                            encounter: {
+                                select: {
+                                    id: true, visitType: true, reasonForVisit: true,
+                                    ageAtArrivalDays: true, ageGroup: true, acuity: true, isMedicoLegal: true, arrivedAt: true,
+                                    clinic: { select: { name: true } },
+                                },
                             },
                         },
                     },
                 },
-            },
-        });
+            }),
+            client.queueEntry.groupBy({
+                by:     ['queueId', 'status'],
+                where:  { queueId, branchId, status: { in: [...ACTIVE_TASK] }, queue: myQueue },
+                _count: { _all: true },
+            }),
+        ]);
         if (!queue) throw new ForbiddenException("This queue isn't in any of your duty profiles");
 
         const { entries, ...rest } = queue;
+        const counts = countsByQueue([queueId], rows.map(r => ({ queueId: r.queueId, status: r.status, count: r._count._all })));
         return {
             queue: rest,
-            waiting: entries.filter(e => e.status === $Enums.QueueEntryStatus.WAITING).length,
-            held:    entries.filter(e => e.status === $Enums.QueueEntryStatus.HELD).length,
+            patients: counts.get(queueId)!,
             // One flat row per patient in line: what a waiting-room list shows
-            entries: entries.map(({ patient, ...entry }) => ({
+            entries: servingOrder(entries).map(({ patient, ...entry }) => ({
                 ...entry,
                 patient: { id: patient.id, patientNumber: patient.patientNumber, sex: patient.sex, ...patient.user },
             })),

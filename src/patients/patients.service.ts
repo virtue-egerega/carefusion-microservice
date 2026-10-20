@@ -67,7 +67,8 @@ export class PatientsService {
      * Registers the patient at the staff member's branch (both from their token), opens or joins
      * their billing account, and bills the registration and card fees in the same transaction.
      * The fees are incurred now; paying them is a separate step at Accounts (10 §7.2). Any credit
-     * already on the account pays them immediately; otherwise they stay owed.
+     * already on the account pays them immediately; otherwise they stay owed and the patient goes
+     * on the cashier's list.
      */
     async create(dto: CreatePatientDto, at: { organizationId: string; branchId: string }, registeredBy: string) {
         // Email is optional for patients — generate a stable internal placeholder if omitted
@@ -163,6 +164,7 @@ export class PatientsService {
 
             const charges = [];
             let account;
+            let billingTask = null;
             for (const fee of billable) {
                 const posted = await this.charges.post({
                     patientId:        user.id,
@@ -176,6 +178,7 @@ export class PatientsService {
                     createdBy:        registeredBy,
                 }, account);
                 account = posted.account;
+                billingTask = posted.billingTask ?? billingTask;
                 charges.push({ ...posted.charge, allocations: posted.allocations });
             }
 
@@ -191,6 +194,8 @@ export class PatientsService {
                 billingAccount: { id: billingAccountId, balance: account?.balance, unappliedCredit: account?.unappliedCredit },
                 charges,
                 outstanding,
+                // The cashier's ticket, when the fees are owed: the patient goes to pay them (11 §6.1)
+                billingTask,
                 temporaryPassword: plainPassword,
             };
         });

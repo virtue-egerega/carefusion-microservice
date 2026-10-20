@@ -108,6 +108,7 @@ const INSURANCE_PERMISSIONS = [
 ];
 
 const CASHIER_PERMISSIONS = [
+    'patient.view',                      // find the patient whose account they're funding
     'billing.view', 'billing.payment.receive',
     'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
     'billing.refund.request', 'billing.void.request', 'billing.transfer.request',

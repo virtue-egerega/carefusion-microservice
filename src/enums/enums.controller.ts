@@ -5,7 +5,7 @@ import {
   BLOOD_GROUP, GENOTYPE, PublicHealthRole, NHISRole,
 } from '@shared/enums/users/user.enums';
 import {
-  AccountStatus, BillingAccountType, MemberType, OverLimitAction, PayerType, PaymentMode, PaymentStatus,
+  AccountEntryType, AccountStatus, BillingAccountType, MemberType, OverLimitAction, PayerType, PaymentMode, PaymentStatus,
   PolicyStatus, ServiceCategory, SettlementMode,
 } from '@shared/enums/billing/billing.enums';
 import { PaymentPlan, BusinessType, OrgType, ConsultationPayment } from '@shared/enums/organizations/organization.enums';
@@ -48,6 +48,7 @@ export class EnumsController {
       billing: {
         billingAccountType: toOptions(BillingAccountType),
         accountStatus: toOptions(AccountStatus),
+        accountEntryType: toOptions(AccountEntryType),
         paymentMode: toOptions(PaymentMode),
         paymentStatus: toOptions(PaymentStatus),
         serviceCategory: toOptions(ServiceCategory),

@@ -3,16 +3,16 @@
  * for the patient. These rules say which task moves are allowed and when the visit ends.
  */
 
-export type TaskStatus = 'WAITING' | 'HELD' | 'CALLED' | 'IN_SERVICE' | 'COMPLETED' | 'NO_SHOW' | 'TRANSFERRED' | 'CANCELLED';
+export type TaskStatus = 'WAITING' | 'HELD' | 'AWAITING_SERVICE' | 'CALLED' | 'IN_SERVICE' | 'COMPLETED' | 'NO_SHOW' | 'TRANSFERRED' | 'CANCELLED';
 export type TaskAction = 'call' | 'start' | 'complete' | 'cancel';
 
 /** Tasks still on someone's list. Mirrors the partial unique index on QueueEntry. */
-export const ACTIVE_TASK = ['WAITING', 'HELD', 'CALLED', 'IN_SERVICE'] as const;
+export const ACTIVE_TASK = ['WAITING', 'HELD', 'AWAITING_SERVICE', 'CALLED', 'IN_SERVICE'] as const;
 
 const ALLOWED_FROM: Record<TaskAction, readonly TaskStatus[]> = {
-    call:     ['WAITING', 'CALLED'],                 // calling again is allowed
-    start:    ['WAITING', 'CALLED'],
-    complete: ['WAITING', 'CALLED', 'IN_SERVICE'],   // a quick task can be completed without starting it
+    call:     ['WAITING', 'AWAITING_SERVICE', 'CALLED'],                 // calling again is allowed
+    start:    ['WAITING', 'AWAITING_SERVICE', 'CALLED'],
+    complete: ['WAITING', 'AWAITING_SERVICE', 'CALLED', 'IN_SERVICE'],   // a quick task can be completed without starting it
     cancel:   ACTIVE_TASK,
 };
 

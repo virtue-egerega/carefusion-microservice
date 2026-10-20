@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { isRecordNotFound } from '../../database/prisma-errors';
 import { $Enums, Prisma } from '../../../generated/prisma/client';
@@ -8,7 +8,8 @@ import { TaskFactory } from '../shared/task-factory';
 import { ACTIVE_TASK, TaskAction, TaskStatus, allowedFrom, closesEncounter, leavingDisposition, transitionProblem } from './tasks.rules';
 
 type At = { organizationId: string; branchId: string };
-type Task = { id: string; status: TaskStatus; encounterId: string; patientId: string; queueId: string };
+// encounterId is null only for a cashier task for fees outside a visit (registration)
+type Task = { id: string; status: TaskStatus; encounterId: string | null; patientId: string; queueId: string };
 type LockedEncounter = { firstSeenAt: Date | null };
 
 const TASK_SELECT = { id: true, status: true, encounterId: true, patientId: true, queueId: true } as const;
@@ -37,7 +38,7 @@ export class TasksService {
         const now = new Date();
         return this.databaseService.transaction(async () => {
             const started = await this.move(task, 'start', { status: $Enums.QueueEntryStatus.IN_SERVICE, startedAt: now, servedBy: user.sub });
-            await this.markFirstSeen(task.encounterId, now);
+            if (task.encounterId) await this.markFirstSeen(task.encounterId, now);
             return started;
         });
     }
@@ -51,12 +52,14 @@ export class TasksService {
     async complete(taskId: string, dto: CompleteTaskDto, at: At, user: AuthUser) {
         const task = await this.ownTask(taskId, at, user, 'complete');
         const now = new Date();
+        if (!task.encounterId) return this.completeOutsideVisit(task, dto, user);
 
         const [nextQueue] = dto.nextQueueId ? await this.tasks.loadQueues([dto.nextQueueId]) : [];
         if (dto.nextQueueId && !nextQueue) throw new NotFoundException('Next queue not found or not active');
 
+        const encounterId = task.encounterId;
         return this.databaseService.transaction(async () => {
-            await this.lockEncounter(task.encounterId);
+            await this.lockEncounter(encounterId);
 
             const completed = await this.move(task, 'complete', {
                 status:      $Enums.QueueEntryStatus.COMPLETED,
@@ -64,12 +67,12 @@ export class TasksService {
                 servedBy:    user.sub,
                 outcomeNote: dto.note,
             });
-            await this.markFirstSeen(task.encounterId, now);
+            await this.markFirstSeen(encounterId, now);
 
             if (nextQueue) {
                 // A doctors' task waits for payment when the hospital collects first (11 §6)
                 const next = await this.tasks.create({
-                    encounterId: task.encounterId,
+                    encounterId,
                     patientId:   task.patientId,
                     branchId:    at.branchId,
                     queue:       nextQueue,
@@ -80,9 +83,24 @@ export class TasksService {
                 return { task: completed, next, encounterClosed: false };
             }
 
-            const encounterClosed = await this.closeIfLastTask(task, user.sub, now);
+            const encounterClosed = await this.closeIfLastTask({ ...task, encounterId }, user.sub, now);
             return { task: completed, next: null, encounterClosed };
         });
+    }
+
+    /**
+     * Completes a cashier task for fees outside a visit (registration). There's no visit to close,
+     * and nowhere to send the patient on: that needs an encounter, started at reception.
+     */
+    private async completeOutsideVisit(task: Task, dto: CompleteTaskDto, user: AuthUser) {
+        if (dto.nextQueueId) throw new UnprocessableEntityException('This patient has no visit to send on; start an encounter at reception');
+        const completed = await this.move(task, 'complete', {
+            status:      $Enums.QueueEntryStatus.COMPLETED,
+            completedAt: new Date(),
+            servedBy:    user.sub,
+            outcomeNote: dto.note,
+        });
+        return { task: completed, next: null, encounterClosed: false };
     }
 
     /**
@@ -94,18 +112,21 @@ export class TasksService {
     async cancel(taskId: string, dto: CancelTaskDto, at: At, user: AuthUser) {
         const task = await this.ownTask(taskId, at, user, 'cancel', user.permissions.includes('encounter.follow_up'));
         const now = new Date();
+        const cancelling = {
+            status:      $Enums.QueueEntryStatus.CANCELLED,
+            completedAt: now,
+            servedBy:    user.sub,
+            outcomeNote: dto.reason,
+        };
+        const encounterId = task.encounterId;
+        if (!encounterId) return { task: await this.move(task, 'cancel', cancelling), encounterClosed: false, disposition: null };
 
         return this.databaseService.transaction(async () => {
-            const encounter = await this.lockEncounter(task.encounterId);
-            const cancelled = await this.move(task, 'cancel', {
-                status:      $Enums.QueueEntryStatus.CANCELLED,
-                completedAt: now,
-                servedBy:    user.sub,
-                outcomeNote: dto.reason,
-            });
+            const encounter = await this.lockEncounter(encounterId);
+            const cancelled = await this.move(task, 'cancel', cancelling);
 
             const disposition = dto.patientLeft ? leavingDisposition(encounter.firstSeenAt) : null;
-            const encounterClosed = await this.closeIfLastTask(task, user.sub, now, disposition && {
+            const encounterClosed = await this.closeIfLastTask({ ...task, encounterId }, user.sub, now, disposition && {
                 disposition,
                 dispositionAt:   now,
                 dispositionBy:   user.sub,
@@ -157,7 +178,7 @@ export class TasksService {
     }
 
     /** Closes the encounter when no other station still has a task for the patient (11 §14). */
-    private async closeIfLastTask(task: Task, by: string, now: Date, extra?: Prisma.EncounterUpdateInput | null): Promise<boolean> {
+    private async closeIfLastTask(task: Task & { encounterId: string }, by: string, now: Date, extra?: Prisma.EncounterUpdateInput | null): Promise<boolean> {
         const client = this.databaseService.client;
         const otherActive = await client.queueEntry.count({
             where: { encounterId: task.encounterId, status: { in: [...ACTIVE_TASK] } },

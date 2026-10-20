@@ -3,9 +3,10 @@ import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums } from '../../../generated/prisma/client';
 import type { BillingAccount } from '../../../generated/prisma/client';
-import { CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
+import { AccountTransactionsQueryDto, CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
 import { LedgerService, toDecimal } from '../ledger/ledger.service';
 import { QueueHoldsService } from '../../encounters/queue-holds/queue-holds.service';
+import { direction, transactionsWhere } from './account-transactions.rules';
 
 const ACCOUNT_SUMMARY = {
     id: true, accountNumber: true, accountType: true, name: true, status: true,
@@ -325,6 +326,64 @@ export class BillingAccountsService {
         ]);
 
         return { entries, openBills };
+    }
+
+    /**
+     * The account's transactions (ledger rows), newest first, filtered and searched, for the
+     * transactions page and for settling disputes. Each row says who it was for, which bill a
+     * charge was, and, for money in, which bills it paid, so no payment goes unaccounted for.
+     * 404 if the account isn't this hospital's.
+     */
+    async transactions(accountId: string, organizationId: string, query: AccountTransactionsQueryDto) {
+        const client = this.databaseService.client;
+        const { limit, offset, ...filters } = query;
+        const where = transactionsWhere(accountId, organizationId, filters);
+
+        const [account, count, rows] = await client.$transaction([
+            client.billingAccount.findFirst({
+                where:  { id: accountId, organizationId },
+                select: { id: true, accountNumber: true, accountType: true, name: true, balance: true, unappliedCredit: true, status: true },
+            }),
+            client.accountEntry.count({ where }),
+            client.accountEntry.findMany({
+                where,
+                take:    limit,
+                skip:    offset,
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                select: {
+                    id: true, entryType: true, amount: true, appliedAmount: true,
+                    modeOfPayment: true, reference: true, description: true, createdAt: true, createdBy: true,
+                    reversesId: true,
+                    reversedBy:  { select: { id: true, createdAt: true } },
+                    branch:      { select: { id: true, name: true } },
+                    patient:     { select: { id: true, patientNumber: true, user: { select: { firstName: true, middleName: true, lastName: true } } } },
+                    allocation:  { select: { id: true, basis: true, charge: { select: { id: true, description: true, category: true, encounterId: true } } } },
+                    // What a payment paid: each bill, whose it was, and how much
+                    applications: {
+                        where:  { reversedAt: null },
+                        select: {
+                            amount: true, appliedAt: true,
+                            allocation: { select: { id: true, charge: { select: { id: true, description: true, patientId: true } } } },
+                        },
+                    },
+                },
+            }),
+        ]);
+        if (!account) throw new NotFoundException('Billing account not found');
+
+        return {
+            account,
+            count,
+            docs: rows.map(({ patient, applications, appliedAmount, ...row }) => ({
+                ...row,
+                direction: direction(row.amount),
+                patient:   patient && { id: patient.id, patientNumber: patient.patientNumber, ...patient.user },
+                ...(direction(row.amount) === 'CREDIT' && {
+                    unapplied: row.amount.minus(appliedAmount),
+                    paid: applications.map(a => ({ amount: a.amount, appliedAt: a.appliedAt, allocationId: a.allocation.id, charge: a.allocation.charge })),
+                }),
+            })),
+        };
     }
 
     // ── Lookups used by other modules ────────────────────────────────────────

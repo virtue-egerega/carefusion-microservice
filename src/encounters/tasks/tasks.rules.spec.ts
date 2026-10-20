@@ -25,6 +25,13 @@ describe('transitionProblem', () => {
         expect(transitionProblem('HELD', 'cancel')).toBeNull();
     });
 
+    it('lets staff pick up a paid task that was interrupted for payment', () => {
+        expect(transitionProblem('AWAITING_SERVICE', 'call')).toBeNull();
+        expect(transitionProblem('AWAITING_SERVICE', 'start')).toBeNull();
+        expect(transitionProblem('AWAITING_SERVICE', 'complete')).toBeNull();
+        expect(transitionProblem('AWAITING_SERVICE', 'cancel')).toBeNull();
+    });
+
     it('refuses to touch a finished task', () => {
         expect(transitionProblem('COMPLETED', 'complete')).toBe('This task is already completed');
         expect(transitionProblem('CANCELLED', 'cancel')).toBe('This task is already cancelled');
@@ -34,7 +41,7 @@ describe('transitionProblem', () => {
 
 describe('allowedFrom', () => {
     it('can cancel any task still on a list', () => {
-        expect(allowedFrom('cancel')).toEqual(['WAITING', 'HELD', 'CALLED', 'IN_SERVICE']);
+        expect(allowedFrom('cancel')).toEqual(['WAITING', 'HELD', 'AWAITING_SERVICE', 'CALLED', 'IN_SERVICE']);
     });
 });
 

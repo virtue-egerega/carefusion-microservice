@@ -3,12 +3,9 @@ import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums } from '../../../generated/prisma/client';
 import { toDecimal } from '../../billing/ledger/ledger.service';
-import { holdsConsultation } from '../queue-holds/queue-holds.rules';
+import { CASHIER_QUEUE_KEY, holdsConsultation } from '../queue-holds/queue-holds.rules';
+import { QueueHoldsService } from '../queue-holds/queue-holds.service';
 import { nextTicket } from './tickets';
-
-/** A billing task: collect what the patient owes for this visit (11 §6). Payment completes it. */
-export const ENCOUNTER_BILL = 'ENCOUNTER_BILL';
-const BILLING_QUEUE_KEY = 'CASHIER_QUEUE';
 
 /** A queue a task is being created on, with what decides how the task starts. */
 export type TargetQueue = { id: string; name: string; isConsultation: boolean; isBilling: boolean };
@@ -24,13 +21,17 @@ export type NewTask = {
 };
 
 /**
- * Creates tasks (queue entries) the one way every path needs (11 §5): a ticket, a payment hold on
- * a clinic doctors' task when the hospital collects first, and billing tasks marked as such. Call
- * inside a transaction, after the visit's charges are posted.
+ * Creates tasks (queue entries) the one way every path needs (11 §5): a ticket, and a payment hold
+ * on a clinic doctors' task when the hospital collects first. Billing goes through the cashier's
+ * own rule, so a patient is on that list once however they're sent. Call inside a transaction,
+ * after the visit's charges are posted.
  */
 @Injectable()
 export class TaskFactory {
-    constructor(private readonly databaseService: DatabaseService) {}
+    constructor(
+        private readonly databaseService: DatabaseService,
+        private readonly queueHolds: QueueHoldsService,
+    ) {}
 
     /** The active queues among these ids, with their kind. Missing ids are left out. */
     async loadQueues(ids: string[]): Promise<TargetQueue[]> {
@@ -42,11 +43,15 @@ export class TaskFactory {
             id:             q.id,
             name:           q.name,
             isConsultation: q.doctorsForClinics.length > 0,
-            isBilling:      q.systemKey === BILLING_QUEUE_KEY,
+            isBilling:      q.systemKey === CASHIER_QUEUE_KEY,
         }));
     }
 
     async create(t: NewTask) {
+        if (t.queue.isBilling) {
+            return this.queueHolds.ensureBillingTask({ patientId: t.patientId, encounterId: t.encounterId, branchId: t.branchId, by: t.by, now: t.now });
+        }
+
         const held = t.queue.isConsultation && holdsConsultation(await this.holdContext(t.encounterId));
         const ticketNumber = await nextTicket(this.databaseService, t.queue.id, t.branchId, t.now);
 
@@ -60,7 +65,6 @@ export class TaskFactory {
                     ticketNumber,
                     status:          held ? $Enums.QueueEntryStatus.HELD : $Enums.QueueEntryStatus.WAITING,
                     holdReason:      held ? $Enums.HoldReason.AWAITING_PAYMENT : null,
-                    sourceType:      t.queue.isBilling ? ENCOUNTER_BILL : null,
                     fromEntryId:     t.fromEntryId,
                     enteredAt:       t.now,
                     readyAt:         t.now,

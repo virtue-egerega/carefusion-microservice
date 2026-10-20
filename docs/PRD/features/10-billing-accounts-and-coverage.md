@@ -189,6 +189,12 @@ enum PaymentMode {
 ```
 
 - **Entries are immutable.** A correction is a `REVERSAL` pointing at the original entry.
+- **Debits account to a patient; credits to the account.** Every `CHARGE` names the patient whose
+  care it was (a CHECK constraint; `patientId` is a relation to `Patient`). Money in belongs to the
+  account, and which patients it paid for is traced through `PaymentApplication` (§7.1): a
+  deposit on a family account paying three children's bills shows each child's part. The payer's
+  share of a charge is a separate `CHARGE` on the payer's account, so the patient's transactions
+  never include payer money; the patient's view of their charges shows what the payer covered.
 - **The database rejects any `WRITE_OFF`, `REFUND`, `TRANSFER_*` or `ADJUSTMENT` entry without a
   `requestId`** (a CHECK constraint, not just service code). This is what makes D11/D12 hold no
   matter which code path posts the entry.
@@ -1030,7 +1036,9 @@ with the approver's name and the evidence attached.
 | `/api/v1/billing-accounts/:id` | GET / PATCH | `billing.view` / `billing.account.update` | Detail, holder, status (not `creditLimit`) |
 | `/api/v1/billing-accounts/:id/members` | POST / DELETE | `billing.account.member.add` / `.member.remove` | Move patients in/out |
 | `/api/v1/billing-accounts/:id/deposits` | POST | `billing.payment.receive` | Deposit, optional target allocations |
+| `/api/v1/billing-accounts/:id/transactions` | GET | `billing.view` | **Built.** The transactions page: ledger rows newest first, paginated; filter `entryType`, `direction` (CREDIT/DEBIT), `patientId`, `modeOfPayment`, `branchId`, `from`/`to`; `search` description, reference, patient name or number. Each row names its patient and bill; money in lists the bills it paid (`paid`) and what's left (`unapplied`) |
 | `/api/v1/billing-accounts/:id/statement` | GET | `billing.view` | Entries, allocations, paid status, per member |
+| `/api/v1/charges/patients/:patientId` | GET | `billing.view` | **Built.** The patient's charges with their share, paid and owed |
 | `/api/v1/patients/:id/billing-account` | GET | `billing.view` | Current account, balance, unpaid items |
 | `/api/v1/payers` | POST / GET / PATCH | `payer.manage` | Payers (creates the payer account) |
 | `/api/v1/payers/:id/plans` | POST / GET / PATCH | `payer.manage` | Plans and `PlanBenefit` rows |

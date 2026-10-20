@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BillingModule } from '../billing/billing.module';
+import { QueueHoldsModule } from './queue-holds/queue-holds.module';
 import { StartEncounterController } from './start-encounter/start-encounter.controller';
 import { StartEncounterService } from './start-encounter/start-encounter.service';
 import { ClinicsController } from './clinics/clinics.controller';
@@ -13,7 +14,7 @@ import { TasksController } from './tasks/tasks.controller';
 import { TasksService } from './tasks/tasks.service';
 
 @Module({
-    imports: [BillingModule],
+    imports: [BillingModule, QueueHoldsModule],
     controllers: [ClinicsController, StartEncounterController, FollowUpController, SendingController, TasksController],
     providers: [ClinicsService, StartEncounterService, FollowUpService, SendingService, TasksService, TaskFactory],
 })

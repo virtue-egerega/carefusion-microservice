@@ -119,9 +119,10 @@ Nursing Station; Antenatal and Postnatal → O&G Nursing Station).
   `visitType = WALK_IN`, the age snapshot, and the coverage (by default the
   patient's highest-priority active coverage, or self-pay; overriding needs `coverage.select`)
 - the consultation fee (§10.4)
-- a task on each list reception chose (`sendTo`): **billing, the clinic's nursing station, or
-  both**. The default is the nursing station. Anything else must be on reception's send lists
-  (§5.7). Being on both lists at once is normal: the patient pays while the nurse takes their
+- a billing task, if the patient owes the fee (§6.1): posting it puts them on the Cashier list
+- a task on each list reception chose (`sendTo`). The default is the nursing station. Anything
+  else must be on reception's send lists (§5.7). Choosing billing as well doesn't put the patient
+  on it twice. Being on both lists at once is normal: the patient pays while the nurse takes their
   vitals.
 
 **Reception records no clinical details.** The reason for the visit and any referral are recorded
@@ -382,6 +383,7 @@ enum QueuePriority {
 enum QueueEntryStatus {
   WAITING          // callable
   HELD             // in the queue but not callable yet (holdReason)
+  AWAITING_SERVICE // service was interrupted to pay (pharmacy priced it); paid, callable again, ahead of WAITING
   CALLED           // the patient was called for this task
   IN_SERVICE       // being attended to
   COMPLETED
@@ -398,7 +400,7 @@ enum HoldReason {
 ```
 
 **Database integrity rule** (in migration SQL, since Prisma can't express it): at most one
-*active* task (`WAITING`, `HELD`, `CALLED`, `IN_SERVICE`) per encounter per queue. There is **no**
+*active* task (`WAITING`, `HELD`, `AWAITING_SERVICE`, `CALLED`, `IN_SERVICE`) per encounter per queue. There is **no**
 "one task in service at a time" rule: a nurse can give drugs while a doctor does the ward round.
 
 ### 5.2 Ordering
@@ -406,7 +408,11 @@ enum HoldReason {
 A queue's callable list is the `WAITING` entries ordered by **priority** (`EMERGENCY` > `URGENT` >
 `ROUTINE`), then **acuity** for emergency queues (`IMMEDIATE` > `VERY_URGENT` > `URGENT` > `ROUTINE`),
 then **`readyAt`**. `readyAt` is reset when a hold is released, so time spent unpaid doesn't count
-as time waiting. **[Q 4]** Booked appointments are ordered by their slot time, plus a configurable
+as time waiting. **[Q 4]** A task whose service was interrupted to pay (pharmacy or lab priced it,
+then sent the patient to billing: `IN_SERVICE` → `HELD`/`AWAITING_PAYMENT`) comes back as
+`AWAITING_SERVICE` when paid, keeps its `readyAt`, and is served before `WAITING` entries of the same
+priority; a task held before it ever started (a consultation) goes back to `WAITING` at the back.
+Booked appointments are ordered by their slot time, plus a configurable
 grace window; walk-ins fill the gaps. **[Q 10]**
 
 Raising priority requires `queue.manage` and a `priorityReason`, and is audited.
@@ -501,14 +507,36 @@ needs a `PatientAssignment` or a new encounter. **[Q 12]**
 ## 6. Payment: Billing Tasks and the Consultation Hold
 
 **Billing is a station like any other.** "Collect what this patient owes" is a task on the Cashier
-list (`sourceType = ENCOUNTER_BILL`). Reception sends the patient there at check-in or later; it
-runs in parallel with their other tasks; and because it's a task, an unpaid bill keeps the visit
-open. Billing is often the last station, and closes the encounter like any other (§14.1).
+list. It runs in parallel with the patient's other tasks, and because it's a task, an unpaid bill
+keeps the visit open. Billing is often the last station, and closes the encounter like any other
+(§14.1).
 
-**Paying completes the billing task.** When a deposit leaves nothing of the patient's own share of
-the visit unpaid, its billing task completes automatically (`QueueHoldsService.settle`, run inside
-the deposit). If that was the visit's last task, the encounter closes at billing. The cashier can
+### 6.1 Owing puts the patient on the Cashier list
+
+**Posting a charge the patient owes puts them on the Cashier list** at the branch it was posted
+(`ChargesService.post`), so nobody has to send them. A charge paid at once from credit on the
+account, or one they owe nothing for (covered, free), doesn't. The patient is on the list **once**:
+
+| Charge | Patient already on the Cashier list | Result |
+|---|---|---|
+| Outside a visit (registration, NFC card) | no | new task, `sourceType = REGISTRATION_BILL`, no encounter |
+| Outside a visit | yes | kept: that task collects it |
+| In a visit (consultation fee; later lab, pharmacy…) | for this visit | kept |
+| In a visit | for their registration fees | that task becomes the visit's (`ENCOUNTER_BILL`): one ticket, one payment |
+| In a visit | no | new task, `sourceType = ENCOUNTER_BILL` |
+
+Registration returns the cashier's ticket (`billingTask`), as does starting an encounter (in
+`tasks`). A billing task without an encounter can be completed or cancelled like any other, but
+not sent on: that needs an encounter. **Database integrity rule:** at most one active
+registration billing task per patient per queue (partial unique index; encounter tasks are
+covered by §5.1's).
+
+**Paying completes the billing task.** When a deposit leaves nothing unpaid of the patient's own
+share of the task's visit, nor of any fee outside a visit, the billing task completes
+automatically (`QueueHoldsService.settle`, run inside the deposit). If that was the visit's last task, the encounter closes at billing. The cashier can
 also complete it by hand (a payment arrangement, an insured visit with nothing to collect).
+
+### 6.2 The consultation hold
 
 **The hospital decides whether consultation waits for payment.** Two organisation settings:
 
@@ -1098,7 +1126,8 @@ are done by different people.
 |---|---|---|---|
 | `/clinics` | GET | `encounter.create` | **Built.** Clinics reception picks from (§3.3) |
 | `/clinics/:id/consultation-fee?patientId=` | GET | `encounter.create` | **Built.** The fee before check-in; with a patient, whether check-in would charge them (`charged`, `exemption`: `INSURED` / `CONTINUING_SAME_CLINIC`) and their account's balance, credit and credit limit (§10.4) |
-| `/encounters` | POST | `encounter.create` | **Built.** Start the encounter (`startEncounter`) at a clinic: the encounter, the fee and the nursing-station task, in one transaction; 409 `OPEN_ENCOUNTER`, or `continueEncounter` |
+| `/encounters` | POST | `encounter.create` | **Built.** Start the encounter (`startEncounter`) at a clinic: the encounter, the fee, the billing task if owed (§6.1) and the nursing-station task, in one transaction; 409 `OPEN_ENCOUNTER`, or `continueEncounter` |
+| `/charges/patients/:patientId` | GET | `billing.view` | **Built.** A patient's charges, newest first, each with the patient's share (`amount, paid, outstanding, paymentStatus`), and their total `outstanding`; `encounterId`, `unpaid=true`, `limit`, `offset` |
 | `/encounters/open?patientId=` | GET | `encounter.create` | **Built.** The patient's unfinished visit at this branch and its remaining tasks |
 | `/encounters/follow-up` | GET | `encounter.follow_up` | **Built.** Unfinished visits with no task activity today (§14.2) |
 | `/queues/sendable` | GET | `queue.send` | **Built.** The queues the caller can send patients to (§5.7) |
@@ -1111,7 +1140,7 @@ are done by different people.
 | `/encounters/:id/reopen` | POST | `encounter.reopen` | With reason |
 | `/patients/:id/encounters` | GET | `patient.view` | Encounter history (the timeline `06` §6 aggregates) |
 | `/queues/mine` | GET | `queue.view` | **Built.** The caller's queues (duty profiles) with patients on each list at their branch: `total`, `waiting`, `held`, `called`, `inService` |
-| `/queues/:id/entries` | GET | `queue.view` + queue in duty profile | **Built.** Live task list at this branch (ordered, §5.2) |
+| `/queues/:id/entries` | GET | queue in duty profile | **Built.** Live task list at this branch (ordered, §5.2); `?status=` (one or more active statuses) and `?search=` (name, ticket or patient number); `patients` counts the whole list by status |
 | `/queue-entries/:id/{call,start}` | POST | `queue.call` | **Built.** §5.3 |
 | `/queue-entries/:id/complete` | POST | `queue.call` | **Built.** Finish the task; `nextQueueId` sends the patient on, otherwise the encounter closes if it was the last task (§5.7, §14.1) |
 | `/queue-entries/:id/cancel` | POST | `queue.manage` | **Built.** Cancel with a reason; `patientLeft` records the leaving disposition (§14.2) |

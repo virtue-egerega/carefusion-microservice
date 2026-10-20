@@ -5,6 +5,8 @@ import { $Enums } from '../../../generated/prisma/client';
 import type { BillingAccount } from '../../../generated/prisma/client';
 import { BillingAccountsService } from '../accounts/billing-accounts.service';
 import { LedgerService, toDecimal } from '../ledger/ledger.service';
+import { QueueHoldsService } from '../../encounters/queue-holds/queue-holds.service';
+import { patientShare } from './charges.rules';
 
 export type PostChargeInput = {
     patientId: string;
@@ -22,6 +24,12 @@ export type PostChargeInput = {
     createdBy: string;
 };
 
+// The patient's own account's share of a charge; payer shares are the insurer's business
+const ACCOUNT_SHARE = { responsibleType: $Enums.ResponsibleType.ACCOUNT, state: $Enums.AllocationState.ACTIVE };
+const OWED = { ...ACCOUNT_SHARE, paymentStatus: { in: [$Enums.PaymentStatus.UNPAID, $Enums.PaymentStatus.PART_PAID] } };
+
+export type PatientChargesQuery = { encounterId?: string; unpaid?: boolean; limit: number; offset: number };
+
 /**
  * Every billable event becomes a Charge, whoever ends up paying (PRD 10 §5, D7).
  * Its allocations always sum to its amount (§6.1).
@@ -32,10 +40,13 @@ export class ChargesService {
         private readonly databaseService: DatabaseService,
         private readonly billingAccounts: BillingAccountsService,
         private readonly ledger: LedgerService,
+        private readonly queueHolds: QueueHoldsService,
     ) {}
 
     /**
-     * Posts the charge, bills it, and pays it from any unapplied credit.
+     * Posts the charge, bills it, and pays it from any unapplied credit. If the patient still owes
+     * for it, they go on the cashier's list (11 §6.1), once per visit, however many charges post.
+     * A free item still leaves no billing task.
      * Pass `locked` when posting several charges to an account already locked in this transaction.
      */
     async post(input: PostChargeInput, locked?: BillingAccount) {
@@ -78,7 +89,7 @@ export class ChargesService {
             );
 
             // A free item is still recorded, but there is nobody to allocate ₦0 to
-            if (amount.lte(0)) return { charge, allocations: [], account };
+            if (amount.lte(0)) return { charge, allocations: [], account, billingTask: null };
 
             const allocation = await client.chargeAllocation.create({
                 data: {
@@ -109,6 +120,15 @@ export class ChargesService {
                 .filter(a => a.allocationId === allocation.id)
                 .reduce((sum, a) => sum.plus(a.amount), toDecimal(0));
 
+            const billingTask = paidNow.lt(amount)
+                ? await this.queueHolds.ensureBillingTask({
+                    patientId:   input.patientId,
+                    encounterId: input.encounterId,
+                    branchId:    input.branchId,
+                    by:          input.createdBy,
+                })
+                : null;
+
             return {
                 charge,
                 allocations: [{
@@ -119,7 +139,49 @@ export class ChargesService {
                                  :                       $Enums.PaymentStatus.UNPAID,
                 }],
                 account: paid.account,
+                billingTask,
             };
         });
+    }
+
+    /**
+     * A patient's charges, newest first, each with what their own account owes for it, plus their
+     * total outstanding: what a cashier collects. `unpaid` keeps only charges still owed;
+     * `encounterId` keeps one visit's.
+     */
+    async findByPatientId(organizationId: string, patientId: string, query: PatientChargesQuery) {
+        const client = this.databaseService.client;
+        const where = {
+            patientId,
+            patient: { hospitalId: organizationId },
+            ...(query.encounterId && { encounterId: query.encounterId }),
+            ...(query.unpaid && { allocations: { some: OWED } }),
+        };
+
+        const [count, docs, owed] = await client.$transaction([
+            client.charge.count({ where }),
+            client.charge.findMany({
+                where,
+                take:    query.limit,
+                skip:    query.offset,
+                orderBy: { createdAt: 'desc' },
+                select: {
+                    id: true, description: true, category: true, quantity: true, unitPrice: true, amount: true,
+                    status: true, sourceType: true, createdAt: true, billingAccountId: true,
+                    encounter:   { select: { id: true, arrivedAt: true, clinic: { select: { id: true, name: true } } } },
+                    allocations: { where: ACCOUNT_SHARE, select: { amount: true, paidAmount: true } },
+                },
+            }),
+            client.chargeAllocation.aggregate({
+                where: { ...OWED, charge: where },
+                _sum:  { amount: true, paidAmount: true },
+            }),
+        ]);
+
+        return {
+            count,
+            outstanding: toDecimal(owed._sum.amount ?? 0).minus(owed._sum.paidAmount ?? 0),
+            docs: docs.map(({ allocations, ...charge }) => ({ ...charge, patientShare: patientShare(allocations) })),
+        };
     }
 }

@@ -153,19 +153,23 @@ export class StartEncounterService {
         });
     }
 
-    /** Posts the fee (if any), then puts the patient on each chosen list. */
+    /**
+     * Posts the fee (if any), which puts the patient on the cashier's list when they owe it, then
+     * on each chosen list. Choosing billing as well doesn't put them on it twice.
+     */
     private async feeAndTasks(encounterId: string, visit: Visit, fee: Prisma.Decimal | null, at: At, by: string, now: Date) {
-        const consultationFee = await this.postConsultationFee(fee, encounterId, visit.patientId, at.branchId, by);
-        const tasks = [];
+        const { consultationFee, billingTask } = await this.postConsultationFee(fee, encounterId, visit.patientId, at.branchId, by);
+        const tasks = billingTask ? [billingTask] : [];
         for (const queue of visit.targets) {
-            tasks.push(await this.tasks.create({ encounterId, patientId: visit.patientId, branchId: at.branchId, queue, by, now }));
+            const task = await this.tasks.create({ encounterId, patientId: visit.patientId, branchId: at.branchId, queue, by, now });
+            if (task && !tasks.some(t => t.id === task.id)) tasks.push(task);
         }
         return { tasks, consultationFee };
     }
 
-    /** Posts the consultation fee; what the patient owes for it shows at billing. A free visit isn't charged. */
+    /** Posts the consultation fee, with the billing task it put the patient on if owed. A free visit isn't charged. */
     private async postConsultationFee(fee: Prisma.Decimal | null, encounterId: string, patientId: string, branchId: string, createdBy: string) {
-        if (!fee || !fee.gt(0)) return null;
+        if (!fee || !fee.gt(0)) return { consultationFee: null, billingTask: null };
 
         const posted = await this.charges.post({
             patientId,
@@ -180,10 +184,13 @@ export class StartEncounterService {
         });
         const allocation = posted.allocations[0];
         return {
-            id:            posted.charge.id,
-            amount:        posted.charge.amount,
-            paymentStatus: allocation?.paymentStatus,
-            outstanding:   allocation ? allocation.amount.minus(allocation.paidAmount) : 0,
+            consultationFee: {
+                id:            posted.charge.id,
+                amount:        posted.charge.amount,
+                paymentStatus: allocation?.paymentStatus,
+                outstanding:   allocation ? allocation.amount.minus(allocation.paidAmount) : 0,
+            },
+            billingTask: posted.billingTask,
         };
     }
 

@@ -1,8 +1,8 @@
-import { Body, Controller, DefaultValuePipe, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Authorize, BranchId, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
 import type { AuthUser } from '../../auth/permissions.guard';
-import { AddAccountMemberDto, CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
+import { AccountTransactionsQueryDto, AddAccountMemberDto, CreateFamilyAccountDto, DepositDto, UpdateBillingAccountDto } from '@shared/contracts/billing';
 import { BillingAccountType } from '@shared/enums/billing/billing.enums';
 import { BillingAccountsService } from './billing-accounts.service';
 
@@ -71,6 +71,20 @@ export class BillingAccountsController {
         @CurrentUser() user: AuthUser,
     ) {
         return this.billingAccountsService.deposit(id, dto, { organizationId, branchId }, user.sub);
+    }
+
+    @ApiOperation({
+        summary: "The account's transactions, newest first: filter by type, direction, patient, payment mode, branch and dates; search by description, reference or patient",
+        description: 'Each row: `direction` (CREDIT money in / DEBIT money out), `patient` it was for, the bill a charge was (`allocation.charge`), whether it was reversed (`reversedBy`). Money in also has `paid` (each bill it paid, and how much) and `unapplied` (still on the account). Paginated with `limit` (max 100) and `offset`.',
+    })
+    @Authorize('billing.view')
+    @Get(':id/transactions')
+    transactions(
+        @Param('id', ParseUUIDPipe) id: string,
+        @Query() query: AccountTransactionsQueryDto,
+        @OrganizationId() orgId: string,
+    ) {
+        return this.billingAccountsService.transactions(id, orgId, query);
     }
 
     @ApiOperation({ summary: 'Ledger entries and open bills, optionally per member and date range' })

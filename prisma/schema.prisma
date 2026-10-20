@@ -367,6 +367,7 @@ model Patient {
   principalPolicies         Policy[]               @relation("PolicyPrincipal")
   coverages                 Coverage[]
   charges                   Charge[]
+  accountEntries            AccountEntry[]
   encounters                Encounter[]
   queueEntries              QueueEntry[]
 
@@ -548,7 +549,7 @@ model Encounter {
 // A patient's place at one station (11 §5)
 model QueueEntry {
   id              String           @id @default(uuid())
-  encounterId     String
+  encounterId     String?                             // null only for a cashier task for fees outside a visit (registration)
   patientId       String                              // denormalised for worklist queries
   queueId         String
   branchId        String
@@ -558,7 +559,7 @@ model QueueEntry {
   status          QueueEntryStatus @default(WAITING)
   holdReason      HoldReason?                         // when status = HELD
   roomId          String?
-  sourceType      String?                             // what the task is for: "ENCOUNTER_BILL" (a billing task), "LAB_ORDER"…
+  sourceType      String?                             // what the task is for: "ENCOUNTER_BILL" / "REGISTRATION_BILL" (billing tasks), "LAB_ORDER"…
   sourceId        String?
   fromEntryId     String?                             // the entry that routed the patient here
   enteredAt       DateTime         @default(now())
@@ -572,7 +573,7 @@ model QueueEntry {
   outcomeNote     String?
   createdBy       String
 
-  encounter       Encounter        @relation(fields: [encounterId], references: [id])
+  encounter       Encounter?       @relation(fields: [encounterId], references: [id])
   patient         Patient          @relation(fields: [patientId], references: [id])
   queue           Queue            @relation(fields: [queueId], references: [id])
   branch          Branch           @relation(fields: [branchId], references: [id])
@@ -662,6 +663,7 @@ model AccountEntry {
   createdBy     String
 
   account       BillingAccount    @relation(fields: [accountId], references: [id])
+  patient       Patient?          @relation(fields: [patientId], references: [id])   // required on CHARGE (CHECK constraint)
   branch        Branch            @relation(fields: [branchId], references: [id])
   allocation    ChargeAllocation? @relation(fields: [allocationId], references: [id])
   request       FinancialRequest? @relation(fields: [requestId], references: [id])
@@ -1414,6 +1416,7 @@ enum QueuePriority {
 enum QueueEntryStatus {
   WAITING      // callable
   HELD         // in the queue but not callable yet (holdReason)
+  AWAITING_SERVICE // paid after a hold that interrupted service (pharmacy priced it, patient went to pay): callable, ahead of WAITING
   CALLED
   IN_SERVICE
   COMPLETED

@@ -57,6 +57,7 @@ export enum QueuePriority {
 export enum QueueEntryStatus {
     WAITING = 'WAITING',
     HELD = 'HELD',
+    AWAITING_SERVICE = 'AWAITING_SERVICE',
     CALLED = 'CALLED',
     IN_SERVICE = 'IN_SERVICE',
     COMPLETED = 'COMPLETED',

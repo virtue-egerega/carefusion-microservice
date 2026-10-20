@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "QueueEntryStatus" ADD VALUE 'AWAITING_SERVICE';
