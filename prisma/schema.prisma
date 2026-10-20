@@ -57,6 +57,8 @@ model Organization {
   financialRequests      FinancialRequest[]
   approvalPolicies       ApprovalPolicy[]
   encounters             Encounter[]
+  billableCategories     BillableCategory[]
+  billableItems          BillableItem[]
 
 }
 
@@ -699,6 +701,9 @@ model Payer {
   account         BillingAccount?
   plans           Plan[]
   nhisWorkers     NHISWorker[]
+  itemPrices      ItemPrice[]
+  agreements      PayerAgreement[]
+  discounts       PayerDiscount[]
 
   @@unique([organizationId, name])
 }
@@ -783,6 +788,147 @@ model Coverage {
 
   @@unique([policyId, patientId])
   @@index([patientId, status])
+}
+
+// ------------ Billables & price catalog (12) ------------
+// Price, cost and discount rows are append-only and dated: a change closes the open row and adds a new one (12 §6.3).
+// Overlap exclusion and per-basis CHECK constraints are appended to the migration SQL (12 §5.1, §6.2, §8.1).
+
+model BillableCategory {
+  id             String          @id @default(uuid())
+  organizationId String
+  name           String
+  kind           ServiceCategory // system meaning; can't change once the category has items
+  description    String?
+  status         CatalogStatus   @default(ACTIVE)
+  createdAt      DateTime        @default(now())
+  createdBy      String
+  updatedAt      DateTime        @updatedAt
+  updatedBy      String?
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  items          BillableItem[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, kind])
+}
+
+model BillableItem {
+  id             String           @id @default(uuid())
+  organizationId String
+  categoryId     String
+  code           String
+  name           String
+  description    String?
+  unit           String           // what one quantity means: "test", "visit", "day", "tablet"
+  systemKey      String?          // items the system posts itself, e.g. REGISTRATION_FEE (12 §4.2)
+  status         CatalogStatus    @default(ACTIVE)
+  createdAt      DateTime         @default(now())
+  createdBy      String
+  updatedAt      DateTime         @updatedAt
+  updatedBy      String?
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  category       BillableCategory @relation(fields: [categoryId], references: [id])
+  prices         ItemPrice[]
+  costs          ItemCost[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, systemKey])
+  @@index([organizationId, categoryId, status])
+}
+
+model ItemCost {
+  id            String       @id @default(uuid())
+  itemId        String
+  packCost      Decimal      @db.Decimal(14, 2) // as invoiced; unit cost is never stored (12 §5.2)
+  unitsPerPack  Int          @default(1)
+  effectiveFrom DateTime     // inclusive
+  effectiveTo   DateTime?    // exclusive; null = open-ended
+  source        String?      // supplier invoice no., market survey…
+  reason        String
+  createdAt     DateTime     @default(now())
+  createdBy     String
+  endedAt       DateTime?
+  endedBy       String?
+  endReason     String?
+  cancelledAt   DateTime?    // withdrawn before it took effect
+  cancelledBy   String?
+
+  item          BillableItem @relation(fields: [itemId], references: [id])
+
+  @@index([itemId, effectiveFrom])
+}
+
+model ItemPrice {
+  id            String          @id @default(uuid())
+  itemId        String
+  payerId       String?         // null = self-pay
+  basis         PriceBasis
+  amount        Decimal?        @db.Decimal(14, 2) // TARIFF, MANUAL
+  percent       Decimal?        @db.Decimal(5, 2)  // DISCOUNT (off self-pay), MARKUP (on cost)
+  agreementId   String?         // required for TARIFF
+  effectiveFrom DateTime        // inclusive
+  effectiveTo   DateTime?       // exclusive; null = open-ended
+  reason        String
+  createdAt     DateTime        @default(now())
+  createdBy     String
+  endedAt       DateTime?
+  endedBy       String?
+  endReason     String?
+  cancelledAt   DateTime?       // withdrawn before it took effect
+  cancelledBy   String?
+
+  item          BillableItem    @relation(fields: [itemId], references: [id])
+  payer         Payer?          @relation(fields: [payerId], references: [id])
+  // composite FK: the agreement must belong to this line's payer. Restrict, since SetNull would also null payerId
+  agreement     PayerAgreement? @relation(fields: [agreementId, payerId], references: [id, payerId], onDelete: Restrict)
+
+  @@index([itemId, payerId, effectiveFrom])
+  @@index([payerId, effectiveFrom])
+  @@index([agreementId])
+}
+
+model PayerAgreement {
+  id          String      @id @default(uuid())
+  payerId     String
+  reference   String      // contract / tariff number
+  title       String?
+  signedOn    DateTime?
+  validFrom   DateTime
+  validTo     DateTime?
+  documentRef String?
+  notes       String?
+  createdAt   DateTime    @default(now())
+  createdBy   String
+  updatedAt   DateTime    @updatedAt
+  updatedBy   String?
+
+  payer       Payer       @relation(fields: [payerId], references: [id])
+  prices      ItemPrice[]
+
+  @@unique([payerId, reference])
+  @@unique([id, payerId]) // target of ItemPrice's composite FK
+}
+
+model PayerDiscount {
+  id            String    @id @default(uuid())
+  payerId       String
+  percent       Decimal   @db.Decimal(5, 2) // off the self-pay price, for items with no payer line
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  reason        String
+  createdAt     DateTime  @default(now())
+  createdBy     String
+  endedAt       DateTime?
+  endedBy       String?
+  endReason     String?
+  cancelledAt   DateTime?
+  cancelledBy   String?
+
+  payer         Payer     @relation(fields: [payerId], references: [id])
+
+  @@index([payerId, effectiveFrom])
 }
 
 // ------------ Charges & allocation (§5, §6) ------------
@@ -1231,7 +1377,26 @@ enum ServiceCategory {
   PROCEDURE
   THEATRE
   ADMISSION
+  CONSUMABLE
   OTHER
+}
+
+enum CatalogStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PriceBasis {
+  TARIFF   // fixed amount agreed with the payer, under an agreement
+  DISCOUNT // percent off the item's self-pay price
+  MARKUP   // percent on top of the item's cost
+  MANUAL   // amount set by hand, reason required
+}
+
+enum PriceSource {
+  PAYER_LINE     // the payer's own line for the item
+  PAYER_DISCOUNT // the payer's default discount off self-pay
+  SELF_PAY       // the self-pay price (no payer, or a payer with neither)
 }
 
 enum PolicyStatus {

@@ -8,6 +8,7 @@ import {
   AccountEntryType, AccountStatus, BillingAccountType, MemberType, OverLimitAction, PayerType, PaymentMode, PaymentStatus,
   PolicyStatus, ServiceCategory, SettlementMode,
 } from '@shared/enums/billing/billing.enums';
+import { CatalogStatus, PriceBasis, PriceSource } from '@shared/enums/billables/billables.enums';
 import { PaymentPlan, BusinessType, OrgType, ConsultationPayment } from '@shared/enums/organizations/organization.enums';
 import {
   Acuity, Disposition, EncounterStatus, EncounterType, HoldReason, QueueEntryStatus, QueuePriority, VisitType,
@@ -57,6 +58,11 @@ export class EnumsController {
         overLimitAction: toOptions(OverLimitAction),
         memberType: toOptions(MemberType),
         policyStatus: toOptions(PolicyStatus),
+      },
+      billables: {
+        catalogStatus: toOptions(CatalogStatus),
+        priceBasis: toOptions(PriceBasis),
+        priceSource: toOptions(PriceSource),
       },
       encounters: {
         visitType: toOptions(VisitType),

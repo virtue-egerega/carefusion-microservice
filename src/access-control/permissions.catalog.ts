@@ -67,6 +67,25 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'coverage.end',    name: 'End Coverage',           description: 'End a coverage (ending a principal ends the whole policy)' },
     { key: 'payer.manage',    name: 'Manage Payers & Plans',  description: 'Manage payers, plans, benefits, copay and caps' },
 
+    // Billables & prices (PRD 12 §10) — its own module, one key per action
+    { key: 'billable.view',             name: 'View Billables',            description: 'Categories, items, price lines, price lists, tariffs, agreements, discounts and quotes' },
+    { key: 'billable.category.create',  name: 'Create Billable Category',  description: 'Add a billable category' },
+    { key: 'billable.category.update',  name: 'Update Billable Category',  description: "Rename, describe or deactivate a category; change its kind while it's empty" },
+    { key: 'billable.item.create',      name: 'Create Billable Item',      description: 'Add a billable item with its first self-pay price' },
+    { key: 'billable.item.update',      name: 'Update Billable Item',      description: 'Edit, recategorise (same kind) or deactivate an item' },
+    { key: 'billable.price.create',     name: 'Add Price Line',            description: 'Add a self-pay or payer price line' },
+    { key: 'billable.price.end',        name: 'End Price Line',            description: 'End a payer price line early' },
+    { key: 'billable.price.cancel',     name: 'Withdraw Price Line',       description: "Withdraw a price line that hasn't taken effect" },
+    { key: 'billable.cost.view',        name: 'View Cost Prices',          description: 'See cost prices, markup percentages and margins' },
+    { key: 'billable.cost.create',      name: 'Record Cost Price',         description: 'Add a cost price' },
+    { key: 'billable.cost.end',         name: 'End Cost Price',            description: 'End a cost price early' },
+    { key: 'billable.cost.cancel',      name: 'Withdraw Cost Price',       description: "Withdraw a cost price that hasn't taken effect" },
+    { key: 'billable.agreement.create', name: 'Add Payer Agreement',       description: "Record a payer's tariff agreement" },
+    { key: 'billable.agreement.update', name: 'Update Payer Agreement',    description: "Correct an agreement's details or document" },
+    { key: 'billable.discount.create',  name: 'Add Payer Discount',        description: "Add a payer's dated default discount" },
+    { key: 'billable.discount.end',     name: 'End Payer Discount',        description: 'End a payer discount early' },
+    { key: 'billable.discount.cancel',  name: 'Withdraw Payer Discount',   description: "Withdraw a payer discount that hasn't taken effect" },
+
     // Insurance desk
     { key: 'insurance.preauth.record',    name: 'Record Pre-authorisation', description: 'Capture authorisation codes or record refusal' },
     { key: 'insurance.claim.review',      name: 'Record Payer Decisions',   description: 'Record payer approval or rejection per line' },
@@ -92,6 +111,15 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
     'billing.account.manage': [
         'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
     ],
+    // Billables left billing's namespace and split per action (PRD 12 §10)
+    'billing.catalog.manage': ['billable.view', 'billable.category.create', 'billable.category.update', 'billable.item.create', 'billable.item.update'],
+    'billing.price.manage': [
+        'billable.view', 'billable.price.create', 'billable.price.end', 'billable.price.cancel',
+        'billable.agreement.create', 'billable.agreement.update',
+        'billable.discount.create', 'billable.discount.end', 'billable.discount.cancel',
+    ],
+    'billing.cost.manage': ['billable.cost.create', 'billable.cost.end', 'billable.cost.cancel'],
+    'billing.cost.view':   ['billable.cost.view'],
 };
 
 export type SystemDutyProfile = {
@@ -107,12 +135,15 @@ const INSURANCE_PERMISSIONS = [
     'insurance.preauth.record', 'insurance.claim.review', 'insurance.remittance.record', 'insurance.rejection.resolve',
 ];
 
+const BILLABLE_PERMISSIONS = PERMISSION_CATALOG.map(p => p.key).filter(key => key.startsWith('billable.'));
+
 const CASHIER_PERMISSIONS = [
     'patient.view',                      // find the patient whose account they're funding
     'billing.view', 'billing.payment.receive',
     'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
     'billing.refund.request', 'billing.void.request', 'billing.transfer.request',
     'coverage.view',
+    'billable.view',
 ];
 
 // Duty profiles seeded for every organisation. Only Hospital Administrator is assigned
@@ -130,6 +161,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'patient.list', 'patient.view', 'patient.assign',
             'appointment.create', 'appointment.manage',
             'billing.view', 'finance.report.view',
+            'billable.view',
         ],
     },
     {
@@ -145,6 +177,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'appointment.create', 'appointment.manage',
             'encounter.create', 'encounter.follow_up',
             'billing.view', 'billing.account.create', 'billing.account.member.add', 'coverage.view', 'coverage.select',
+            'billable.view',
         ],
     },
     {
@@ -159,7 +192,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         role: 'ACCOUNTANT',
         departmentKey: 'ACCOUNTS',
         queueKeys: ['INSURANCE_QUEUE'],
-        permissions: ['billing.view', 'coverage.view', 'coverage.select', 'coverage.enrol', 'coverage.end', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request'],
+        permissions: ['billing.view', 'coverage.view', 'coverage.select', 'coverage.enrol', 'coverage.end', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request', 'billable.view'],
     },
     {
         name: 'Billing Supervisor',
@@ -171,6 +204,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'coverage.select', 'coverage.enrol', 'coverage.end', ...INSURANCE_PERMISSIONS, 'billing.writeoff.request',
             'billing.charge.create', 'billing.adjustment.request', 'billing.credit_limit.request',
             'finance.request.approve', 'finance.report.view',
+            'billable.category.create', 'billable.category.update', 'billable.item.create', 'billable.item.update',
         ])],
     },
     {
@@ -178,6 +212,9 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         role: 'MANAGER',
         departmentKey: 'ACCOUNTS',
         queueKeys: ['WRITE_OFF_QUEUE'],
-        permissions: ['billing.view', 'payer.manage', 'finance.request.approve', 'finance.policy.manage', 'finance.report.view'],
+        permissions: [
+            'billing.view', 'payer.manage', 'finance.request.approve', 'finance.policy.manage', 'finance.report.view',
+            ...BILLABLE_PERMISSIONS,
+        ],
     },
 ];

@@ -10,6 +10,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { BillingModule } from './billing/billing.module';
+import { BillablesModule } from './billables/billables.module';
 import { ConsultationsModule } from './consultations/consultations.module';
 import { LaboratoryModule } from './laboratory/laboratory.module';
 import { PharmacyModule } from './pharmacy/pharmacy.module';
@@ -32,6 +33,7 @@ import { QueueManagementModule } from'./queue-management/queue-management.module
         NotificationsModule,
         AppointmentsModule,
         BillingModule,
+        BillablesModule,
         ConsultationsModule,
         LaboratoryModule,
         PharmacyModule,

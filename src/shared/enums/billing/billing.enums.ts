@@ -42,6 +42,7 @@ export enum ServiceCategory {
     PROCEDURE = 'PROCEDURE',
     THEATRE = 'THEATRE',
     ADMISSION = 'ADMISSION',
+    CONSUMABLE = 'CONSUMABLE',
     OTHER = 'OTHER',
 }
 
