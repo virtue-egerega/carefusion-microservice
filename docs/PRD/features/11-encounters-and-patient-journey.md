@@ -1110,6 +1110,7 @@ are done by different people.
 | `/encounters/:id/disposition` | POST | `encounter.disposition` | Record the disposition |
 | `/encounters/:id/reopen` | POST | `encounter.reopen` | With reason |
 | `/patients/:id/encounters` | GET | `patient.view` | Encounter history (the timeline `06` §6 aggregates) |
+| `/queues/mine` | GET | `queue.view` | **Built.** The caller's queues (duty profiles) with patients on each list at their branch: `total`, `waiting`, `held`, `called`, `inService` |
 | `/queues/:id/entries` | GET | `queue.view` + queue in duty profile | **Built.** Live task list at this branch (ordered, §5.2) |
 | `/queue-entries/:id/{call,start}` | POST | `queue.call` | **Built.** §5.3 |
 | `/queue-entries/:id/complete` | POST | `queue.call` | **Built.** Finish the task; `nextQueueId` sends the patient on, otherwise the encounter closes if it was the last task (§5.7, §14.1) |

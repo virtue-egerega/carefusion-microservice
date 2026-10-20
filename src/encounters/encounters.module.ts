@@ -11,12 +11,10 @@ import { SendingService } from './sending/sending.service';
 import { TaskFactory } from './shared/task-factory';
 import { TasksController } from './tasks/tasks.controller';
 import { TasksService } from './tasks/tasks.service';
-import { WorklistsController } from './worklists/worklists.controller';
-import { WorklistsService } from './worklists/worklists.service';
 
 @Module({
     imports: [BillingModule],
-    controllers: [ClinicsController, StartEncounterController, FollowUpController, SendingController, TasksController, WorklistsController],
-    providers: [ClinicsService, StartEncounterService, FollowUpService, SendingService, TasksService, WorklistsService, TaskFactory],
+    controllers: [ClinicsController, StartEncounterController, FollowUpController, SendingController, TasksController],
+    providers: [ClinicsService, StartEncounterService, FollowUpService, SendingService, TasksService, TaskFactory],
 })
 export class EncountersModule {}

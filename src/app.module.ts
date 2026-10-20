@@ -19,6 +19,7 @@ import { AuthModule } from './auth/auth.module';
 import { AccessControlModule } from './access-control/access-control.module';
 import { StaffModule } from './staff/staff.module';
 import { EncountersModule } from './encounters/encounters.module';
+import { QueueManagementModule } from'./queue-management/queue-management.module';
 
 @Module({
     imports: [
@@ -40,6 +41,7 @@ import { EncountersModule } from './encounters/encounters.module';
         AccessControlModule,
         StaffModule,
         EncountersModule,
+        QueueManagementModule,
     ],
     controllers: [AppController],
     providers: [AppService],
