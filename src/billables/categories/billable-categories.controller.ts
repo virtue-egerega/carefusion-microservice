@@ -11,7 +11,7 @@ import { $Enums } from '../../../generated/prisma/client';
 import { BillableCategoriesService } from './billable-categories.service';
 
 @ApiTags('billables')
-@Controller('categories')
+@Controller('billables/categories')
 export class BillableCategoriesController {
     constructor(private readonly categoriesService: BillableCategoriesService) {}
 

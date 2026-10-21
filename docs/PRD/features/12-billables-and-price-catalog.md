@@ -565,25 +565,27 @@ scoped to the caller's `organizationId`.
 
 | Endpoint | Method | Permission | Purpose |
 |---|---|---|---|
-| `/billable-categories` | POST | `billable.category.create` | Create: `name`, `kind`, `description?` |
-| `/billable-categories` | GET | `billable.view` | `{ count, docs }` by name; filter `kind`, `status`, `search` (name); `limit` (20) / `offset`; item counts |
-| `/billable-categories/:id` | PATCH | `billable.category.update` | `name`, `description`, `status`; `kind` only while empty |
-| `/billable-items` | POST | `billable.item.create` + `billable.price.create` (+ `billable.cost.create` for `MARKUP`) | Create with `selfPay: { basis: MANUAL, amount } \| { basis: MARKUP, percent, cost: { packCost, unitsPerPack, source? } }` and `reason` |
-| `/billable-items` | GET | `billable.view` | List; filter `categoryId`, `kind`, `status`, `search` (code/name); `limit`/`offset`; each with its current self-pay price |
-| `/billable-items/:id` | GET | `billable.view` | Detail with category and current price list |
-| `/billable-items/:id` | PATCH | `billable.item.update` | `code`, `name`, `description`, `unit`, `categoryId` (same kind), `status` |
-| `/billable-items/:id/prices` | POST | `billable.price.create` | New line: `payerId?`, `basis`, `amount?`, `percent?`, `agreementId?`, `effectiveFrom?`, `reason` |
-| `/billable-items/:id/prices` | GET | `billable.view` | Line history; filter `payerId` (`self` for self-pay) |
-| `/billable-items/:id/costs` | POST / GET | `billable.cost.create` / `billable.cost.view` | New cost / cost history |
-| `/billable-items/:id/price-list` | GET | `billable.view` | Resolved price for self-pay and every active payer at `at` |
-| `/billable-items/:id/quote` | GET | `billable.view` | `ResolvedPrice` for `payerId?` at `at` |
-| `/item-prices/:id/end`, `/item-prices/:id/cancel` | POST | `billable.price.end` / `billable.price.cancel` | End a payer line (`effectiveTo?`, `reason`) / withdraw a scheduled line |
-| `/item-costs/:id/end`, `/item-costs/:id/cancel` | POST | `billable.cost.end` / `billable.cost.cancel` | End / withdraw a cost (§5.3) |
-| `/payers/:id/agreements` | POST / GET | `billable.agreement.create` / `billable.view` | Add / list agreements |
-| `/payer-agreements/:id` | GET / PATCH | `billable.view` / `billable.agreement.update` | Detail with its lines / correct details |
-| `/payers/:id/discounts` | POST / GET | `billable.discount.create` / `billable.view` | Add a dated default discount / history |
-| `/payer-discounts/:id/end`, `/payer-discounts/:id/cancel` | POST | `billable.discount.end` / `billable.discount.cancel` | End / withdraw a discount |
-| `/payers/:id/tariff` | GET | `billable.view` | The payer's resolved price for every active item at `at`; filter `categoryId`, `source`, `search`; paginated |
+| `/billables/categories` | POST | `billable.category.create` | Create: `name`, `kind`, `description?` |
+| `/billables/categories` | GET | `billable.view` | `{ count, docs }` by name; filter `kind`, `status`, `search` (name); `limit` (20) / `offset`; item counts |
+| `/billables/categories/:id` | PATCH | `billable.category.update` | `name`, `description`, `status`; `kind` only while empty |
+| `/billables/items` | POST | `billable.item.create` + `billable.price.create` (+ `billable.cost.create` for `MARKUP`) | Create with `selfPay: { basis: MANUAL, amount } \| { basis: MARKUP, percent, cost: { packCost, unitsPerPack, source? } }` and `reason` |
+| `/billables/items` | GET | `billable.view` | List; filter `categoryId`, `kind`, `status`, `search` (code/name); `limit`/`offset`; each with its current self-pay price |
+| `/billables/items/category/:categoryId` | GET | `billable.view` | `{ category, count, docs }`: the category's items by name with their current self-pay price; filter `status`, `search` (name/code); `limit` (20) / `offset`; 404 if the category isn't the caller's |
+| `/billables/items/:id` | GET | `billable.view` | Detail with category and current price list |
+| `/billables/items/:id` | PATCH | `billable.item.update` | `code`, `name`, `description`, `unit`, `categoryId` (same kind), `status` |
+| `/billables/items/:id/prices` | POST | `billable.price.create` | New line: `payerId?`, `basis`, `amount?`, `percent?`, `agreementId?`, `effectiveFrom?`, `reason` |
+| `/billables/items/:id/prices` | GET | `billable.view` | Line history; filter `payerId` (`self` for self-pay) |
+| `/billables/items/:id/costs` | POST / GET | `billable.cost.create` / `billable.cost.view` | New cost / cost history |
+| `/billables/items/:id/price-list` | GET | `billable.view` | Resolved price for self-pay and every active payer at `at` |
+| `/billables/items/:id/quote` | GET | `billable.view` | `ResolvedPrice` for `payerId?` at `at` |
+| `/billables/prices/:id/end`, `/billables/prices/:id/cancel` | POST | `billable.price.end` / `billable.price.cancel` | End a payer line (`effectiveTo?`, `reason`) / withdraw a scheduled line |
+| `/billables/costs/:id/end`, `/billables/costs/:id/cancel` | POST | `billable.cost.end` / `billable.cost.cancel` | End / withdraw a cost (§5.3) |
+| `/billables/payers/:id/agreements` | POST / GET | `billable.agreement.create` / `billable.view` | Add / list agreements |
+| `/billables/agreements/:id` | GET / PATCH | `billable.view` / `billable.agreement.update` | Detail with its lines / correct details |
+| `/billables/payers/:id/discounts` | POST / GET | `billable.discount.create` / `billable.view` | Add a dated default discount / history |
+| `/billables/discounts/:id/end`, `/billables/discounts/:id/cancel` | POST | `billable.discount.end` / `billable.discount.cancel` | End / withdraw a discount |
+| `/billables/payers/:id/tariff` | GET | `billable.view` | The payer's resolved price for every active item at `at`; filter `categoryId`, `source`, `search`; paginated |
+| `/billables/metrics` | GET | `billable.view` | Overview totals: categories and items (`total`, `active`), `upcomingPrices`, `upcomingDiscounts` (scheduled, not withdrawn) |
 
 `at` defaults to now. A future `at` shows scheduled prices. A past one answers "what was it on
 15 December".
