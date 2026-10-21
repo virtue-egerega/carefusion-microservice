@@ -3,7 +3,8 @@ import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums, Prisma } from '../../../generated/prisma/client';
 import { CreateBillableItemDto, UpdateBillableItemDto } from '@shared/contracts/billables';
-import { inEffectAt, selfPayAmount } from '../pricing/pricing.rules';
+import { inEffectAt, resolvePrice, selfPayAmount, selfPayAndPayerLines, visiblePrice } from '../pricing/pricing.rules';
+import { payerForPricing } from '../pricing/pricing.service';
 import { clinicChangeRefusal, itemUpdateRefusal, selfPayRefusal } from './items.rules';
 
 export type CategoryItemsQuery = {
@@ -43,6 +44,20 @@ const currentSelfPay = (at: Date) => ({
     costs:       { where: inEffectAt(at), take: 1 },
     clinicLinks: { select: { clinic: { select: { id: true, name: true } } }, orderBy: { clinic: { name: 'asc' as const } } },
 });
+
+export type ItemsQuery = CategoryItemsQuery & {
+    categoryId?: string;
+    kind?:       $Enums.ServiceCategory;
+    clinicId?:   string;
+    payerId?:    string;   // price each item for this payer; omitted = self-pay
+};
+
+const searchByNameOrCode = (search?: string) => search ? {
+    OR: [
+        { name: { contains: search, mode: 'insensitive' as const } },
+        { code: { contains: search, mode: 'insensitive' as const } },
+    ],
+} : {};
 
 const CODE_CONFLICT = 'An item with this code already exists';
 
@@ -126,12 +141,7 @@ export class BillableItemsService {
             categoryId,
             organizationId,
             ...(query.status && { status: query.status }),
-            ...(query.search && {
-                OR: [
-                    { name: { contains: query.search, mode: 'insensitive' as const } },
-                    { code: { contains: query.search, mode: 'insensitive' as const } },
-                ],
-            }),
+            ...searchByNameOrCode(query.search),
         };
 
         const [category, count, items] = await client.$transaction([
@@ -152,6 +162,64 @@ export class BillableItemsService {
             category,
             count,
             docs: items.map(({ prices: [line], costs: [cost], ...item }) => present(item, line, cost, canSeeCost)),
+        };
+    }
+
+    /**
+     * The organisation's items by name, paginated, for search pickers (registration, encounter
+     * start), each with its category, its self-pay price, and `price`: its current price for
+     * `payerId` (or self-pay), by §9.1. An item that can't be priced (inactive, no price) gets
+     * `price: null` and `priceError` saying why, so one bad item doesn't fail the search. The
+     * items, their lines and the payer are read in one round trip.
+     */
+    async findAll(organizationId: string, query: ItemsQuery, permissions: string[]) {
+        const client = this.databaseService.client;
+        const now = new Date();
+        const where = {
+            organizationId,
+            ...(query.categoryId && { categoryId: query.categoryId }),
+            ...(query.kind && { category: { kind: query.kind } }),
+            ...(query.clinicId && { clinicLinks: { some: { clinicId: query.clinicId } } }),
+            ...(query.status && { status: query.status }),
+            ...searchByNameOrCode(query.search),
+        };
+
+        const [count, items, payer] = await client.$transaction([
+            client.billableItem.count({ where }),
+            client.billableItem.findMany({
+                where,
+                take:    query.limit,
+                skip:    query.offset,
+                orderBy: { name: 'asc' },
+                include: {
+                    category: { select: { id: true, name: true, kind: true, status: true } },
+                    ...currentSelfPay(now),
+                    prices:   { where: selfPayAndPayerLines(query.payerId, now), take: 2 },
+                },
+            }),
+            client.payer.findFirst({ where: { id: query.payerId ?? '', organizationId }, select: payerForPricing(now) }),
+        ]);
+        if (query.payerId && !payer) throw new NotFoundException('Payer not found');
+        if (payer && payer.status !== 'ACTIVE') throw new BadRequestException(`${payer.name} is inactive`);
+
+        const canSeeCost = permissions.includes('billable.cost.view');
+        return {
+            payer: payer && { id: payer.id, name: payer.name },
+            count,
+            docs: items.map(({ prices, costs, ...item }) => {
+                const selfPayLine = prices.find(line => line.payerId === null);
+                const price = resolvePrice({
+                    item:      { ...item, prices: selfPayLine ? [selfPayLine] : [], costs },
+                    payer:     payer ?? undefined,
+                    payerLine: prices.find(line => line.payerId !== null),
+                    discount:  payer?.discounts[0],
+                });
+                return {
+                    ...present(item, selfPayLine, costs[0], canSeeCost),
+                    price:      typeof price === 'string' ? null : visiblePrice(price, canSeeCost),
+                    priceError: typeof price === 'string' ? price : null,
+                };
+            }),
         };
     }
 

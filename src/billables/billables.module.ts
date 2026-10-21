@@ -5,6 +5,7 @@ import { BillableItemsController } from './items/billable-items.controller';
 import { BillableItemsService } from './items/billable-items.service';
 import { BillablesMetricsController } from './metrics/billables-metrics.controller';
 import { BillablesMetricsService } from './metrics/billables-metrics.service';
+import { PricingService } from './pricing/pricing.service';
 
 /**
  * What the hospital can bill for and what it costs each payer (PRD 12). Billing will import this
@@ -12,6 +13,7 @@ import { BillablesMetricsService } from './metrics/billables-metrics.service';
  */
 @Module({
     controllers: [BillableCategoriesController, BillableItemsController, BillablesMetricsController],
-    providers: [BillableCategoriesService, BillableItemsService, BillablesMetricsService],
+    providers: [BillableCategoriesService, BillableItemsService, BillablesMetricsService, PricingService],
+    exports: [PricingService],
 })
 export class BillablesModule {}

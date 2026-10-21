@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, IsDateString, MinLength } from 'class-validator';
+import { ArrayUnique, IsArray, IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, IsUUID, IsDateString, MinLength } from 'class-validator';
 import { Gender } from '@shared/enums/users/user.enums';
 
 export class CreatePatientDto {
@@ -48,4 +48,16 @@ export class CreatePatientDto {
     @IsUUID()
     @IsOptional()
     billingAccountId?: string;
+
+    @ApiProperty({
+        required: false,
+        type: [String],
+        description: 'The billable items to charge at registration (registration fee, card fee…), chosen by staff. ' +
+            'Each must be active with a current price; each is charged once at its self-pay price. Omit to charge nothing.',
+    })
+    @IsArray()
+    @ArrayUnique()
+    @IsUUID('all', { each: true })
+    @IsOptional()
+    billableItemIds?: string[];
 }

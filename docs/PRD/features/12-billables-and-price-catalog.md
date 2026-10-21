@@ -530,7 +530,7 @@ type ResolvedPrice = {
   unitPrice:       Decimal;              // 2 dp, rounded once
   basis:           PriceBasis;           // how it was worked out
   source:          PriceSource;          // where it came from
-  itemPriceId:     string;               // the payer line (PAYER_LINE) or the self-pay line
+  itemPriceId:     string;               // the payer line (PAYER_LINE), else the self-pay line (incl. PAYER_DISCOUNT)
   selfPayPriceId:  string;               // always: the self-pay line in effect
   selfPayAmount:   Decimal;              // the self-pay price at `at`, for display and dispute evidence
   agreementId:     string | null;        // the payer line's agreement, if any
@@ -554,6 +554,21 @@ enum PriceSource {
 worked-out price is rounded half-up to 2 places once, as the last step. A discount is taken off the
 self-pay price **as charged** (already in whole kobo), because that is the price the payer agreed
 a discount from. The charge later multiplies by quantity and rounds the line amount once (§12).
+
+### 9.3 Totals (what the user is shown before charging)
+
+Before a charge is posted, staff see what the selected items will cost: the registration and card
+fee at registration, the consultation at encounter start, a list of tests later.
+`POST /billables/quote` takes the items, each with an optional quantity, and an optional payer.
+**No payer means self-pay**, the default payer type.
+
+Each line is priced by §9.1 at now, then `amount = round_half_up(quantity × unitPrice, 2)`, the same
+sum the charge uses (`13` §3), so the total shown is the total charged. `total` adds the line amounts.
+If any line can't be priced, the whole quote fails with one 400 naming every item, the same message
+the charge would give.
+
+The total is the price, not who pays it. Splitting it into payer and patient shares (copay, caps)
+happens at charge time (`13` §5).
 
 ## 10. Permissions
 
@@ -613,7 +628,7 @@ scoped to the caller's `organizationId`.
 | `/billables/categories/:id` | GET | `billable.view` | One category with its item count; `createdBy` / `updatedBy` resolved to the users |
 | `/billables/categories/:id` | PATCH | `billable.category.update` | `name`, `description`, `status`; `kind` only while empty |
 | `/billables/items` | POST | `billable.item.create` + `billable.price.create` (+ `billable.cost.create` for `MARKUP`) | Create with `selfPay: { basis: MANUAL, amount } \| { basis: MARKUP, percent, cost: { packCost, unitsPerPack, source? } }` and `reason` |
-| `/billables/items` | GET | `billable.view` | List; filter `categoryId`, `kind`, `status`, `search` (code/name); `limit`/`offset`; each with its current self-pay price |
+| `/billables/items` | GET | `billable.view` | `{ count, docs }`: the organisation's items by name, for search pickers (registration, encounter start); filter `categoryId`, `kind`, `status`, `clinicId` (linked to that clinic, §4.4), `search` (code/name); `payerId` (omitted = self-pay); `limit` (20) / `offset`; each with its category, current self-pay price, and `price`: its current price for that payer by §9.1, or `price: null` + `priceError` when §9.1 refuses that item; 404 unknown payer, 400 inactive payer |
 | `/billables/items/category/:categoryId` | GET | `billable.view` | `{ category, count, docs }`: the category's items by name with their current self-pay price; filter `status`, `search` (name/code); `limit` (20) / `offset`; 404 if the category isn't the caller's |
 | `/billables/items/:id` | GET | `billable.view` | Detail with category and current price list |
 | `/billables/items/:id` | PATCH | `billable.item.update` | `code`, `name`, `description`, `unit`, `categoryId` (same kind), `status` |
@@ -621,19 +636,21 @@ scoped to the caller's `organizationId`.
 | `/billables/items/:id/prices` | POST | `billable.price.create` | New line: `payerId?`, `basis`, `amount?`, `percent?`, `agreementId?`, `effectiveFrom?`, `reason` |
 | `/billables/items/:id/prices` | GET | `billable.view` | Line history; filter `payerId` (`self` for self-pay) |
 | `/billables/items/:id/costs` | POST / GET | `billable.cost.create` / `billable.cost.view` | New cost / cost history |
-| `/billables/items/:id/price-list` | GET | `billable.view` | Resolved price for self-pay and every active payer at `at` |
-| `/billables/items/:id/quote` | GET | `billable.view` | `ResolvedPrice` for `payerId?` at `at` |
+| `/billables/items/:id/price-list` | GET | `billable.view` | Resolved price now for self-pay and every active payer |
+| `/billables/items/:id/quote` | GET | `billable.view` | `{ item, payer, at, ...ResolvedPrice }`: the price for `payerId?` (omitted = self-pay) now, by §9.1; 404 for another organisation's item or payer, 400 when §9.1 refuses; markup cost and percent only with `billable.cost.view` |
+| `/billables/quote` | POST | `billable.view` | §9.3: `{ payerId?, items: [{ billableItemId, quantity? }] }` → `{ payer, at, lines: [{ item, quantity, unitPrice, amount, basis, source, … }], total }`; 404 unknown payer, 400 naming every item §9.1 refuses; markup cost and percent only with `billable.cost.view` |
 | `/billables/prices/:id/end`, `/billables/prices/:id/cancel` | POST | `billable.price.end` / `billable.price.cancel` | End a payer line (`effectiveTo?`, `reason`) / withdraw a scheduled line |
 | `/billables/costs/:id/end`, `/billables/costs/:id/cancel` | POST | `billable.cost.end` / `billable.cost.cancel` | End / withdraw a cost (§5.3) |
 | `/billables/payers/:id/agreements` | POST / GET | `billable.agreement.create` / `billable.view` | Add / list agreements |
 | `/billables/agreements/:id` | GET / PATCH | `billable.view` / `billable.agreement.update` | Detail with its lines / correct details |
 | `/billables/payers/:id/discounts` | POST / GET | `billable.discount.create` / `billable.view` | Add a dated default discount / history |
 | `/billables/discounts/:id/end`, `/billables/discounts/:id/cancel` | POST | `billable.discount.end` / `billable.discount.cancel` | End / withdraw a discount |
-| `/billables/payers/:id/tariff` | GET | `billable.view` | The payer's resolved price for every active item at `at`; filter `categoryId`, `source`, `search`; paginated |
+| `/billables/payers/:id/tariff` | GET | `billable.view` | The payer's resolved price now for every active item; filter `categoryId`, `source`, `search`; paginated |
 | `/billables/metrics` | GET | `billable.view` | Overview totals: categories and items (`total`, `active`), `upcomingPrices`, `upcomingDiscounts` (scheduled, not withdrawn) |
 
-`at` defaults to now. A future `at` shows scheduled prices. A past one answers "what was it on
-15 December".
+Prices are always resolved at the server's current time; clients never send a time. Scheduled and
+past prices are read from the line history (`/billables/items/:id/prices`), which shows each line's
+dates, and a posted charge keeps the price it was charged at (`13` D3).
 
 Code lives in its own top-level `BillablesModule` (`src/billables/`: categories, items, prices,
 costs, agreements, `pricing.rules.ts` + `pricing.rules.spec.ts`). Billing will import it to price
@@ -658,8 +675,8 @@ charges; it imports nothing from Billing, so the dependency runs one way. DTOs a
 **Charge posting is not touched.** Nothing that posts charges today (registration, consultation at
 check-in, `/charges`) reads the catalog in this slice.
 
-**In the later charge-integration slice** (specified here so the catalog is built to fit it, not
-built now):
+**In the charge-integration slice**, now specified in full by `13-charge-posting-and-allocation.md`
+(which takes precedence where the two differ):
 
 | Current | Becomes |
 |---|---|

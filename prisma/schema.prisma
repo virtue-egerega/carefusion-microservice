@@ -834,6 +834,7 @@ model BillableItem {
   prices         ItemPrice[]
   costs          ItemCost[]
   clinicLinks    ClinicBillableItem[]
+  charges        Charge[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId]) // target of ClinicBillableItem's composite FK
@@ -858,6 +859,7 @@ model ItemCost {
   cancelledBy   String?
 
   item          BillableItem @relation(fields: [itemId], references: [id])
+  charges       Charge[]
 
   @@index([itemId, effectiveFrom])
 }
@@ -885,6 +887,7 @@ model ItemPrice {
   payer         Payer?          @relation(fields: [payerId], references: [id])
   // composite FK: the agreement must belong to this line's payer. Restrict, since SetNull would also null payerId
   agreement     PayerAgreement? @relation(fields: [agreementId, payerId], references: [id, payerId], onDelete: Restrict)
+  charges       Charge[]
 
   @@index([itemId, payerId, effectiveFrom])
   @@index([payerId, effectiveFrom])
@@ -908,6 +911,7 @@ model PayerAgreement {
 
   payer       Payer       @relation(fields: [payerId], references: [id])
   prices      ItemPrice[]
+  charges     Charge[]
 
   @@unique([payerId, reference])
   @@unique([id, payerId]) // target of ItemPrice's composite FK
@@ -948,6 +952,7 @@ model PayerDiscount {
   cancelledBy   String?
 
   payer         Payer     @relation(fields: [payerId], references: [id])
+  charges       Charge[]
 
   @@index([payerId, effectiveFrom])
 }
@@ -964,7 +969,7 @@ model Charge {
   coverageId       String?
   category         ServiceCategory
   description      String
-  quantity         Int             @default(1)
+  quantity         Decimal         @default(1) @db.Decimal(12, 3) // 2.5 bed-days, 7.5 ml (13 D8)
   unitPrice        Decimal         @db.Decimal(14, 2)
   amount           Decimal         @db.Decimal(14, 2)
   sourceType       String
@@ -972,12 +977,26 @@ model Charge {
   status           ChargeStatus    @default(POSTED)
   createdAt        DateTime        @default(now())
   createdBy        String
+  // what was sold and how its price was reached (13 §3); null only on charges posted before PRD 13
+  billableItemId   String?
+  pricingBasis     PriceBasis?
+  priceSource      PriceSource?
+  itemPriceId      String?
+  itemCostId       String?
+  agreementId      String?
+  payerDiscountId  String?
+  pricePercent     Decimal?        @db.Decimal(5, 2)
 
   patient          Patient         @relation(fields: [patientId], references: [id])
   branch           Branch          @relation(fields: [branchId], references: [id])
   encounter        Encounter?      @relation(fields: [encounterId], references: [id])
   billingAccount   BillingAccount  @relation(fields: [billingAccountId], references: [id])
   coverage         Coverage?       @relation(fields: [coverageId], references: [id])
+  billableItem     BillableItem?   @relation(fields: [billableItemId], references: [id])
+  itemPrice        ItemPrice?      @relation(fields: [itemPriceId], references: [id])
+  itemCost         ItemCost?       @relation(fields: [itemCostId], references: [id])
+  agreement        PayerAgreement? @relation(fields: [agreementId], references: [id])
+  payerDiscount    PayerDiscount?  @relation(fields: [payerDiscountId], references: [id])
   allocations      ChargeAllocation[]
   requests         FinancialRequest[]
 
@@ -986,6 +1005,7 @@ model Charge {
   @@index([sourceType, sourceId])
   @@index([appointmentId])
   @@index([encounterId])
+  @@index([billableItemId])
 }
 
 model ChargeAllocation {

@@ -8,12 +8,14 @@ import { CoverageService } from './coverage/coverage.service';
 import { LedgerService } from './ledger/ledger.service';
 import { PayersController } from './payers/payers.controller';
 import { PayersService } from './payers/payers.service';
+import { BillablesModule } from '../billables/billables.module';
 import { QueueHoldsModule } from '../encounters/queue-holds/queue-holds.module';
 
 @Module({
-    imports: [QueueHoldsModule],
+    imports: [QueueHoldsModule, BillablesModule],
     controllers: [BillingAccountsController, ChargesController, PayersController, CoverageController],
     providers: [LedgerService, BillingAccountsService, ChargesService, PayersService, CoverageService],
-    exports: [LedgerService, BillingAccountsService, ChargesService, CoverageService],
+    // re-exports BillablesModule so callers of ChargesService can resolve prices (PRD 13 §3)
+    exports: [LedgerService, BillingAccountsService, ChargesService, CoverageService, BillablesModule],
 })
 export class BillingModule {}

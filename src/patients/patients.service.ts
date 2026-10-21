@@ -2,9 +2,11 @@ import { ConflictException, Injectable, NotFoundException, ServiceUnavailableExc
 import { DatabaseService } from '../database/database.service';
 import { isUniqueViolation, withConstraintErrors } from '../database/prisma-errors';
 import { CreatePatientDto } from '@shared/contracts/patients';
-import { $Enums, Prisma } from '../../generated/prisma/client';
+import { $Enums } from '../../generated/prisma/client';
 import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
 import { ChargesService } from '../billing/charges/charges.service';
+import { PricingService } from '../billables/pricing/pricing.service';
+import type { ChargePrice } from '../billables/pricing/pricing.rules';
 import { toDecimal } from '../billing/ledger/ledger.service';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
@@ -58,6 +60,7 @@ export class PatientsService {
         private readonly databaseService: DatabaseService,
         private readonly billingAccounts: BillingAccountsService,
         private readonly charges: ChargesService,
+        private readonly pricing: PricingService,
         private readonly patientNumbers: PatientNumbers,
     ) {}
 
@@ -65,7 +68,8 @@ export class PatientsService {
 
     /**
      * Registers the patient at the staff member's branch (both from their token), opens or joins
-     * their billing account, and bills the registration and card fees in the same transaction.
+     * their billing account, and charges the items staff chose (registration, card fee…) in the same
+     * transaction. Items are priced first, so a bad one fails before a patient number is used (13 §4).
      * The fees are incurred now; paying them is a separate step at Accounts (10 §7.2). Any credit
      * already on the account pays them immediately; otherwise they stay owed and the patient goes
      * on the cashier's list.
@@ -75,18 +79,19 @@ export class PatientsService {
         const email = dto.email ?? `${uuidv4()}@patient.internal`;
 
         const plainPassword = generateTemporaryPassword();
-        const [hashed, fees] = await Promise.all([
+        const [hashed, fees, prices] = await Promise.all([
             bcrypt.hash(plainPassword, 10),
             this.databaseService.client.organization.findUniqueOrThrow({
                 where:  { id: at.organizationId },
-                select: { registrationFee: true, nfcCardFee: true, patientNumberStart: true, ...AGE_SETTINGS_SELECT },
+                select: { patientNumberStart: true, ...AGE_SETTINGS_SELECT },
             }),
+            this.pricing.selfPayPrices(at.organizationId, dto.billableItemIds ?? [], new Date()),
         ]);
 
         // A failed statement aborts the Postgres transaction, so a taken number retries the whole registration
         for (let attempt = 1; ; attempt++) {
             try {
-                return await this.register(dto, at, registeredBy, { email, hashed, plainPassword, fees });
+                return await this.register(dto, at, registeredBy, { email, hashed, plainPassword, fees, prices: [...prices.values()] });
             } catch (e) {
                 if (!(e instanceof PatientNumberTaken)) throw e;
                 if (attempt === PATIENT_NUMBER_ATTEMPTS) {
@@ -100,9 +105,9 @@ export class PatientsService {
         dto: CreatePatientDto,
         at: { organizationId: string; branchId: string },
         registeredBy: string,
-        prepared: { email: string; hashed: string; plainPassword: string; fees: AgeSettings & { registrationFee: Prisma.Decimal; nfcCardFee: Prisma.Decimal; patientNumberStart: number } },
+        prepared: { email: string; hashed: string; plainPassword: string; fees: AgeSettings & { patientNumberStart: number }; prices: ChargePrice[] },
     ) {
-        const { email, hashed, plainPassword, fees } = prepared;
+        const { email, hashed, plainPassword, fees, prices } = prepared;
 
         return this.databaseService.transaction(async () => {
             const client = this.databaseService.client;
@@ -156,23 +161,16 @@ export class PatientsService {
                     phone: user.phone,
                 }, registeredBy)).id;
 
-            // Registration fees are incurred at registration. A fee the organisation sets to 0 isn't billed.
-            const billable = [
-                { description: 'Registration fee', unitPrice: fees.registrationFee },
-                { description: 'NFC card fee',     unitPrice: fees.nfcCardFee },
-            ].filter(fee => fee.unitPrice.gt(0));
-
+            // The chosen items are incurred at registration; a free one is still recorded (13 §3)
             const charges = [];
             let account;
             let billingTask = null;
-            for (const fee of billable) {
+            for (const price of prices) {
                 const posted = await this.charges.post({
                     patientId:        user.id,
                     branchId:         at.branchId,
                     billingAccountId,
-                    category:         $Enums.ServiceCategory.REGISTRATION,
-                    description:      fee.description,
-                    unitPrice:        fee.unitPrice.toString(),
+                    price,
                     sourceType:       REGISTRATION_SOURCE,
                     sourceId:         user.id,
                     createdBy:        registeredBy,

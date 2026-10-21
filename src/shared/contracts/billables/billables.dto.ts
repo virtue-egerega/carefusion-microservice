@@ -1,7 +1,8 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-    ArrayUnique, IsArray, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, Min, MinLength, ValidateNested,
+    ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Max,
+    Min, MinLength, ValidateNested,
 } from 'class-validator';
 import { ServiceCategory } from '@shared/enums/billing/billing.enums';
 import { CatalogStatus, PriceBasis } from '@shared/enums/billables/billables.enums';
@@ -120,4 +121,25 @@ export class UpdateBillableItemDto {
     @ApiProperty({ type: [String], required: false, description: 'Clinics to unlink; unlinked ones are ignored' })
     @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) @IsOptional()
     removeClinicIds?: string[];
+}
+
+// ── Quotes (PRD 12 §9.3) ─────────────────────────────────────────────────────
+
+export class QuoteLineDto {
+    @ApiProperty() @IsUUID()
+    billableItemId!: string;
+
+    @ApiProperty({ example: 1, default: 1, required: false, description: 'Up to 3 decimal places: 2.5 bed-days, 7.5 ml' })
+    @IsNumber({ maxDecimalPlaces: 3 }) @IsPositive() @IsOptional()
+    quantity?: number;
+}
+
+export class QuoteDto {
+    @ApiProperty({ required: false, description: 'Omit for self-pay, the default payer type' })
+    @IsUUID() @IsOptional()
+    payerId?: string;
+
+    @ApiProperty({ type: [QuoteLineDto] })
+    @IsArray() @ArrayNotEmpty() @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => QuoteLineDto)
+    items!: QuoteLineDto[];
 }

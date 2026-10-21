@@ -11,6 +11,14 @@ export class StartEncounterDto {
     clinicId!: string;
 
     @ApiProperty({
+        description: "The consultation item staff chose (e.g. one of the clinic's linked items). Must be active with a current price; " +
+            'charged at its self-pay price unless the visit is exempt (insured, or continuing at the same clinic).',
+        example: '41da8c96-eacb-4bd7-898d-1c37e19df3b8',
+    })
+    @IsUUID()
+    billableItemId!: string;
+
+    @ApiProperty({
         required: false,
         type: [String],
         description: "Where to send the patient now: billing, the clinic's nursing station, or both (queue ids from GET /queues/sendable). Default: the clinic's nursing station.",

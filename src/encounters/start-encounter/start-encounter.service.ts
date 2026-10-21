@@ -1,10 +1,12 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { isUniqueViolation } from '../../database/prisma-errors';
-import { $Enums, Prisma } from '../../../generated/prisma/client';
+import { $Enums } from '../../../generated/prisma/client';
 import { StartEncounterDto } from '@shared/contracts/encounters';
 import type { AuthUser } from '../../auth/permissions.guard';
 import { ChargesService } from '../../billing/charges/charges.service';
+import { PricingService } from '../../billables/pricing/pricing.service';
+import type { ChargePrice } from '../../billables/pricing/pricing.rules';
 import { AGE_SETTINGS_SELECT, ageSnapshot } from '../../patients/age-group';
 import { TargetQueue, TaskFactory } from '../shared/task-factory';
 import { visitCoverage } from '../../shared/contracts/encounters/visit-coverage';
@@ -20,7 +22,7 @@ type Visit = {
     clinic: Clinic;
     targets: TargetQueue[];
     coverageId: string | null;
-    fee: Prisma.Decimal;
+    price: ChargePrice;   // the chosen consultation item, priced before any transaction (13 §4)
 };
 
 @Injectable()
@@ -28,6 +30,7 @@ export class StartEncounterService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly charges: ChargesService,
+        private readonly pricing: PricingService,
         private readonly tasks: TaskFactory,
     ) {}
 
@@ -52,17 +55,18 @@ export class StartEncounterService {
         if (!clinic) throw new NotFoundException('Clinic not found or not active');
         const targetIds = firstTaskTargets(dto.sendTo, clinic.triageQueueId);
 
-        const [patient, sendable, targets] = await Promise.all([
+        const [patient, sendable, targets, prices] = await Promise.all([
             client.patient.findFirst({
                 where:  { id: dto.patientId, hospitalId: at.organizationId },
                 select: {
                     dateOfBirth: true,
-                    hospital: { select: { ...AGE_SETTINGS_SELECT, consultationFee: true } },
+                    hospital: { select: AGE_SETTINGS_SELECT },
                     coverages: visitCoverage(now, dto.coverageId),
                 },
             }),
             this.sendableAmong(targetIds, user.dutyProfileIds),
             this.tasks.loadQueues(targetIds),
+            this.pricing.selfPayPrices(at.organizationId, [dto.billableItemId], now),
         ]);
         if (!patient) throw new NotFoundException('Patient not found');
         if (dto.coverageId && !patient.coverages.length) {
@@ -78,7 +82,7 @@ export class StartEncounterService {
             clinic,
             targets,
             coverageId: dto.selfPay ? null : patient.coverages[0]?.id ?? null,
-            fee:        patient.hospital.consultationFee,
+            price:      prices.get(dto.billableItemId)!,
         };
 
         if (dto.continueEncounter) return this.continueOpen(visit, at, user.sub, now);
@@ -102,7 +106,7 @@ export class StartEncounterService {
                     },
                 });
 
-                const fee = consultationFeeApplies({ coverageId: visit.coverageId, continuingSameClinic: false }) ? visit.fee : null;
+                const fee = consultationFeeApplies({ coverageId: visit.coverageId, continuingSameClinic: false }) ? visit.price : null;
                 const sent = await this.feeAndTasks(encounter.id, visit, fee, at, user.sub, now);
                 return { ...encounter, clinic: { id: clinic.id, name: clinic.name }, continued: false, ...sent };
             });
@@ -146,7 +150,7 @@ export class StartEncounterService {
 
             // The encounter's own coverage still applies to the visit it already is
             const fee = consultationFeeApplies({ coverageId: open.coverageId, continuingSameClinic: open.clinicId === visit.clinic.id })
-                ? visit.fee
+                ? visit.price
                 : null;
             const sent = await this.feeAndTasks(open.id, visit, fee, at, by, now);
             return { ...encounter, clinic: { id: visit.clinic.id, name: visit.clinic.name }, continued: true, ...sent };
@@ -157,7 +161,7 @@ export class StartEncounterService {
      * Posts the fee (if any), which puts the patient on the cashier's list when they owe it, then
      * on each chosen list. Choosing billing as well doesn't put them on it twice.
      */
-    private async feeAndTasks(encounterId: string, visit: Visit, fee: Prisma.Decimal | null, at: At, by: string, now: Date) {
+    private async feeAndTasks(encounterId: string, visit: Visit, fee: ChargePrice | null, at: At, by: string, now: Date) {
         const { consultationFee, billingTask } = await this.postConsultationFee(fee, encounterId, visit.patientId, at.branchId, by);
         const tasks = billingTask ? [billingTask] : [];
         for (const queue of visit.targets) {
@@ -167,17 +171,18 @@ export class StartEncounterService {
         return { tasks, consultationFee };
     }
 
-    /** Posts the consultation fee, with the billing task it put the patient on if owed. A free visit isn't charged. */
-    private async postConsultationFee(fee: Prisma.Decimal | null, encounterId: string, patientId: string, branchId: string, createdBy: string) {
-        if (!fee || !fee.gt(0)) return { consultationFee: null, billingTask: null };
+    /**
+     * Posts the consultation charge for the chosen item, with the billing task it put the patient on
+     * if owed. A free item is still recorded (13 §3); post() leaves it nothing to collect.
+     */
+    private async postConsultationFee(price: ChargePrice | null, encounterId: string, patientId: string, branchId: string, createdBy: string) {
+        if (!price) return { consultationFee: null, billingTask: null };
 
         const posted = await this.charges.post({
             patientId,
             branchId,
             encounterId,
-            category:    $Enums.ServiceCategory.CONSULTATION,
-            description: 'Consultation fee',
-            unitPrice:   fee.toString(),
+            price,
             sourceType:  CONSULTATION_FEE,
             sourceId:    encounterId,
             createdBy,

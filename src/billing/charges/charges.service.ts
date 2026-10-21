@@ -7,14 +7,14 @@ import { BillingAccountsService } from '../accounts/billing-accounts.service';
 import { LedgerService, toDecimal } from '../ledger/ledger.service';
 import { QueueHoldsService } from '../../encounters/queue-holds/queue-holds.service';
 import { patientShare } from './charges.rules';
+import type { ChargePrice } from '../../billables/pricing/pricing.rules';
+import { lineAmount } from '../../billables/pricing/pricing.rules';
 
 export type PostChargeInput = {
     patientId: string;
     branchId: string;
-    category: $Enums.ServiceCategory;
-    description: string;
-    unitPrice: number | string;
-    quantity?: number;
+    price: ChargePrice;                    // from PricingService, resolved before the caller's transaction (13 §3)
+    quantity?: number | string;            // Decimal(12, 3); default 1
     sourceType: string;                    // "PATIENT_REGISTRATION", "LAB_ORDER", ...
     sourceId: string;
     appointmentId?: string;
@@ -63,9 +63,10 @@ export class ChargesService {
                 throw new ConflictException(`Billing account ${account.accountNumber} is ${account.status.toLowerCase()}`);
             }
 
-            const quantity  = input.quantity ?? 1;
-            const unitPrice = toDecimal(input.unitPrice);
-            const amount    = unitPrice.times(quantity);
+            const { price } = input;
+            const quantity  = toDecimal(input.quantity ?? 1);
+            const unitPrice = price.unitPrice;
+            const amount    = lineAmount(unitPrice, quantity);   // rounded once (13 D8), as quoted (12 §9.3)
 
             const charge = await withConstraintErrors(
                 () => client.charge.create({
@@ -75,11 +76,19 @@ export class ChargesService {
                         appointmentId:    input.appointmentId,
                         encounterId:      input.encounterId,
                         billingAccountId: accountId,
-                        category:         input.category,
-                        description:      input.description,
+                        category:         price.category as $Enums.ServiceCategory,
+                        description:      price.description,
                         quantity,
                         unitPrice,
                         amount,
+                        billableItemId:   price.billableItemId,
+                        pricingBasis:     price.basis as $Enums.PriceBasis,
+                        priceSource:      price.source as $Enums.PriceSource,
+                        itemPriceId:      price.itemPriceId,
+                        itemCostId:       price.itemCostId,
+                        agreementId:      price.agreementId,
+                        payerDiscountId:  price.payerDiscountId,
+                        pricePercent:     price.percent,
                         sourceType:       input.sourceType,
                         sourceId:         input.sourceId,
                         createdBy:        input.createdBy,
@@ -109,7 +118,7 @@ export class ChargesService {
                 amount:       amount.negated(),
                 patientId:    input.patientId,
                 allocationId: allocation.id,
-                description:  input.description,
+                description:  price.description,
                 branchId:     input.branchId,
                 createdBy:    input.createdBy,
             }, account);
