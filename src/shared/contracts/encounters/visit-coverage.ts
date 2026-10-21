@@ -1,4 +1,4 @@
-import { $Enums, Prisma } from '../../../generated/prisma/client';
+import { $Enums, Prisma } from '../../../../generated/prisma/client';
 
 /**
  * The coverage a visit uses (10 §5): the one chosen, else the patient's highest-priority coverage

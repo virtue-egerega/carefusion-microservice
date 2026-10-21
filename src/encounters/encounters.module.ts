@@ -3,8 +3,6 @@ import { BillingModule } from '../billing/billing.module';
 import { QueueHoldsModule } from './queue-holds/queue-holds.module';
 import { StartEncounterController } from './start-encounter/start-encounter.controller';
 import { StartEncounterService } from './start-encounter/start-encounter.service';
-import { ClinicsController } from './clinics/clinics.controller';
-import { ClinicsService } from './clinics/clinics.service';
 import { FollowUpController } from './follow-up/follow-up.controller';
 import { FollowUpService } from './follow-up/follow-up.service';
 import { SendingController } from './sending/sending.controller';
@@ -15,7 +13,7 @@ import { TasksService } from './tasks/tasks.service';
 
 @Module({
     imports: [BillingModule, QueueHoldsModule],
-    controllers: [ClinicsController, StartEncounterController, FollowUpController, SendingController, TasksController],
-    providers: [ClinicsService, StartEncounterService, FollowUpService, SendingService, TasksService, TaskFactory],
+    controllers: [StartEncounterController, FollowUpController, SendingController, TasksController],
+    providers: [StartEncounterService, FollowUpService, SendingService, TasksService, TaskFactory],
 })
 export class EncountersModule {}

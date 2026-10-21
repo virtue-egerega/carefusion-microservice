@@ -1,4 +1,4 @@
-import { itemUpdateRefusal, selfPayRefusal } from './items.rules';
+import { clinicChangeRefusal, itemUpdateRefusal, selfPayRefusal } from './items.rules';
 
 const COST = { packCost: 1234.5, unitsPerPack: 100 };
 const WITH_COST = ['billable.cost.create'];
@@ -61,5 +61,21 @@ describe('itemUpdateRefusal', () => {
 
     it('treats a same-kind miss as not found, since that move would have succeeded', () => {
         expect(itemUpdateRefusal({ kind: 'LABORATORY' }, 'LABORATORY').reason).toBe('Billable item not found');
+    });
+});
+
+describe('clinicChangeRefusal', () => {
+    it('allows adds and removes of different clinics', () => {
+        expect(clinicChangeRefusal(['eye'], ['gopd'])).toBeNull();
+    });
+
+    it('allows either list on its own, or neither', () => {
+        expect(clinicChangeRefusal(['eye'], undefined)).toBeNull();
+        expect(clinicChangeRefusal(undefined, ['gopd'])).toBeNull();
+        expect(clinicChangeRefusal()).toBeNull();
+    });
+
+    it('refuses a clinic in both lists, naming it', () => {
+        expect(clinicChangeRefusal(['eye', 'ent'], ['ent'])?.reason).toBe("A clinic can't be both added and removed: ent");
     });
 });

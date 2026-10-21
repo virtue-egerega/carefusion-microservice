@@ -59,6 +59,7 @@ model Organization {
   encounters             Encounter[]
   billableCategories     BillableCategory[]
   billableItems          BillableItem[]
+  clinicBillableItems    ClinicBillableItem[]
 
 }
 
@@ -293,6 +294,7 @@ model Clinic {
   triageQueue         Queue      @relation("ClinicTriage", fields: [triageQueueId], references: [id])
   consultationQueue   Queue      @relation("ClinicConsultation", fields: [consultationQueueId], references: [id])
   encounters          Encounter[]
+  billableItems       ClinicBillableItem[]
 
   @@index([departmentId])
 }
@@ -821,7 +823,6 @@ model BillableItem {
   name           String
   description    String?
   unit           String           // what one quantity means: "test", "visit", "day", "tablet"
-  systemKey      String?          // items the system posts itself, e.g. REGISTRATION_FEE (12 §4.2)
   status         CatalogStatus    @default(ACTIVE)
   createdAt      DateTime         @default(now())
   createdBy      String
@@ -832,9 +833,10 @@ model BillableItem {
   category       BillableCategory @relation(fields: [categoryId], references: [id])
   prices         ItemPrice[]
   costs          ItemCost[]
+  clinicLinks    ClinicBillableItem[]
 
   @@unique([organizationId, code])
-  @@unique([organizationId, systemKey])
+  @@unique([id, organizationId]) // target of ClinicBillableItem's composite FK
   @@index([organizationId, categoryId, status])
 }
 
@@ -909,6 +911,25 @@ model PayerAgreement {
 
   @@unique([payerId, reference])
   @@unique([id, payerId]) // target of ItemPrice's composite FK
+}
+
+// Items used at a clinic, per organisation (clinics are system-wide): eye drops and glasses at Eye,
+// consumables at Emergency. Many-to-many; a row is either there or not, never edited (12 §4.4).
+model ClinicBillableItem {
+  id             String       @id @default(uuid())
+  organizationId String
+  clinicId       String
+  itemId         String
+  createdAt      DateTime     @default(now())
+  createdBy      String
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  clinic         Clinic       @relation(fields: [clinicId], references: [id])
+  // composite FK: the item must be this organisation's. Restrict, so a linked item can't be deleted
+  item           BillableItem @relation(fields: [itemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, clinicId, itemId])
+  @@index([organizationId, itemId])
 }
 
 model PayerDiscount {

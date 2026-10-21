@@ -1,6 +1,8 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import {
+    ArrayUnique, IsArray, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, Min, MinLength, ValidateNested,
+} from 'class-validator';
 import { ServiceCategory } from '@shared/enums/billing/billing.enums';
 import { CatalogStatus, PriceBasis } from '@shared/enums/billables/billables.enums';
 
@@ -94,6 +96,10 @@ export class CreateBillableItemDto {
     @ApiProperty({ example: 'New service', description: 'Why this price; recorded on the price line (and cost)' })
     @IsString() @MinLength(3)
     reason!: string;
+
+    @ApiProperty({ type: [String], required: false, description: 'Clinics this item is used at (PRD 12 §4.4)' })
+    @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) @IsOptional()
+    clinicIds?: string[];
 }
 
 export class UpdateBillableItemDto {
@@ -106,4 +112,12 @@ export class UpdateBillableItemDto {
     @ApiProperty({ enum: CatalogStatus, required: false, description: "INACTIVE: can't be priced for new charges; never deleted" })
     @IsEnum(CatalogStatus) @IsOptional()
     status?: CatalogStatus;
+
+    @ApiProperty({ type: [String], required: false, description: 'Clinics to link; already-linked ones are ignored' })
+    @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) @IsOptional()
+    addClinicIds?: string[];
+
+    @ApiProperty({ type: [String], required: false, description: 'Clinics to unlink; unlinked ones are ignored' })
+    @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) @IsOptional()
+    removeClinicIds?: string[];
 }

@@ -29,7 +29,7 @@ Agreed during design review, 2026-10-20. Each is elaborated in the section shown
 | # | Decision | § |
 |---|---|---|
 | D1 | **Hospitals create their own billable categories.** Each category has a fixed `kind` from the system `ServiceCategory` enum, so plan benefits, caps and reports keep working whatever the hospital calls its categories. Categories are flat (no nesting) in v1. `CONSUMABLE` is added to `ServiceCategory`. | 3 |
-| D2 | **A billable item belongs to one category.** Items are deactivated, never deleted. Items the system posts on its own (registration, card, consultation) are found by a stable `systemKey`. | 4 |
+| D2 | **A billable item belongs to one category.** Items are deactivated, never deleted. Items can be linked to the clinics they're used at (many-to-many, any kind). Starting an encounter always requires a billable item; finding it is code, not schema. | 4 |
 | D3 | **Drugs are a type of billable**: an item in a category of kind `PHARMACY`. Drug details, stock and batches are extensions designed in the drugs PRD. | 4.3 |
 | D4 | **Price belongs to the payer, not the plan.** The tariff is agreed between the hospital and the payer (Hygeia ₦15,000, AXA Mansard ₦12,000). Plans decide only what is covered and up to how much, which is a charge problem. | 6 |
 | D5 | **Every active item has a self-pay price line.** It is the price when no payer is involved, and the only base any discount is taken from. | 6 |
@@ -137,7 +137,6 @@ model BillableItem {
   name           String                        // "Full Blood Count"
   description    String?
   unit           String                        // what one quantity means: "test", "visit", "day", "tablet"
-  systemKey      String?                       // stable key for items the system posts itself (§4.2)
   status         CatalogStatus    @default(ACTIVE)
   createdAt      DateTime         @default(now())
   createdBy      String
@@ -148,9 +147,10 @@ model BillableItem {
   category       BillableCategory @relation(fields: [categoryId], references: [id])
   prices         ItemPrice[]
   costs          ItemCost[]
+  clinicLinks    ClinicBillableItem[]
 
   @@unique([organizationId, code])
-  @@unique([organizationId, systemKey])         // nulls are distinct, so many items have none
+  @@unique([id, organizationId])                // target of ClinicBillableItem's composite FK (§4.4)
   @@index([organizationId, categoryId, status])
 }
 ```
@@ -166,10 +166,9 @@ model BillableItem {
   pricing (§9.1). Its prices, costs and history stay readable.
 - **`code` and `name` can be edited.** Charges snapshot their `description` (`10` §5), so renaming
   doesn't rewrite old bills.
-- **`systemKey`** is how code finds items it posts without a person choosing them: for example
-  `REGISTRATION_FEE`, `CARD_FEE`, `CONSULTATION_GOPD_FIRST`. The set of keys is defined in code
-  (like queues, `04`). The hospital prices the item but can't change its key. Seeding the keyed
-  items and wiring charge posting to them is part of §12's later slice.
+- **No system keys.** Items are the hospital's own; the system never seeds or looks up items by a
+  fixed key. Where a charge is raised as part of a workflow, the item is chosen by staff, and set-up
+  links (§4.4) only pre-select it.
 
 ### 4.3 Drugs (deferred)
 
@@ -177,6 +176,50 @@ A drug is a `BillableItem` in a `PHARMACY`-kind category. The drugs PRD adds a 1
 (`Drug.billableItemId`) for strength, form and the like, plus stock and batches. A batch has its
 own purchase cost; the drugs PRD decides whether receiving a batch writes an `ItemCost` row (§5)
 or whether markup reads batch cost directly. Nothing in this PRD prevents either.
+
+### 4.4 Clinic links
+
+An item can be **linked to the clinics it's used at**: eye drops and eye glasses at the Eye clinic,
+specific consumables at Emergency or Gynaecology, a clinic's consultation. It's **many-to-many**: a
+clinic has many items, and an item (gloves) can be at many clinics. Any kind of item can be linked.
+
+Links scope what staff are shown at a clinic. They don't decide any charge: which item is the
+consultation when an encounter starts, for example, is worked out in code from the clinic's items
+(§12), not encoded in the schema. Starting an encounter always requires a billable item to be
+selected.
+
+Clinics are system-wide (`04`), while items belong to an organisation, so a link is a row per
+organisation:
+
+```prisma
+model ClinicBillableItem {
+  id             String       @id @default(uuid())
+  organizationId String
+  clinicId       String
+  itemId         String
+  createdAt      DateTime     @default(now())
+  createdBy      String
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  clinic         Clinic       @relation(fields: [clinicId], references: [id])
+  item           BillableItem @relation(fields: [itemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([organizationId, clinicId, itemId])
+  @@index([organizationId, itemId])
+}
+```
+
+- **Set through the item**, not separate endpoints. Create takes `clinicIds`. Update takes
+  `addClinicIds` and `removeClinicIds`, so it never has to read or diff the existing links: adds are
+  inserted with skip-duplicates (re-adding is a no-op), removes are deleted (removing an unlinked
+  clinic is a no-op). The same id in both lists is a 400. Both are optional; leaving them out keeps
+  the links.
+- **Clinics must exist and be active** to be added (400 otherwise).
+- **The item must be the organisation's own.** The composite foreign key rejects another
+  organisation's item at the database.
+- **A row is never edited**, only inserted or deleted, so it has no `updatedAt`/`updatedBy`.
+- Item responses (detail and lists) include `clinics: [{ id, name }]`.
+- Linking is part of app setup, but optional.
 
 ## 5. Cost Prices
 
@@ -567,12 +610,14 @@ scoped to the caller's `organizationId`.
 |---|---|---|---|
 | `/billables/categories` | POST | `billable.category.create` | Create: `name`, `kind`, `description?` |
 | `/billables/categories` | GET | `billable.view` | `{ count, docs }` by name; filter `kind`, `status`, `search` (name); `limit` (20) / `offset`; item counts |
+| `/billables/categories/:id` | GET | `billable.view` | One category with its item count; `createdBy` / `updatedBy` resolved to the users |
 | `/billables/categories/:id` | PATCH | `billable.category.update` | `name`, `description`, `status`; `kind` only while empty |
 | `/billables/items` | POST | `billable.item.create` + `billable.price.create` (+ `billable.cost.create` for `MARKUP`) | Create with `selfPay: { basis: MANUAL, amount } \| { basis: MARKUP, percent, cost: { packCost, unitsPerPack, source? } }` and `reason` |
 | `/billables/items` | GET | `billable.view` | List; filter `categoryId`, `kind`, `status`, `search` (code/name); `limit`/`offset`; each with its current self-pay price |
 | `/billables/items/category/:categoryId` | GET | `billable.view` | `{ category, count, docs }`: the category's items by name with their current self-pay price; filter `status`, `search` (name/code); `limit` (20) / `offset`; 404 if the category isn't the caller's |
 | `/billables/items/:id` | GET | `billable.view` | Detail with category and current price list |
 | `/billables/items/:id` | PATCH | `billable.item.update` | `code`, `name`, `description`, `unit`, `categoryId` (same kind), `status` |
+| `/billables/items/:id/clinics` | GET | `billable.view` | `{ count, docs }`: the item's clinic links by clinic name (`clinic { id, name, isActive }`, `linkedAt`); `limit` (20) / `offset`; 404 if the item isn't the caller's |
 | `/billables/items/:id/prices` | POST | `billable.price.create` | New line: `payerId?`, `basis`, `amount?`, `percent?`, `agreementId?`, `effectiveFrom?`, `reason` |
 | `/billables/items/:id/prices` | GET | `billable.view` | Line history; filter `payerId` (`self` for self-pay) |
 | `/billables/items/:id/costs` | POST / GET | `billable.cost.create` / `billable.cost.view` | New cost / cost history |
@@ -603,7 +648,9 @@ charges; it imports nothing from Billing, so the dependency runs one way. DTOs a
 |---|---|
 | — | `BillableCategory`, `BillableItem`, `ItemCost`, `ItemPrice`, `PayerAgreement`, `PayerDiscount`; enums `CatalogStatus`, `PriceBasis`, `PriceSource` |
 | `ServiceCategory` | Gains `CONSUMABLE` (Prisma enum and `src/shared/enums/billing/billing.enums.ts`) |
-| `Organization` | Gains `billableCategories`, `billableItems` relations |
+| `Organization` | Gains `billableCategories`, `billableItems`, `clinicBillableItems` relations |
+| `Clinic` | Gains `billableItems` relation (§4.4). No new columns |
+| — | `ClinicBillableItem` (§4.4) |
 | `Payer` | Gains `itemPrices`, `agreements`, `discounts` relations. No new columns |
 | `permissions.catalog.ts` | §10 `billable.*` keys; seeded profiles updated as in §10 |
 | Migration | Prisma-generated tables + appended SQL from §5.1, §6.2 and §8.1 (`btree_gist`, exclusion and CHECK constraints) |
@@ -618,7 +665,9 @@ built now):
 |---|---|
 | `Charge` | Gains `billableItemId` and the §9.2 snapshot (`pricingBasis`, `priceSource`, `itemPriceId`, `agreementId`, `payerDiscountId`, `itemCostId`, `percent`). `unitPrice` and `category` stay as snapshots |
 | `Charge.quantity Int` | `Decimal @db.Decimal(12, 3)`: 2.5 bed-days, 7.5 ml. Quantity is a count, not money. `amount = round_half_up(quantity × unitPrice, 2)` (D12) |
-| `Organization.registrationFee`, `nfcCardFee`, `consultationFee` | Seeded `systemKey` items (`REGISTRATION_FEE`, `CARD_FEE`, consultation items) priced from the current values; the columns are then removed |
+| Encounter start | Requires a selected billable item (the consultation charge); code offers the clinic's linked CONSULTATION items (§4.4) |
+| `Organization.consultationFee` | Removed: replaced by the selected item's price |
+| `Organization.registrationFee`, `nfcCardFee` | To be decided with the App Setup PRD: how registration and card charges choose their item |
 | `ConsultationType` | Replaced by consultation billable items |
 | Charge pricing date | The service date: when the charge is incurred (bill at point of use), so a visit spanning a price change prices each charge at its own date |
 

@@ -7,7 +7,7 @@ import type { AuthUser } from '../../auth/permissions.guard';
 import { ChargesService } from '../../billing/charges/charges.service';
 import { AGE_SETTINGS_SELECT, ageSnapshot } from '../../patients/age-group';
 import { TargetQueue, TaskFactory } from '../shared/task-factory';
-import { visitCoverage } from '../shared/visit-coverage';
+import { visitCoverage } from '../../shared/contracts/encounters/visit-coverage';
 import { ACTIVE_TASK } from '../tasks/tasks.rules';
 import { firstTaskTargets, consultationFeeApplies, unsendable } from './start-encounter.rules';
 

@@ -4,6 +4,7 @@ import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums } from '../../../generated/prisma/client';
 import { CreateBillableCategoryDto, UpdateBillableCategoryDto } from '@shared/contracts/billables';
 import { categoryUpdateRefusal } from './categories.rules';
+import { loadActors, withActors } from '../actors';
 
 const CONFLICT = 'A billable category with this name already exists';
 
@@ -55,6 +56,17 @@ export class BillableCategoriesService {
      * One conditional update: `kind` only changes while the category has no items (§3.2).
      * Only when nothing matched is the category read, to say why.
      */
+    /** One category with its item counts and the users who created and last updated it. */
+    async findOne(categoryId: string, organizationId: string) {
+        const category = await this.databaseService.client.billableCategory.findFirst({
+            where:   { id: categoryId, organizationId },
+        });
+        if (!category) throw new NotFoundException('Billable category not found');
+
+        const actors = await loadActors(this.databaseService, [category.createdBy, category.updatedBy]);
+        return withActors(category, actors);
+    }
+
     async update(categoryId: string, dto: UpdateBillableCategoryDto, organizationId: string, updatedBy: string) {
         const kindChanging = dto.kind !== undefined;
         const { count } = await withConstraintErrors(

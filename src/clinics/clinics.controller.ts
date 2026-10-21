@@ -1,6 +1,6 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { Authorize, BranchId, OrganizationId } from '../../auth/auth.decorators';
+import { Authorize, BranchId, OrganizationId } from '../auth/auth.decorators';
 import { ClinicsService } from './clinics.service';
 
 @ApiTags('clinics')
@@ -9,7 +9,7 @@ export class ClinicsController {
     constructor(private readonly clinicsService: ClinicsService) {}
 
     @ApiOperation({ summary: 'Clinics reception can check a patient into ("what kind of doctor are you seeing today?")' })
-    @Authorize('encounter.create')
+    @Authorize()
     @Get()
     findAll() {
         return this.clinicsService.findAll();

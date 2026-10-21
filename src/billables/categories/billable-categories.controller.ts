@@ -48,6 +48,16 @@ export class BillableCategoriesController {
         });
     }
 
+    @ApiOperation({
+        summary: 'One billable category with its item count',
+        description: '`createdBy` / `updatedBy` are the users ({ id, firstName, middleName, lastName }), or null.',
+    })
+    @Authorize('billable.view')
+    @Get(':id')
+    findOne(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
+        return this.categoriesService.findOne(id, orgId);
+    }
+
     @ApiOperation({ summary: "Rename, describe or deactivate a category; `kind` only changes while it has no items" })
     @Authorize('billable.category.update')
     @Patch(':id')

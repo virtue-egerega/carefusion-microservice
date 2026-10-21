@@ -43,3 +43,10 @@ export function itemUpdateRefusal(found: { kind: string } | null, targetKind: st
     }
     return { reason: 'Billable item not found' };
 }
+
+/** Why an item's clinic changes contradict themselves (§4.4): the same clinic added and removed. */
+export function clinicChangeRefusal(add: string[] = [], remove: string[] = []): Refusal | null {
+    const removing = new Set(remove);
+    const both = add.filter(id => removing.has(id));
+    return both.length ? { reason: `A clinic can't be both added and removed: ${both.join(', ')}` } : null;
+}

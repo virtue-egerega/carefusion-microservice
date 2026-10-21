@@ -16,7 +16,7 @@ export class BillableItemsController {
 
     @ApiOperation({
         summary: 'Create a billable item with its self-pay price (PRD 12 §4.2)',
-        description: 'The self-pay price takes effect immediately. MANUAL takes an `amount`; MARKUP takes a `percent` and the first `cost`, and also needs billable.cost.create. Cost and markup percent are only returned to holders of billable.cost.view.',
+        description: 'The self-pay price takes effect immediately. MANUAL takes an `amount`; MARKUP takes a `percent` and the first `cost`, and also needs billable.cost.create. Returns `{ id, message }`.',
     })
     @Authorize('billable.item.create', 'billable.price.create')
     @Post('categories/:categoryId/items')
@@ -71,5 +71,20 @@ export class BillableItemsController {
         @CurrentUser() user: AuthUser,
     ) {
         return this.itemsService.update(id, dto, orgId, user.sub);
+    }
+
+    @ApiOperation({
+        summary: "The clinics an item is linked to, by name, paginated",
+        description: '`count` is the total; `docs` is the page: `{ clinic: { id, name, isActive }, linkedAt }`.',
+    })
+    @Authorize('billable.view')
+    @Get('items/:id/clinics')
+    findClinics(
+        @Param('id', ParseUUIDPipe) id: string,
+        @OrganizationId() orgId: string,
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
+    ) {
+        return this.itemsService.findClinics(id, orgId, { limit, offset });
     }
 }

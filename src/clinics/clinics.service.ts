@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service';
-import { $Enums } from '../../../generated/prisma/client';
-import { feeExemption } from '../start-encounter/start-encounter.rules';
-import { visitCoverage } from '../shared/visit-coverage';
+import { DatabaseService } from '../database/database.service';
+import { $Enums } from '../../generated/prisma/client';
+import { feeExemption } from '../encounters/start-encounter/start-encounter.rules';
+import { visitCoverage } from '@shared/contracts/encounters';
 
 type At = { organizationId: string; branchId: string };
 
