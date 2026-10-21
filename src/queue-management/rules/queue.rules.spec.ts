@@ -71,6 +71,12 @@ describe('worklistSearch', () => {
         expect(term.OR).toContainEqual({ patient: { patientNumber: 17 } });
     });
 
+    it('matches an encounter code by its number, padded or not', () => {
+        const [term] = (worklistSearch('enc-26-476') as { AND: { OR: unknown[] }[] }).AND;
+        expect(term.OR).toContainEqual({ encounter: { encounterNumber: 476 } });
+        expect(term.OR).not.toContainEqual({ ticketNumber: expect.anything() });
+    });
+
     it("doesn't treat a name as a number", () => {
         const [term] = (worklistSearch('ada') as { AND: { OR: unknown[] }[] }).AND;
         expect(term.OR).not.toContainEqual({ ticketNumber: expect.anything() });

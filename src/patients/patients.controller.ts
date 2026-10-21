@@ -1,4 +1,4 @@
-import { Body, Controller, DefaultValuePipe, ForbiddenException, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, ForbiddenException, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PatientsService, UpdateMedicalDto, AddAddressDto, AddNextOfKinDto } from './patients.service';
 import { CreatePatientDto } from '@shared/contracts/patients';
@@ -76,6 +76,17 @@ export class PatientsController {
     @Get(':id/billing-account')
     billingAccount(@Param('id') id: string, @OrganizationId() orgId: string) {
         return this.billingAccountsService.getForPatient(id, orgId);
+    }
+
+    @ApiOperation({
+        summary: 'Who the patient is, for page headers',
+        description: '`id`, `patientNumber`, `firstName`, `middleName`, `lastName`, `sex`, `dateOfBirth`, `age` (completed ' +
+        'years; null if the date of birth is unknown), `ageGroup`, and the current `billingAccount { id, accountNumber, accountType }`.',
+    })
+    @Authorize('patient.view')
+    @Get(':id/summary')
+    findSummary(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
+        return this.patientsService.findSummary(id, orgId);
     }
 
     @ApiOperation({ summary: "Get one patient's full record" })

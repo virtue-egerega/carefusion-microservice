@@ -11,7 +11,7 @@ import { toDecimal } from '../billing/ledger/ledger.service';
 import * as bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { generateTemporaryPassword } from '../auth/temporary-password';
-import { AGE_SETTINGS_SELECT, AgeSettings, ageGroup } from './age-group';
+import { AGE_SETTINGS_SELECT, AgeSettings, ageGroup, ageInYears } from './age-group';
 import { PatientNumbers } from './patient-numbers';
 
 const BILLING_ACCOUNT_SUMMARY = {
@@ -350,10 +350,47 @@ export class PatientsService {
                         createdAt: true, address: true,
                     },
                 },
+                billingMemberships: {
+                    where:  { leftAt: null },
+                    take:   1,
+                    select: { account: { select: { id: true, accountNumber: true, accountType: true } } },
+                },
             },
         });
         if (!patient) throw new NotFoundException('Patient not found');
         return withAgeGroup(patient);
+    }
+
+    /**
+     * Who the patient is, for page headers (billing, task lists): names, sex, age and age group today,
+     * and their current billing account. One query; the age settings are joined in.
+     */
+    async findSummary(id: string, organizationId: string) {
+        const patient = await this.databaseService.client.patient.findFirst({
+            where:  { id, hospitalId: organizationId },
+            select: {
+                id: true, patientNumber: true, sex: true, dateOfBirth: true,
+                user:     { select: { firstName: true, middleName: true, lastName: true } },
+                hospital: AGE_SETTINGS,
+                // every patient is in exactly one account at a time (10 §3.2)
+                billingMemberships: {
+                    where:  { leftAt: null },
+                    take:   1,
+                    select: { account: { select: { id: true, accountNumber: true, accountType: true } } },
+                },
+            },
+        });
+        if (!patient) throw new NotFoundException('Patient not found');
+
+        const { user, hospital, billingMemberships: [membership], ...rest } = patient;
+        const now = new Date();
+        return {
+            ...rest,
+            ...user,
+            age:            rest.dateOfBirth ? ageInYears(rest.dateOfBirth, now) : null,
+            ageGroup:       ageGroup(rest.dateOfBirth, now, hospital),
+            billingAccount: membership?.account ?? null,
+        };
     }
 }
 

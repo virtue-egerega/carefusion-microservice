@@ -497,6 +497,8 @@ model Appointment {
 model Encounter {
   id                 String          @id @default(uuid())
   organizationId     String
+  encounterNumber    Int                                  // sequential per organisation, from SequenceCounter (11 §4.0)
+  code               String                               // "ENC-26-00476": what staff, receipts and payers quote (11 §4.0)
   patientId          String
   branchId           String
   encounterType      EncounterType   @default(OUTPATIENT)
@@ -546,6 +548,8 @@ model Encounter {
   queueEntries       QueueEntry[]
   charges            Charge[]
 
+  @@unique([organizationId, encounterNumber])
+  @@unique([organizationId, code])
   @@index([patientId, arrivedAt])
   @@index([branchId, status, encounterType])
 }
@@ -590,7 +594,8 @@ model QueueEntry {
 }
 
 /// Counters incremented in one SQL statement (INSERT … ON CONFLICT … RETURNING), so concurrent
-/// check-ins never share a number. Today: queue tickets per queue per branch per day (11 §5.4).
+/// check-ins never share a number: queue tickets per queue per branch per day (11 §5.4), and
+/// encounter numbers per organisation ("encounter:<organizationId>", 11 §4.0).
 model SequenceCounter {
   scope      String @id   // "ticket:<queueId>:<branchId>:2026-10-19"
   lastNumber Int

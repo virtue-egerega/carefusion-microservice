@@ -395,6 +395,7 @@ across tables that don't all exist yet.
 | `/api/v1/patients/search` | GET | reception/clinical staff | Query params: `name?, dateOfBirth?, phone?, nationalId?` — candidate matches for §3/§4 step 1 |
 | `/api/v1/patients` | POST | reception | Register a new patient (§4 step 3) |
 | `/api/v1/patients/:id` | GET / PATCH | staff with visibility (`05` §7) | Read/update core record |
+| `/api/v1/patients/:id/summary` | GET | `patient.view` | The patient header (billing, task lists): `id`, `patientNumber`, names, `sex`, `dateOfBirth`, `age` (completed years), `ageGroup`, and the current `billingAccount { id, accountNumber, accountType }`; one query |
 | `/api/v1/patients/:id/contacts` | POST / GET | reception/clinical staff | Manage `PatientContact` rows |
 | `/api/v1/patients/:id/allergies` | POST / GET | clinical staff | Manage `PatientAllergy` rows |
 | `/api/v1/patients/:id/chronic-conditions` | POST / GET | clinical staff | Manage `PatientChronicCondition` rows |

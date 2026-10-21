@@ -22,7 +22,7 @@ export class QueueManagementController {
 
   @ApiOperation({
       summary: "A queue's live worklist at your branch (e.g. a nursing station's waiting room)",
-      description: "Active entries, highest priority first; within a priority, AWAITING_SERVICE (paid, service resumes) before the rest, then longest waiting. HELD entries are waiting for payment. Filter by status and search by name, ticket or patient number; `patients` always counts the whole list, for status tabs. 403 unless one of your duty profiles includes the queue.",
+      description: "Active entries, highest priority first; within a priority, AWAITING_SERVICE (paid, service resumes) before the rest, then longest waiting. HELD entries are waiting for payment. Filter by status and search by name, ticket or patient number, or encounter code; `patients` always counts the whole list, for status tabs. 403 unless one of your duty profiles includes the queue.",
   })
   @Authorize()
   @Get(':id/entries')

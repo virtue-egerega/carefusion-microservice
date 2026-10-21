@@ -138,7 +138,7 @@ const INSURANCE_PERMISSIONS = [
 const BILLABLE_PERMISSIONS = PERMISSION_CATALOG.map(p => p.key).filter(key => key.startsWith('billable.'));
 
 const CASHIER_PERMISSIONS = [
-    'patient.view',                      // find the patient whose account they're funding
+    'patient.list', 'patient.view',      // find the patient whose account they're funding
     'billing.view', 'billing.payment.receive',
     'billing.account.create', 'billing.account.member.add', 'billing.account.member.remove', 'billing.account.update',
     'billing.refund.request', 'billing.void.request', 'billing.transfer.request',

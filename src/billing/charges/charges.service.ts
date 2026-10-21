@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
-import { $Enums } from '../../../generated/prisma/client';
+import { $Enums, Prisma } from '../../../generated/prisma/client';
 import type { BillingAccount } from '../../../generated/prisma/client';
 import { BillingAccountsService } from '../accounts/billing-accounts.service';
 import { LedgerService, toDecimal } from '../ledger/ledger.service';
 import { QueueHoldsService } from '../../encounters/queue-holds/queue-holds.service';
-import { patientShare } from './charges.rules';
+import { chargeShare } from './charges.rules';
 import type { ChargePrice } from '../../billables/pricing/pricing.rules';
 import { lineAmount } from '../../billables/pricing/pricing.rules';
 
@@ -154,20 +154,19 @@ export class ChargesService {
     }
 
     /**
-     * A patient's charges, newest first, each with what their own account owes for it, plus their
-     * total outstanding: what a cashier collects. `unpaid` keeps only charges still owed;
-     * `encounterId` keeps one visit's.
+     * Every charge the patient incurred, newest first, whoever pays: each with its shares and who owes
+     * each one (the patient's account, a payer, or the hospital). A charge can have several. Paying
+     * is a separate view (findPayableByPatientId). `encounterId` keeps one visit's.
      */
-    async findByPatientId(organizationId: string, patientId: string, query: PatientChargesQuery) {
+    async findAllIncurredByPatientId(organizationId: string, patientId: string, query: Omit<PatientChargesQuery, 'unpaid'>) {
         const client = this.databaseService.client;
         const where = {
             patientId,
             patient: { hospitalId: organizationId },
             ...(query.encounterId && { encounterId: query.encounterId }),
-            ...(query.unpaid && { allocations: { some: OWED } }),
         };
 
-        const [count, docs, owed] = await client.$transaction([
+        const [count, docs] = await client.$transaction([
             client.charge.count({ where }),
             client.charge.findMany({
                 where,
@@ -176,13 +175,71 @@ export class ChargesService {
                 orderBy: { createdAt: 'desc' },
                 select: {
                     id: true, description: true, category: true, quantity: true, unitPrice: true, amount: true,
-                    status: true, sourceType: true, createdAt: true, billingAccountId: true,
-                    encounter:   { select: { id: true, arrivedAt: true, clinic: { select: { id: true, name: true } } } },
-                    allocations: { where: ACCOUNT_SHARE, select: { amount: true, paidAmount: true } },
+                    status: true, sourceType: true, createdAt: true,
+                    billableItem: { select: { id: true, code: true, name: true } },
+                    encounter:    { select: { id: true, code: true, arrivedAt: true, clinic: { select: { id: true, name: true } } } },
+                    allocations:  {
+                        where:   { state: $Enums.AllocationState.ACTIVE },
+                        orderBy: { createdAt: 'asc' },
+                        select:  {
+                            id: true, responsibleType: true, basis: true, amount: true, paidAmount: true,
+                            paymentStatus: true, reviewStatus: true,
+                            billingAccount: { select: { id: true, accountNumber: true, name: true, holderName: true } },
+                            coverage:       {
+                                select: {
+                                    memberNumber: true,
+                                    policy: { select: { plan: { select: { id: true, name: true, payer: { select: { id: true, name: true } } } } } },
+                                },
+                            },
+                        },
+                    },
+                },
+            }),
+        ]);
+
+        return {
+            count,
+            docs: docs.map(({ allocations, ...charge }) => ({ ...charge, shares: allocations.map(chargeShare) })),
+        };
+    }
+
+
+    /**
+     * What the patient has to pay: their account's shares of their charges (ACCOUNT allocations),
+     * newest first, each with the charge it's for, plus their total still owed. Payer shares and
+     * write-offs aren't theirs to pay, so they're left out. `unpaid` keeps only shares still owed;
+     * `encounterId` keeps one visit's.
+     */
+    async findPayableByPatientId(organizationId: string, patientId: string, query: PatientChargesQuery) {
+        const client = this.databaseService.client;
+        const charge = {
+            patientId,
+            patient: { hospitalId: organizationId },
+            ...(query.encounterId && { encounterId: query.encounterId }),
+        };
+        const where = { ...(query.unpaid ? OWED : ACCOUNT_SHARE), charge };
+
+        const [count, docs, owed] = await client.$transaction([
+            client.chargeAllocation.count({ where }),
+            client.chargeAllocation.findMany({
+                where,
+                take:    query.limit,
+                skip:    query.offset,
+                orderBy: { createdAt: 'desc' },
+                select: {
+                    id: true, basis: true, amount: true, paidAmount: true, paymentStatus: true,
+                    charge: {
+                        select: {
+                            id: true, description: true, category: true, quantity: true, unitPrice: true, amount: true,
+                            status: true, sourceType: true, createdAt: true,
+                            encounter: { select: { id: true, code: true } },
+                            billableItem: { select: { id: true, code: true, name: true } },
+                        },
+                    },
                 },
             }),
             client.chargeAllocation.aggregate({
-                where: { ...OWED, charge: where },
+                where: { ...OWED, charge },
                 _sum:  { amount: true, paidAmount: true },
             }),
         ]);
@@ -190,7 +247,11 @@ export class ChargesService {
         return {
             count,
             outstanding: toDecimal(owed._sum.amount ?? 0).minus(owed._sum.paidAmount ?? 0),
-            docs: docs.map(({ allocations, ...charge }) => ({ ...charge, patientShare: patientShare(allocations) })),
+            docs: docs.map(({ paidAmount, ...share }) => ({
+                ...share,
+                paid:        paidAmount,
+                outstanding: Prisma.Decimal.max(share.amount.minus(paidAmount), 0),
+            })),
         };
     }
 }

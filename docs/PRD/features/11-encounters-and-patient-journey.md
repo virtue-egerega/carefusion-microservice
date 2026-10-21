@@ -160,6 +160,8 @@ Triage Queue (§12). Appointment check-in uses the booked clinic (`07`).
 model Encounter {
   id                String          @id @default(uuid())
   organizationId    String                               // tenant scope without joining the branch
+  encounterNumber   Int                                  // sequential per organisation (§4.0)
+  code              String                               // "ENC-26-00476": what staff, receipts and payers quote (§4.0)
   patientId         String
   branchId          String
   encounterType     EncounterType   @default(OUTPATIENT)
@@ -211,6 +213,8 @@ model Encounter {
   admissions        Admission[]                          // at most one ADMITTED; earlier requests may be CANCELLED
   charges           Charge[]
 
+  @@unique([organizationId, encounterNumber])
+  @@unique([organizationId, code])
   @@index([patientId, arrivedAt])
   @@index([branchId, status, encounterType])
 }
@@ -281,6 +285,28 @@ changes or a date of birth is corrected later (`06` §2.7). Days, not years, bec
 needs that precision. Both are null when the date of birth is unknown. They're computed by
 `ageSnapshot()` (`src/patients/age-group.ts`), already built and tested, which encounter creation
 calls.
+
+### 4.0 Encounter code
+
+Every encounter has a code people can read, say and print: `ENC-26-00476`. Staff quote it on the
+phone and at the cashier; receipts, invoices, lab request forms and discharge summaries print it;
+payers' claims and pre-authorisations reference the visit by it. A patient number identifies the
+person, never the visit, and a UUID can't be read aloud.
+
+- **`encounterNumber`** is one continuous sequence per organisation, never restarted. It's taken
+  from `SequenceCounter` (scope `encounter:<organizationId>`) in the same transaction that creates
+  the encounter, as ticket numbers are (§5.4): two check-ins never share a number, and a check-in
+  that fails rolls its number back, so there are no gaps.
+- **`code`** is `ENC-<yy>-<number, at least 5 digits>`, built once at creation and stored, so every
+  list, receipt and search reads it without formatting. `yy` is the year the encounter opened, in
+  Africa/Lagos time (the deployment default until organisations have a timezone setting). The year
+  is a reading aid only: the number alone is unique.
+- **One code for the whole visit.** Admission doesn't start a new encounter (§13.4), so an
+  inpatient keeps their code from arrival to discharge.
+- **Search.** Task lists find an encounter by its code, in any case, with or without the zero
+  padding (`enc-26-476`). The search matches the number; the year is only a reading aid.
+- **Existing encounters** are numbered by the migration, in `arrivedAt` order per organisation,
+  and each organisation's counter is set to its highest number.
 
 ### 4.1 Lifecycle
 
@@ -1127,7 +1153,7 @@ are done by different people.
 | `/clinics` | GET | `encounter.create` | **Built.** Clinics reception picks from (§3.3) |
 | `/clinics/:id/consultation-fee?patientId=` | GET | `encounter.create` | **Built.** The fee before check-in; with a patient, whether check-in would charge them (`charged`, `exemption`: `INSURED` / `CONTINUING_SAME_CLINIC`) and their account's balance, credit and credit limit (§10.4) |
 | `/encounters` | POST | `encounter.create` | **Built.** Start the encounter (`startEncounter`) at a clinic: the encounter, the fee, the billing task if owed (§6.1) and the nursing-station task, in one transaction; 409 `OPEN_ENCOUNTER`, or `continueEncounter` |
-| `/charges/patients/:patientId` | GET | `billing.view` | **Built.** A patient's charges, newest first, each with the patient's share (`amount, paid, outstanding, paymentStatus`), and their total `outstanding`; `encounterId`, `unpaid=true`, `limit`, `offset` |
+| `/charges/patients/:patientId` | GET | `billing.view` | **Built.** Every charge the patient incurred, newest first, whoever pays: date and time, kind, the service or item (`description`, `billableItem`), `quantity`, `unitPrice`, `amount`, and `shares`, one per party that owes part of it (`owedBy` ACCOUNT / PAYER / HOSPITAL, `amount, paid, outstanding, paymentStatus`, plus the account, or the payer, plan and member number); `encounterId`, `limit`, `offset`. What the patient must pay is a separate list |
 | `/encounters/open?patientId=` | GET | `encounter.create` | **Built.** The patient's unfinished visit at this branch and its remaining tasks |
 | `/encounters/follow-up` | GET | `encounter.follow_up` | **Built.** Unfinished visits with no task activity today (§14.2) |
 | `/queues/sendable` | GET | `queue.send` | **Built.** The queues the caller can send patients to (§5.7) |

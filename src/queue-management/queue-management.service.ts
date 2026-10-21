@@ -67,7 +67,7 @@ export class QueueManagementService {
                             },
                             encounter: {
                                 select: {
-                                    id: true, visitType: true, reasonForVisit: true,
+                                    id: true, code: true, visitType: true, reasonForVisit: true,
                                     ageAtArrivalDays: true, ageGroup: true, acuity: true, isMedicoLegal: true, arrivedAt: true,
                                     clinic: { select: { name: true } },
                                 },

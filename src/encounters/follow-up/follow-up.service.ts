@@ -34,7 +34,7 @@ export class FollowUpService {
             },
             orderBy: { arrivedAt: 'asc' },
             select: {
-                id: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true,
+                id: true, code: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true,
                 clinic:  { select: { name: true } },
                 patient: { select: { id: true, patientNumber: true, user: { select: { firstName: true, lastName: true, phone: true } } } },
                 queueEntries: {

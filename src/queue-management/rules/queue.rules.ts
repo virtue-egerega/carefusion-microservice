@@ -1,4 +1,5 @@
 import type { Prisma } from '../../../generated/prisma/client';
+import { encounterNumberIn } from '../../encounters/shared/encounter-codes';
 
 export type TaskCounts = { total: number; waiting: number; held: number; awaitingService: number; called: number; inService: number };
 
@@ -45,20 +46,25 @@ export function servingOrder<T extends { priority: string; status: string; ready
 
 /**
  * Filter for a worklist search. Every word must match the patient's first, middle or last name;
- * a number matches the ticket or the patient number. "ada obi" finds Ada Chioma Obi.
+ * a number matches the ticket or the patient number; an encounter code ("enc-26-476") matches
+ * the encounter (11 §4.0). "ada obi" finds Ada Chioma Obi.
  */
 export function worklistSearch(search?: string): Prisma.QueueEntryWhereInput {
     const words = search?.trim().split(/\s+/).filter(Boolean) ?? [];
     if (!words.length) return {};
 
     return {
-        AND: words.map(word => ({
-            OR: [
-                { patient: { user: { firstName:  { contains: word, mode: 'insensitive' as const } } } },
-                { patient: { user: { middleName: { contains: word, mode: 'insensitive' as const } } } },
-                { patient: { user: { lastName:   { contains: word, mode: 'insensitive' as const } } } },
-                ...(/^\d{1,9}$/.test(word) ? [{ ticketNumber: Number(word) }, { patient: { patientNumber: Number(word) } }] : []),
-            ],
-        })),
+        AND: words.map(word => {
+            const encounterNumber = encounterNumberIn(word);
+            return {
+                OR: [
+                    { patient: { user: { firstName:  { contains: word, mode: 'insensitive' as const } } } },
+                    { patient: { user: { middleName: { contains: word, mode: 'insensitive' as const } } } },
+                    { patient: { user: { lastName:   { contains: word, mode: 'insensitive' as const } } } },
+                    ...(/^\d{1,9}$/.test(word) ? [{ ticketNumber: Number(word) }, { patient: { patientNumber: Number(word) } }] : []),
+                    ...(encounterNumber !== null ? [{ encounter: { encounterNumber } }] : []),
+                ],
+            };
+        }),
     };
 }

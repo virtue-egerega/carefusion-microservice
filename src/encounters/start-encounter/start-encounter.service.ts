@@ -9,6 +9,7 @@ import { PricingService } from '../../billables/pricing/pricing.service';
 import type { ChargePrice } from '../../billables/pricing/pricing.rules';
 import { AGE_SETTINGS_SELECT, ageSnapshot } from '../../patients/age-group';
 import { TargetQueue, TaskFactory } from '../shared/task-factory';
+import { nextEncounterCode } from '../shared/encounter-codes';
 import { visitCoverage } from '../../shared/contracts/encounters/visit-coverage';
 import { ACTIVE_TASK } from '../tasks/tasks.rules';
 import { firstTaskTargets, consultationFeeApplies, unsendable } from './start-encounter.rules';
@@ -93,6 +94,8 @@ export class StartEncounterService {
                 const encounter = await this.databaseService.client.encounter.create({
                     data: {
                         organizationId:    at.organizationId,
+                        // taken in this transaction, so a failed check-in rolls it back (11 §4.0)
+                        ...await nextEncounterCode(this.databaseService, at.organizationId, now),
                         patientId:         dto.patientId,
                         branchId:          at.branchId,
                         departmentId:      clinic.departmentId,
@@ -213,7 +216,7 @@ export class StartEncounterService {
         return this.databaseService.client.encounter.findFirst({
             where:  { patientId, organizationId: at.organizationId, branchId: at.branchId, status: $Enums.EncounterStatus.OPEN },
             select: {
-                id: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true, encounterType: true,
+                id: true, code: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true, encounterType: true,
                 clinic: { select: { id: true, name: true } },
                 queueEntries: {
                     where:   { status: { in: [...ACTIVE_TASK] } },

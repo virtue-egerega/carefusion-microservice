@@ -24,7 +24,9 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
     }
 
     get client(): PrismaInstance {
-        return (this.als.getStore()?.tx ?? this._prisma) as PrismaInstance;
+        // kept apart and cast via unknown: unifying the two client types exceeds TS's depth on this schema
+        const tx = this.als.getStore()?.tx;
+        return tx ? (tx as unknown as PrismaInstance) : this._prisma;
     }
 
     /**
