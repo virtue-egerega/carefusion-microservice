@@ -11,12 +11,14 @@ export class StartEncounterController {
     constructor(private readonly startEncounterService: StartEncounterService) {}
 
     @ApiOperation({
-        summary: "Start the patient's encounter — open their visit at the clinic they came for and send them to billing, the nursing station, or both",
+        summary: "Start the patient's encounter at the clinic they came for: closes their open visit, charges the fee, sends them on ready to be served",
         description:
-            "The consultation fee posts now. sendTo picks the lists (default: the clinic's nursing station); anything else must be " +
-            "on your duty profiles' send lists (GET /queues/sendable). Billing and nursing tasks are never held: when the hospital " +
-            "collects before consultation, the doctor's task waits for payment. 409 with code OPEN_ENCOUNTER if the patient has an " +
-            "unfinished visit at this branch: resend with continueEncounter, or follow it up and cancel its tasks first.",
+            "In one transaction: the patient's open encounter at this branch closes (its tasks cancelled: 'Closed: new encounter … started'); " +
+            "the consultation fee is charged straight to the account, with no billing task; and the patient goes on the sendTo lists " +
+            "(default: the clinic's nursing station) as AWAITING_SERVICE. consultationPayment BEFORE: the account must already hold the fee; " +
+            "AFTER: it may owe up to maxUnpaidBeforeHold after the fee. 409 INSUFFICIENT_FUNDS (says how much to deposit) or " +
+            "PATIENT_ADMITTED (discharge first); a refusal changes nothing. sendTo queues other than the nursing station must be on your " +
+            "duty profiles' send lists (GET /queues/sendable).",
     })
     @Authorize('encounter.create')
     @Post()

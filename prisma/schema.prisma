@@ -28,8 +28,8 @@ model Organization {
   nfcCardFee            Decimal @default(1000.00)
   registrationFee       Decimal @default(0.00)
   consultationFee       Decimal @default(0.00) // posted at check-in to a clinic (11 §10.4); one flat fee until the price catalog (11 Q5)
-  consultationPayment   ConsultationPayment @default(BEFORE) // pay before seeing the doctor, or everything at the end (11 §6)
-  maxUnpaidBeforeHold   Decimal @default(0.00) // a patient owing no more than this (beyond their credit limit) isn't held (11 §6)
+  consultationPayment   ConsultationPayment @default(BEFORE) // fund the account before the encounter starts, or owe within maxUnpaidBeforeHold (11 §6.2)
+  maxUnpaidBeforeHold   Decimal @default(0.00) // AFTER: how far an account may owe once the consultation fee is charged (11 §6.2)
   patientNumberStart    Int     @default(1001) // first patient number; numbers never go below it (06 §3). Raised, never lowered.
   // Age-group settings (06 §2.7). Early-life bands default to the standard values; the hospital may change them.
   neonateMaxDays        Int     @default(28)    // NEONATE up to this many days
@@ -1546,8 +1546,8 @@ enum FinancialReason {
 
 // When patients pay for a consultation (11 §6)
 enum ConsultationPayment {
-  BEFORE   // the doctor's task is held until the visit's bill is paid (vitals and triage go ahead)
-  AFTER    // nothing is held; the patient pays everything at the end
+  BEFORE   // the account must already hold the consultation fee to start the encounter (11 §6.2)
+  AFTER    // the fee may go on the account as debt, up to maxUnpaidBeforeHold
 }
 
 enum PasswordChangeReason {
@@ -1627,9 +1627,9 @@ enum QueuePriority {
 }
 
 enum QueueEntryStatus {
-  WAITING      // callable
+  WAITING      // on the list, not yet cleared to be served (e.g. an order waiting on payment)
   HELD         // in the queue but not callable yet (holdReason)
-  AWAITING_SERVICE // paid after a hold that interrupted service (pharmacy priced it, patient went to pay): callable, ahead of WAITING
+  AWAITING_SERVICE // cleared to be served, ahead of WAITING: a funded visit's tasks (11 §6.2), or paid after an interruption
   CALLED
   IN_SERVICE
   COMPLETED

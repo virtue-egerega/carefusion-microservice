@@ -118,9 +118,11 @@ Nursing Station; Antenatal and Postnatal → O&G Nursing Station).
 - the encounter, at the clinic (`clinicId`; `departmentId` = the clinic's department), with
   `visitType = WALK_IN`, the age snapshot, and the coverage (by default the
   patient's highest-priority active coverage, or self-pay; overriding needs `coverage.select`)
-- the consultation fee (§10.4)
-- a billing task, if the patient owes the fee (§6.1): posting it puts them on the Cashier list
-- a task on each list reception chose (`sendTo`). The default is the nursing station. Anything
+- the patient's previous open encounter at this branch, closed (below)
+- the consultation fee (§10.4), charged straight to the account, once the account can take it (§6.2).
+  No billing task is created: the visit doesn't go to the Cashier list
+- a task on each list reception chose (`sendTo`), as `AWAITING_SERVICE` so the nurse can attend to
+  the patient at once (§6.2). The default is the nursing station. Anything
   else must be on reception's send lists (§5.7). Choosing billing as well doesn't put the patient
   on it twice. Being on both lists at once is normal: the patient pays while the nurse takes their
   vitals.
@@ -136,17 +138,24 @@ saw**: the doctor who starts or completes their task on the doctors' list (`serv
 working that list (through their duty profiles, whatever their own department) can take any patient
 on it.
 
-**Billing and nursing tasks are never held.** When the hospital collects before consultation, it's
-the **doctor's** task that waits for payment (§6). Hospitals usually have patients fund their account
-first, often before registration, so the account's credit usually pays the fee at check-in.
+**Nobody is held at check-in.** The account is funded before the encounter starts (§6.2), so every
+task the visit starts with, and the doctors' task after vitals, is ready to be served.
 
-**One open encounter per patient per branch.** If the patient has an unfinished visit (§14.2),
-check-in answers `409` with code `OPEN_ENCOUNTER`. Reception then either:
-- **continues it** (`continueEncounter: true`): the clinic they came for now becomes the
-  encounter's clinic and its nursing station gets a task. Returning to the same clinic isn't
-  charged again; or
-- **follows it up first**: cancels its remaining tasks with the reason (§14.2), which closes it,
-  then checks in afresh.
+**A new encounter closes the old one.** A patient has at most one open encounter per branch. Seeing
+a doctor they already saw in this visit isn't a new encounter, and several consultations at several
+clinics can happen within one encounter (consultations are designed separately). So starting a new
+encounter means the previous visit is over:
+- its unfinished tasks are **cancelled** with the reason "Closed: new encounter ENC-26-00490
+  started";
+- it is **closed**, with the disposition `LEFT_BEFORE_COMPLETION` if a clinician had seen the
+  patient (`firstSeenAt`), otherwise `LEFT_WITHOUT_BEING_SEEN`, and the same note.
+
+**Except an admission.** An open `INPATIENT` encounter means the patient is in a bed. Starting a new
+encounter is refused (`409`, code `PATIENT_ADMITTED`: "This patient is admitted. Discharge them
+first."). An admission ends only by discharge (§13.8), never silently.
+
+The old encounter is closed in the same transaction that opens the new one, so a refused check-in
+(no funds, §6.2) leaves the old visit exactly as it was.
 
 `GET /encounters/open?patientId=` shows the unfinished visit and its remaining tasks.
 
@@ -407,9 +416,9 @@ enum QueuePriority {
 }
 
 enum QueueEntryStatus {
-  WAITING          // callable
+  WAITING          // on the list, not yet cleared to be served (e.g. an order waiting on payment)
   HELD             // in the queue but not callable yet (holdReason)
-  AWAITING_SERVICE // service was interrupted to pay (pharmacy priced it); paid, callable again, ahead of WAITING
+  AWAITING_SERVICE // cleared to be served, ahead of WAITING: a funded visit's tasks (§6.2), or paid after an interruption
   CALLED           // the patient was called for this task
   IN_SERVICE       // being attended to
   COMPLETED
@@ -419,7 +428,7 @@ enum QueueEntryStatus {
 }
 
 enum HoldReason {
-  AWAITING_PAYMENT     // a clinic doctors' task waiting for the visit's bill (§6)
+  AWAITING_PAYMENT     // service interrupted to pay (an order priced at the station, §6)
   AWAITING_PREAUTH     // payer pre-authorisation pending (10 §6.3)
   AWAITING_RESULT      // e.g. doctor review waiting on a lab result
 }
@@ -437,7 +446,8 @@ then **`readyAt`**. `readyAt` is reset when a hold is released, so time spent un
 as time waiting. **[Q 4]** A task whose service was interrupted to pay (pharmacy or lab priced it,
 then sent the patient to billing: `IN_SERVICE` → `HELD`/`AWAITING_PAYMENT`) comes back as
 `AWAITING_SERVICE` when paid, keeps its `readyAt`, and is served before `WAITING` entries of the same
-priority; a task held before it ever started (a consultation) goes back to `WAITING` at the back.
+priority; a task held before it ever started goes back to `WAITING` at the back. A funded visit's
+tasks start as `AWAITING_SERVICE` (§6.2).
 Booked appointments are ordered by their slot time, plus a configurable
 grace window; walk-ins fill the gaps. **[Q 10]**
 
@@ -530,7 +540,7 @@ Staff whose duty profiles include Q can open that patient's record and act withi
 permissions. The entry stays the access basis until the encounter is closed. After that, access
 needs a `PatientAssignment` or a new encounter. **[Q 12]**
 
-## 6. Payment: Billing Tasks and the Consultation Hold
+## 6. Payment: Funding at Check-in and Billing Tasks
 
 **Billing is a station like any other.** "Collect what this patient owes" is a task on the Cashier
 list. It runs in parallel with the patient's other tasks, and because it's a task, an unpaid bill
@@ -540,7 +550,9 @@ keeps the visit open. Billing is often the last station, and closes the encounte
 ### 6.1 Owing puts the patient on the Cashier list
 
 **Posting a charge the patient owes puts them on the Cashier list** at the branch it was posted
-(`ChargesService.post`), so nobody has to send them. A charge paid at once from credit on the
+(`ChargesService.post`), so nobody has to send them. The one exception is the consultation fee at
+check-in, which is charged to the account with no billing task (§6.2); orders (lab, pharmacy and
+everything else) send the patient to Accounts to settle. A charge paid at once from credit on the
 account, or one they owe nothing for (covered, free), doesn't. The patient is on the list **once**:
 
 | Charge | Patient already on the Cashier list | Result |
@@ -562,32 +574,45 @@ share of the task's visit, nor of any fee outside a visit, the billing task comp
 automatically (`QueueHoldsService.settle`, run inside the deposit). If that was the visit's last task, the encounter closes at billing. The cashier can
 also complete it by hand (a payment arrangement, an insured visit with nothing to collect).
 
-### 6.2 The consultation hold
+### 6.2 Funding at check-in
 
-**The hospital decides whether consultation waits for payment.** Two organisation settings:
+**The account is funded before the encounter starts.** The encounter then goes straight to work:
+its tasks start as `AWAITING_SERVICE`, so the nurse attends to the patient at once, and the doctors'
+task created after vitals is `AWAITING_SERVICE` too. Nothing in the visit waits for the consultation
+fee, and the visit never goes to the Cashier list for it.
+
+The consultation fee is **charged straight to the account** at check-in. Whether the encounter may
+start depends on two organisation settings:
 
 | Setting | Values | Effect |
 |---|---|---|
-| `consultationPayment` | `BEFORE` (default) / `AFTER` | `BEFORE`: a task on a clinic's **doctors'** list waits (`HELD / AWAITING_PAYMENT`) until the visit's bill is paid. Vitals, triage and billing go ahead meanwhile. `AFTER`: nothing waits; the patient pays everything at the end. |
-| `maxUnpaidBeforeHold` | amount, default 0 | No hold while the account owes no more than its own `creditLimit` plus this. |
+| `consultationPayment` | `BEFORE` (default) / `AFTER` | `BEFORE`: the account must already hold enough to pay the fee: fund the account first, then start the encounter. `AFTER`: the fee may go on the account as debt, within `maxUnpaidBeforeHold`. |
+| `maxUnpaidBeforeHold` | amount, default 0 | `AFTER` only: how far the account may owe once the fee is charged. |
 
-The hold decision (`holdsConsultation`) applies whenever a task is created on a clinic's doctors'
-list: by a station sending the patient on, or by reception sending them straight there. It holds
-only when the policy is `BEFORE`, this visit's own share is unpaid, and the account owes more than
-its credit limit plus the tolerance. A deposit releases held tasks automatically (`readyAt` resets,
-so time spent unpaid doesn't count as time waiting). A payer's share never holds the patient.
+**The rule** (after charging the fee, against the account's whole `balance`, so older debts count):
 
-**Never held** **[Q 4]**:
-- **Emergency.** Stabilise first, bill after. Nigerian law requires it for gunshot victims
-  (Compulsory Treatment and Care for Victims of Gunshot Act, 2017), and it's sound practice for
-  every emergency.
-- **Admitted patients** (`encounterType = INPATIENT`). Charges accrue to the stay; the admission
-  deposit (§13.3) is the inpatient gate.
-- **Nursing stations and billing.**
+| Policy | Starts when | Example: fee ₦5,000 |
+|---|---|---|
+| `BEFORE` | `balance − fee ≥ 0` | balance ₦5,000 → starts, the credit pays the fee; ₦4,000 → refused, deposit ₦1,000 |
+| `AFTER` | `balance − fee ≥ −maxUnpaidBeforeHold` | threshold ₦10,000, balance −₦3,000 → −₦8,000, starts; balance −₦6,000 → −₦11,000, refused, deposit ₦1,000 |
 
-**Not built yet:** holds for orders (lab, imaging, dispensing) once orders post charges (§11.3),
-pre-authorisation holds (`AWAITING_PREAUTH`), and the manual override (`queue.payment.override`:
-"see him now", audited, the debt stays on the account).
+Refused: `409` with code `INSUFFICIENT_FUNDS` and how much to deposit ("Deposit at least ₦1,000.00 to
+start this visit"). No encounter is created, no encounter number is used, and the patient's old
+encounter is left as it was. The check runs inside the check-in transaction, with the account
+locked, so two check-ins can't spend the same credit.
+
+**`creditLimit` doesn't apply here.** `BEFORE` means the money is on the account.
+
+**The check applies only when a fee is charged to the patient's own account:** self-pay visits
+(no coverage, or `selfPay`). Insured visits aren't charged at check-in until payer allocation
+(`13` Phase 2), so they start freely. Emergency arrivals don't go through clinic check-in (§12):
+stabilise first, bill after. Nigerian law requires it for gunshot victims (Compulsory Treatment and
+Care for Victims of Gunshot Act, 2017), and it's sound practice for every emergency.
+
+**Holds remain for orders.** When lab, imaging or dispensing price an order at the station and the
+patient must pay first, the task is held (`HELD / AWAITING_PAYMENT`) and the patient goes to
+Accounts; a deposit releases it (§5.2). **Not built yet:** order holds,
+pre-authorisation holds (`AWAITING_PREAUTH`), and the manual override (`queue.payment.override`).
 
 ## 7. Outpatient Flow, End to End
 
@@ -716,19 +741,14 @@ specialty-specific findings go in the free-text sections. **[Q 15]**
 
 ### 10.4 Consultation fee
 
-The fee posts **at check-in to a clinic** (`Charge.sourceType = CONSULTATION_FEE`, `sourceId` =
-the encounter). It's what the visit's billing task collects, and what a hospital that collects
-before consultation waits on before the doctor's task is released (§6).
-Insured visits aren't charged at check-in until payer allocation (`10` step 4) is built.
+The fee posts **at check-in** (`Charge.sourceType = CONSULTATION_FEE`, `sourceId` = the encounter):
+the billable item reception chose (`billableItemId`; `GET /billables/clinics/:clinicId/consultation`
+lists the clinic's items first, `12` §4.4), at its current self-pay price (`13` §4). It's charged
+straight to the account once the account can take it (§6.2); it creates no billing task. Insured
+visits aren't charged at check-in until payer allocation (`13` Phase 2).
 
-**Interim price:** one flat `Organization.consultationFee` (default 0 = free), like
-`registrationFee`. The real amount depends on:
-
-- the **department / clinic** (general outpatient vs specialist clinic)
-- the **clinician grade** (medical officer vs consultant): very common in Nigerian practice
-- **first visit vs follow-up within the window** (§15.3)
-
-This requires a price catalog. **[Q 5]**
+One encounter can hold several consultations at several clinics, each charged when it starts, and
+sometimes one fee covers the whole visit; that is designed with consultations.
 
 If the patient leaves before being seen, the consultation fee charge must be reversed. That's a
 charge void, and `10` §8 requires an approved request for every void. **[Q 6]**
@@ -1152,7 +1172,7 @@ are done by different people.
 |---|---|---|---|
 | `/clinics` | GET | `encounter.create` | **Built.** Clinics reception picks from (§3.3) |
 | `/clinics/:id/consultation-fee?patientId=` | GET | `encounter.create` | **Built.** The fee before check-in; with a patient, whether check-in would charge them (`charged`, `exemption`: `INSURED` / `CONTINUING_SAME_CLINIC`) and their account's balance, credit and credit limit (§10.4) |
-| `/encounters` | POST | `encounter.create` | **Built.** Start the encounter (`startEncounter`) at a clinic: the encounter, the fee, the billing task if owed (§6.1) and the nursing-station task, in one transaction; 409 `OPEN_ENCOUNTER`, or `continueEncounter` |
+| `/encounters` | POST | `encounter.create` | **Built.** Start the encounter (`startEncounter`) at a clinic, in one transaction: closes the patient's open encounter at this branch (§3.3), charges the fee to the account (§6.2) and creates the chosen tasks as `AWAITING_SERVICE`; 409 `PATIENT_ADMITTED` or `INSUFFICIENT_FUNDS` |
 | `/charges/patients/:patientId` | GET | `billing.view` | **Built.** Every charge the patient incurred, newest first, whoever pays: date and time, kind, the service or item (`description`, `billableItem`), `quantity`, `unitPrice`, `amount`, and `shares`, one per party that owes part of it (`owedBy` ACCOUNT / PAYER / HOSPITAL, `amount, paid, outstanding, paymentStatus`, plus the account, or the payer, plan and member number); `encounterId`, `limit`, `offset`. What the patient must pay is a separate list |
 | `/encounters/open?patientId=` | GET | `encounter.create` | **Built.** The patient's unfinished visit at this branch and its remaining tasks |
 | `/encounters/follow-up` | GET | `encounter.follow_up` | **Built.** Unfinished visits with no task activity today (§14.2) |
@@ -1164,7 +1184,7 @@ are done by different people.
 | `/encounters/:id/cancel` | POST | `encounter.cancel` | Opened in error |
 | `/encounters/:id/disposition` | POST | `encounter.disposition` | Record the disposition |
 | `/encounters/:id/reopen` | POST | `encounter.reopen` | With reason |
-| `/patients/:id/encounters` | GET | `patient.view` | Encounter history (the timeline `06` §6 aggregates) |
+| `/patients/:id/encounters` | GET | `patient.view` | **Built.** Encounter history (the timeline `06` §6 aggregates), newest first: `{ count, docs }`. Filters `status` (one or more), `encounterType`, `visitType` (one or more), `clinicId`, `from` / `to` (arrival); `search` an encounter code (matched by number) or words in the reason for visit; `limit` (20) / `offset`. Each: `id`, `code`, `arrivedAt`, `encounterType`, `visitType`, `status`, `reasonForVisit`, `closedAt`, `clinic`, `doctor`: the clinician who saw the patient (`servedBy` on the doctors' task, the latest if seen more than once; null while waiting; the consultation's clinician once consultations are built). Remaining tasks are on `GET /encounters/:id`. Diagnosis is added with consultations |
 | `/queues/mine` | GET | `queue.view` | **Built.** The caller's queues (duty profiles) with patients on each list at their branch: `total`, `waiting`, `held`, `called`, `inService` |
 | `/queues/:id/entries` | GET | queue in duty profile | **Built.** Live task list at this branch (ordered, §5.2); `?status=` (one or more active statuses) and `?search=` (name, ticket or patient number); `patients` counts the whole list by status |
 | `/queue-entries/:id/{call,start}` | POST | `queue.call` | **Built.** §5.3 |

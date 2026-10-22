@@ -21,6 +21,7 @@ export type PostChargeInput = {
     encounterId?: string;                  // the visit it was incurred in (11 §17)
     coverageId?: string;
     billingAccountId?: string;             // pass when the caller already knows it
+    noBillingTask?: boolean;               // the consultation fee at check-in: charged, never sent to the cashier (11 §6.2)
     createdBy: string;
 };
 
@@ -129,7 +130,7 @@ export class ChargesService {
                 .filter(a => a.allocationId === allocation.id)
                 .reduce((sum, a) => sum.plus(a.amount), toDecimal(0));
 
-            const billingTask = paidNow.lt(amount)
+            const billingTask = paidNow.lt(amount) && !input.noBillingTask
                 ? await this.queueHolds.ensureBillingTask({
                     patientId:   input.patientId,
                     encounterId: input.encounterId,

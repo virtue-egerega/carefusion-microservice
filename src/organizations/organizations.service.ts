@@ -177,6 +177,19 @@ export class OrganizationsService {
 
     }
 
+    /**
+     * The hospital's settings staff screens need (02 §4): the consultation payment policy (11 §6.2),
+     * the age-group cutoffs (06 §2.7) and where patient numbers start (06 §3). One row, no joins.
+     */
+    async findSettings(organizationId: string) {
+        const settings = await this.databaseService.client.organization.findUnique({
+            where:  { id: organizationId },
+            select: { consultationPayment: true, maxUnpaidBeforeHold: true, patientNumberStart: true, ...AGE_SETTINGS_SELECT },
+        });
+        if (!settings) throw new NotFoundException('Organization not found');
+        return settings;
+    }
+
     async findOne(id: string): Promise<OrganizationDto> {
 
         const organization = await this.databaseService.client.organization.findUnique({

@@ -160,6 +160,7 @@ that entire surface lives in `03`.
 | Endpoint | Method | Auth | Purpose |
 |---|---|---|---|
 | `/api/v1/organizations` | POST | admin | Create org (§3 step 1) — creates `Hospital` + main `Branch` in one transaction |
+| `/api/v1/organizations/settings` | GET | any logged-in staff | **Built.** The caller's own hospital's settings (organisation from the token): `consultationPayment`, `maxUnpaidBeforeHold` (`11` §6.2), the age-group cutoffs (`06` §2.7) and `patientNumberStart` (`06` §3). Read-only; changed through `PATCH /organizations/:id` |
 | `/api/v1/organizations/:id` | GET / PATCH | admin | Read/update org |
 | `/api/v1/organizations/:id/branches` | POST / GET | admin | Add/list branches |
 | `/api/v1/branches/:id` | PATCH / DELETE | admin | Update branch; delete is soft, blocked if it's `isMainBranch` or has active staff |

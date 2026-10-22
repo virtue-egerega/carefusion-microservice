@@ -10,7 +10,7 @@ export class FollowUpController {
 
     @ApiOperation({
         summary: 'Unfinished visits to follow up: open visits at your branch with no task activity today',
-        description: 'Reach the patient, then continue the visit (start the encounter with continueEncounter) or cancel its tasks with patientLeft.',
+        description: 'Reach the patient, then cancel its tasks with patientLeft. Starting a new encounter for the patient also closes it.',
     })
     @Authorize('encounter.follow_up')
     @Get('follow-up')

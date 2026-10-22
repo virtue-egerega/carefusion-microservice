@@ -1,10 +1,13 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { isUniqueViolation } from '../../database/prisma-errors';
-import { $Enums } from '../../../generated/prisma/client';
+import { $Enums, Prisma } from '../../../generated/prisma/client';
+import type { BillingAccount } from '../../../generated/prisma/client';
 import { StartEncounterDto } from '@shared/contracts/encounters';
 import type { AuthUser } from '../../auth/permissions.guard';
 import { ChargesService } from '../../billing/charges/charges.service';
+import { BillingAccountsService } from '../../billing/accounts/billing-accounts.service';
+import { LedgerService } from '../../billing/ledger/ledger.service';
 import { PricingService } from '../../billables/pricing/pricing.service';
 import type { ChargePrice } from '../../billables/pricing/pricing.rules';
 import { AGE_SETTINGS_SELECT, ageSnapshot } from '../../patients/age-group';
@@ -12,9 +15,12 @@ import { TargetQueue, TaskFactory } from '../shared/task-factory';
 import { nextEncounterCode } from '../shared/encounter-codes';
 import { visitCoverage } from '../../shared/contracts/encounters/visit-coverage';
 import { ACTIVE_TASK } from '../tasks/tasks.rules';
-import { firstTaskTargets, consultationFeeApplies, unsendable } from './start-encounter.rules';
+import { firstTaskTargets, consultationFeeApplies, fundingShortfall, supersededDisposition, unsendable } from './start-encounter.rules';
 
 const CONSULTATION_FEE = 'CONSULTATION_FEE';
+
+// "1,000.00": for messages only
+const NAIRA = new Intl.NumberFormat('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type At = { organizationId: string; branchId: string };
 type Clinic = { id: string; name: string; departmentId: string };
@@ -31,6 +37,8 @@ export class StartEncounterService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly charges: ChargesService,
+        private readonly billingAccounts: BillingAccountsService,
+        private readonly ledger: LedgerService,
         private readonly pricing: PricingService,
         private readonly tasks: TaskFactory,
     ) {}
@@ -38,12 +46,15 @@ export class StartEncounterService {
     /**
      * Starts the patient's encounter at reception (11 §3.3). The patient says what kind of doctor
      * they're seeing; the encounter opens at that clinic (never with a particular doctor: who sees
-     * them is settled at the doctors' list), the consultation fee posts, and the patient is put on
-     * the lists reception chose: billing, the clinic's nursing station, or both (default: the
-     * nursing station). Neither is ever held: payment holds only the doctor's task (11 §6).
-     *
-     * A patient with an unfinished encounter at this branch gets 409 OPEN_ENCOUNTER; reception
-     * either continues it (`continueEncounter`) or has its tasks cancelled first (follow-up).
+     * them is settled at the doctors' list), and in one transaction:
+     * - the patient's open encounter at this branch is closed, its unfinished tasks cancelled
+     *   (an admitted patient is refused: 409 PATIENT_ADMITTED);
+     * - the consultation fee is charged straight to the account, once the account can take it
+     *   under the hospital's consultationPayment policy (11 §6.2; else 409 INSUFFICIENT_FUNDS),
+     *   with no billing task;
+     * - the patient is put on the lists reception chose (default: the nursing station), as
+     *   AWAITING_SERVICE, so the nurse can attend to them at once.
+     * A refusal leaves everything as it was, the old encounter included.
      */
     async startEncounter(dto: StartEncounterDto, at: At, user: AuthUser) {
         const client = this.databaseService.client;
@@ -61,8 +72,8 @@ export class StartEncounterService {
                 where:  { id: dto.patientId, hospitalId: at.organizationId },
                 select: {
                     dateOfBirth: true,
-                    hospital: { select: AGE_SETTINGS_SELECT },
-                    coverages: visitCoverage(now, dto.coverageId),
+                    hospital:    { select: { ...AGE_SETTINGS_SELECT, consultationPayment: true, maxUnpaidBeforeHold: true } },
+                    coverages:   visitCoverage(now, dto.coverageId),
                 },
             }),
             this.sendableAmong(targetIds, user.dutyProfileIds),
@@ -85,17 +96,32 @@ export class StartEncounterService {
             coverageId: dto.selfPay ? null : patient.coverages[0]?.id ?? null,
             price:      prices.get(dto.billableItemId)!,
         };
-
-        if (dto.continueEncounter) return this.continueOpen(visit, at, user.sub, now);
+        // insured visits aren't charged at check-in until payer allocation (13 Phase 2)
+        const fee = consultationFeeApplies({ coverageId: visit.coverageId, continuingSameClinic: false }) ? visit.price : null;
 
         try {
             return await this.databaseService.transaction(async () => {
+                const tx = this.databaseService.client;
+                const open = await tx.encounter.findFirst({
+                    where:  { patientId: dto.patientId, branchId: at.branchId, status: $Enums.EncounterStatus.OPEN },
+                    select: { id: true, encounterType: true, firstSeenAt: true },
+                });
+                if (open?.encounterType === $Enums.EncounterType.INPATIENT) {
+                    throw new ConflictException({ code: 'PATIENT_ADMITTED', message: 'This patient is admitted. Discharge them first.' });
+                }
+
+                // locked for the rest of the transaction, so two check-ins can't spend the same credit
+                const account = fee?.unitPrice.gt(0) ? await this.lockFundedAccount(dto.patientId, fee, patient.hospital) : undefined;
+
+                // taken in this transaction, so a refused check-in rolls it back (11 §4.0)
+                const numbered = await nextEncounterCode(this.databaseService, at.organizationId, now);
+                if (open) await this.closeSuperseded(open, numbered.code, user.sub, now);
+
                 const age = ageSnapshot(patient.dateOfBirth, now, patient.hospital);
-                const encounter = await this.databaseService.client.encounter.create({
+                const encounter = await tx.encounter.create({
                     data: {
                         organizationId:    at.organizationId,
-                        // taken in this transaction, so a failed check-in rolls it back (11 §4.0)
-                        ...await nextEncounterCode(this.databaseService, at.organizationId, now),
+                        ...numbered,
                         patientId:         dto.patientId,
                         branchId:          at.branchId,
                         departmentId:      clinic.departmentId,
@@ -109,96 +135,106 @@ export class StartEncounterService {
                     },
                 });
 
-                const fee = consultationFeeApplies({ coverageId: visit.coverageId, continuingSameClinic: false }) ? visit.price : null;
-                const sent = await this.feeAndTasks(encounter.id, visit, fee, at, user.sub, now);
-                return { ...encounter, clinic: { id: clinic.id, name: clinic.name }, continued: false, ...sent };
+                const sent = await this.feeAndTasks(encounter.id, visit, fee, account, at, user.sub, now);
+                return { ...encounter, clinic: { id: clinic.id, name: clinic.name }, ...sent };
             });
         } catch (e) {
             if (!isUniqueViolation(e)) throw e;
-            // The one-open-encounter-per-branch index (11 §3.3)
-            const open = await client.encounter.findFirst({
-                where:  { patientId: dto.patientId, branchId: at.branchId, status: $Enums.EncounterStatus.OPEN },
-                select: { arrivedAt: true, clinic: { select: { name: true } } },
-            });
-            throw new ConflictException({
-                code: 'OPEN_ENCOUNTER',
-                message: open
-                    ? `This patient has an unfinished visit (${open.clinic?.name ?? 'Emergency'}, since ${open.arrivedAt.toISOString()}). Continue it, or follow it up and close it first.`
-                    : 'This patient has an unfinished visit at this branch',
-            });
+            // the one-open-encounter-per-branch index: another check-in for this patient won the race
+            throw new ConflictException('This patient was just checked in by someone else. Refresh and try again.');
         }
     }
 
     /**
-     * Reception continues the patient's unfinished encounter: the clinic they came for now becomes
-     * the encounter's clinic, and the chosen lists get tasks. Returning to the same clinic isn't
-     * charged again.
+     * Locks the patient's account and makes sure it can take the fee under the hospital's policy
+     * (11 §6.2): BEFORE, the money must be on the account; AFTER, the debt may grow to
+     * maxUnpaidBeforeHold. Otherwise 409 INSUFFICIENT_FUNDS with how much to deposit.
      */
-    private continueOpen(visit: Visit, at: At, by: string, now: Date) {
-        return this.databaseService.transaction(async () => {
-            const client = this.databaseService.client;
-            const open = await client.encounter.findFirst({
-                where:  { patientId: visit.patientId, branchId: at.branchId, status: $Enums.EncounterStatus.OPEN },
-                select: { id: true, clinicId: true, coverageId: true },
-            });
-            if (!open) throw new NotFoundException('This patient has no unfinished visit to continue');
-
-            const encounter = await client.encounter.update({
-                where: { id: open.id },
-                data:  {
-                    clinicId:          visit.clinic.id,
-                    departmentId:      visit.clinic.departmentId,
-                },
-            });
-
-            // The encounter's own coverage still applies to the visit it already is
-            const fee = consultationFeeApplies({ coverageId: open.coverageId, continuingSameClinic: open.clinicId === visit.clinic.id })
-                ? visit.price
-                : null;
-            const sent = await this.feeAndTasks(open.id, visit, fee, at, by, now);
-            return { ...encounter, clinic: { id: visit.clinic.id, name: visit.clinic.name }, continued: true, ...sent };
+    private async lockFundedAccount(
+        patientId: string, fee: ChargePrice,
+        policy: { consultationPayment: $Enums.ConsultationPayment; maxUnpaidBeforeHold: Prisma.Decimal },
+    ) {
+        const account = await this.ledger.lockAccount(await this.billingAccounts.currentAccountIdOrThrow(patientId));
+        const shortfall = fundingShortfall({
+            policy:              policy.consultationPayment,
+            balance:             account.balance,
+            fee:                 fee.unitPrice,
+            maxUnpaidBeforeHold: policy.maxUnpaidBeforeHold,
         });
+        if (shortfall) {
+            throw new ConflictException({
+                code:    'INSUFFICIENT_FUNDS',
+                message: `Deposit at least ₦${NAIRA.format(shortfall.toNumber())} to start this visit`,
+            });
+        }
+        return account;
     }
 
     /**
-     * Posts the fee (if any), which puts the patient on the cashier's list when they owe it, then
-     * on each chosen list. Choosing billing as well doesn't put them on it twice.
+     * The patient's previous visit is over once a new encounter starts (11 §3.3): its unfinished
+     * tasks are cancelled and it closes, with how the patient left.
      */
-    private async feeAndTasks(encounterId: string, visit: Visit, fee: ChargePrice | null, at: At, by: string, now: Date) {
-        const { consultationFee, billingTask } = await this.postConsultationFee(fee, encounterId, visit.patientId, at.branchId, by);
-        const tasks = billingTask ? [billingTask] : [];
+    private async closeSuperseded(open: { id: string; firstSeenAt: Date | null }, newCode: string, by: string, now: Date) {
+        const client = this.databaseService.client;
+        const reason = `Closed: new encounter ${newCode} started`;
+        await client.queueEntry.updateMany({
+            where: { encounterId: open.id, status: { in: [...ACTIVE_TASK] } },
+            data:  { status: $Enums.QueueEntryStatus.CANCELLED, completedAt: now, servedBy: by, outcomeNote: reason },
+        });
+        await client.encounter.update({
+            where: { id: open.id },
+            data:  {
+                status:          $Enums.EncounterStatus.CLOSED,
+                closedAt:        now,
+                closedBy:        by,
+                disposition:     supersededDisposition(open.firstSeenAt),
+                dispositionAt:   now,
+                dispositionBy:   by,
+                dispositionNote: reason,
+            },
+        });
+    }
+
+    /** Charges the fee (if any) to the account, then puts the patient on each chosen list, ready to be served. */
+    private async feeAndTasks(
+        encounterId: string, visit: Visit, fee: ChargePrice | null, account: BillingAccount | undefined,
+        at: At, by: string, now: Date,
+    ) {
+        const consultationFee = await this.postConsultationFee(fee, account, encounterId, visit.patientId, at.branchId, by);
+        const tasks: NonNullable<Awaited<ReturnType<TaskFactory['create']>>>[] = [];
         for (const queue of visit.targets) {
-            const task = await this.tasks.create({ encounterId, patientId: visit.patientId, branchId: at.branchId, queue, by, now });
+            const task = await this.tasks.create({ encounterId, patientId: visit.patientId, branchId: at.branchId, queue, ready: true, by, now });
             if (task && !tasks.some(t => t.id === task.id)) tasks.push(task);
         }
         return { tasks, consultationFee };
     }
 
     /**
-     * Posts the consultation charge for the chosen item, with the billing task it put the patient on
-     * if owed. A free item is still recorded (13 §3); post() leaves it nothing to collect.
+     * Charges the consultation for the chosen item straight to the account, with no billing task
+     * (11 §6.2). A free item is still recorded (13 §3); post() leaves it nothing to collect.
      */
-    private async postConsultationFee(price: ChargePrice | null, encounterId: string, patientId: string, branchId: string, createdBy: string) {
-        if (!price) return { consultationFee: null, billingTask: null };
+    private async postConsultationFee(
+        price: ChargePrice | null, account: BillingAccount | undefined,
+        encounterId: string, patientId: string, branchId: string, createdBy: string,
+    ) {
+        if (!price) return null;
 
         const posted = await this.charges.post({
             patientId,
             branchId,
             encounterId,
             price,
-            sourceType:  CONSULTATION_FEE,
-            sourceId:    encounterId,
+            sourceType:    CONSULTATION_FEE,
+            sourceId:      encounterId,
+            noBillingTask: true,
             createdBy,
-        });
+        }, account);
         const allocation = posted.allocations[0];
         return {
-            consultationFee: {
-                id:            posted.charge.id,
-                amount:        posted.charge.amount,
-                paymentStatus: allocation?.paymentStatus,
-                outstanding:   allocation ? allocation.amount.minus(allocation.paidAmount) : 0,
-            },
-            billingTask: posted.billingTask,
+            id:            posted.charge.id,
+            amount:        posted.charge.amount,
+            paymentStatus: allocation?.paymentStatus,
+            outstanding:   allocation ? allocation.amount.minus(allocation.paidAmount) : 0,
         };
     }
 

@@ -12,7 +12,7 @@ export class StartEncounterDto {
 
     @ApiProperty({
         description: "The consultation item staff chose (e.g. one of the clinic's linked items). Must be active with a current price; " +
-            'charged at its self-pay price unless the visit is exempt (insured, or continuing at the same clinic).',
+            'charged to the account at its self-pay price unless the visit is insured (11 §6.2).',
         example: '41da8c96-eacb-4bd7-898d-1c37e19df3b8',
     })
     @IsUUID()
@@ -43,11 +43,4 @@ export class StartEncounterDto {
     @IsOptional()
     selfPay?: boolean;
 
-    @ApiProperty({
-        required: false,
-        description: "The patient has an unfinished encounter at this branch (starting it returned 409 OPEN_ENCOUNTER) and reception continues it: the clinic's nursing station task is added to that encounter.",
-    })
-    @IsBoolean()
-    @IsOptional()
-    continueEncounter?: boolean;
 }

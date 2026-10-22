@@ -1,3 +1,5 @@
+import { Prisma } from '../../../generated/prisma/client';
+
 export type FeeExemption = 'INSURED' | 'CONTINUING_SAME_CLINIC';
 
 /**
@@ -31,3 +33,29 @@ export function firstTaskTargets(chosen: string[] | undefined, nursingStationId:
 export function unsendable(targets: string[], sendable: Set<string>, nursingStationId: string): string[] {
     return targets.filter(id => id !== nursingStationId && !sendable.has(id));
 }
+
+export type FundingCheck = {
+    policy:              'BEFORE' | 'AFTER';   // Organization.consultationPayment
+    balance:             Prisma.Decimal;       // the account's, before the fee: credits − debits
+    fee:                 Prisma.Decimal;
+    maxUnpaidBeforeHold: Prisma.Decimal;
+};
+
+/**
+ * How much more the account needs before this visit can start (11 §6.2), or null if it can start.
+ * BEFORE: the account's own money must cover the fee (balance − fee ≥ 0). AFTER: the fee may go on
+ * the account as debt, as long as it then owes no more than maxUnpaidBeforeHold. creditLimit plays
+ * no part.
+ */
+export function fundingShortfall(c: FundingCheck): Prisma.Decimal | null {
+    const floor = c.policy === 'BEFORE' ? new Prisma.Decimal(0) : c.maxUnpaidBeforeHold.negated();
+    const after = c.balance.minus(c.fee);
+    return after.gte(floor) ? null : floor.minus(after);
+}
+
+/**
+ * How the patient's previous visit ended when a new encounter replaces it (11 §3.3): they had seen a
+ * clinician and left before finishing, or left before being seen.
+ */
+export const supersededDisposition = (firstSeenAt: Date | null) =>
+    firstSeenAt ? 'LEFT_BEFORE_COMPLETION' as const : 'LEFT_WITHOUT_BEING_SEEN' as const;

@@ -3,6 +3,7 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrganizationsService } from './organizations.service';
 import { CreateBranchDto, OnboardOrganizationDto, UpdateBranchDto, UpdateOrganizationDto } from '@shared/contracts/organizations';
 import { OrganizationFilter } from '@shared/enums/organizations/organization.enums';
+import { Authorize, OrganizationId } from '../auth/auth.decorators';
 
 
 @ApiTags('organizations')
@@ -24,6 +25,18 @@ export class OrganizationsController {
     @Query() filter?: OrganizationFilter,
   ) {
     return this.organizationsService.findAll(Number(limit), Number(offset), search, filter);
+  }
+
+  // declared before `:id`, which would otherwise capture `settings`
+  @ApiOperation({
+    summary: "Your hospital's settings",
+    description: 'For any logged-in staff member; the organisation comes from the token. `consultationPayment` and ' +
+      '`maxUnpaidBeforeHold` (PRD 11 §6.2), the age-group cutoffs (06 §2.7) and `patientNumberStart` (06 §3).',
+  })
+  @Authorize()
+  @Get('settings')
+  findSettings(@OrganizationId() organizationId: string) {
+    return this.organizationsService.findSettings(organizationId);
   }
 
   @Get(':id')
