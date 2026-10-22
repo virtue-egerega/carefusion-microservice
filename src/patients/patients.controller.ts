@@ -2,7 +2,6 @@ import { Body, Controller, DefaultValuePipe, ForbiddenException, Get, Param, Par
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PatientsService, UpdateMedicalDto, AddAddressDto, AddNextOfKinDto } from './patients.service';
 import { CreatePatientDto } from '@shared/contracts/patients';
-import { EncounterListQueryDto } from '@shared/contracts/encounters';
 import { Authorize, BranchId, CurrentUser, OrganizationId } from '../auth/auth.decorators';
 import type { AuthUser } from '../auth/permissions.guard';
 import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
@@ -77,21 +76,6 @@ export class PatientsController {
     @Get(':id/billing-account')
     billingAccount(@Param('id') id: string, @OrganizationId() orgId: string) {
         return this.billingAccountsService.getForPatient(id, orgId);
-    }
-
-    @ApiOperation({
-        summary: "The patient's encounters, newest first: filter by status, type, how they came, clinic and dates; search by code or reason",
-        description: '`{ count, docs }`. Each: `id`, `code`, `arrivedAt`, `encounterType`, `visitType`, `status`, `reasonForVisit`, ' +
-        "`closedAt`, `clinic`, and `doctor`: the clinician who saw the patient (null while waiting). Remaining tasks are on the encounter's own detail.",
-    })
-    @Authorize('patient.view')
-    @Get(':id/encounters')
-    findEncounters(
-        @Param('id', ParseUUIDPipe) id: string,
-        @Query() query: EncounterListQueryDto,
-        @OrganizationId() orgId: string,
-    ) {
-        return this.patientsService.findEncounters(id, orgId, query);
     }
 
     @ApiOperation({

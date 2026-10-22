@@ -1,21 +1,30 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service';
-import { isUniqueViolation } from '../../database/prisma-errors';
-import { $Enums, Prisma } from '../../../generated/prisma/client';
-import type { BillingAccount } from '../../../generated/prisma/client';
-import { StartEncounterDto } from '@shared/contracts/encounters';
-import type { AuthUser } from '../../auth/permissions.guard';
-import { ChargesService } from '../../billing/charges/charges.service';
-import { BillingAccountsService } from '../../billing/accounts/billing-accounts.service';
-import { LedgerService } from '../../billing/ledger/ledger.service';
-import { PricingService } from '../../billables/pricing/pricing.service';
-import type { ChargePrice } from '../../billables/pricing/pricing.rules';
-import { AGE_SETTINGS_SELECT, ageSnapshot } from '../../patients/age-group';
-import { TargetQueue, TaskFactory } from '../shared/task-factory';
-import { nextEncounterCode } from '../shared/encounter-codes';
-import { visitCoverage } from '../../shared/contracts/encounters/visit-coverage';
-import { ACTIVE_TASK } from '../tasks/tasks.rules';
-import { firstTaskTargets, consultationFeeApplies, fundingShortfall, supersededDisposition, unsendable } from './start-encounter.rules';
+import { DatabaseService } from '../database/database.service';
+import { isUniqueViolation } from '../database/prisma-errors';
+import { $Enums, Prisma } from '../../generated/prisma/client';
+import type { BillingAccount } from '../../generated/prisma/client';
+import { EncounterListQueryDto, StartEncounterDto } from '@shared/contracts/encounters';
+import type { AuthUser } from '../auth/permissions.guard';
+import { ChargesService } from '../billing/charges/charges.service';
+import { BillingAccountsService } from '../billing/accounts/billing-accounts.service';
+import { LedgerService } from '../billing/ledger/ledger.service';
+import { PricingService } from '../billables/pricing/pricing.service';
+import type { ChargePrice } from '../billables/pricing/pricing.rules';
+import { AGE_SETTINGS_SELECT, ageSnapshot } from '../patients/age-group';
+import { TargetQueue, TaskFactory } from './shared/task-factory';
+import { nextEncounterCode } from './shared/encounter-codes';
+import { visitCoverage } from '../shared/contracts/encounters/visit-coverage';
+import { ACTIVE_TASK } from './tasks/tasks.rules';
+import { firstTaskTargets, 
+    consultationFeeApplies, 
+    fundingShortfall, 
+    supersededDisposition, 
+    unsendable 
+} from './rules/start-encounter.rules';
+import { followUpCutoff } from './rules/follow-up.rules';
+import { encounterListWhere } from './shared/encounter-list.rules';
+import { loadActors } from '../billables/actors';
+
 
 const CONSULTATION_FEE = 'CONSULTATION_FEE';
 
@@ -33,7 +42,7 @@ type Visit = {
 };
 
 @Injectable()
-export class StartEncounterService {
+export class EncounterService {
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly charges: ChargesService,
@@ -145,6 +154,110 @@ export class StartEncounterService {
         }
     }
 
+
+    
+    /** The patient's unfinished encounter at this branch, with what's still to be done, or null. */
+    findOpen(patientId: string, at: At) {
+        return this.databaseService.client.encounter.findFirst({
+            where:  { patientId, organizationId: at.organizationId, branchId: at.branchId, status: $Enums.EncounterStatus.OPEN },
+            select: {
+                id: true, code: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true, encounterType: true,
+                clinic: { select: { id: true, name: true } },
+                queueEntries: {
+                    where:   { status: { in: [...ACTIVE_TASK] } },
+                    orderBy: { enteredAt: 'asc' },
+                    select:  { id: true, status: true, holdReason: true, ticketNumber: true, enteredAt: true, queue: { select: { id: true, name: true } } },
+                },
+            },
+        });
+    }
+
+
+    /**
+     * Unfinished visits to follow up (11 §14.2): open outpatient encounters at this branch with no
+     * task activity today. Emergency patients (observation can run overnight) and admitted patients
+     * aren't listed. Nothing closes on its own: staff reach the patient, then continue the visit or
+     * cancel its tasks.
+     */
+    list(at: { organizationId: string; branchId: string }) {
+        const since = followUpCutoff(new Date());
+        return this.databaseService.client.encounter.findMany({
+            where: {
+                organizationId: at.organizationId,
+                branchId:       at.branchId,
+                status:         $Enums.EncounterStatus.OPEN,
+                encounterType:  $Enums.EncounterType.OUTPATIENT,
+                department:     { systemKey: { not: 'EMERGENCY' } },
+                queueEntries:   {
+                    none: {
+                        OR: [
+                            { enteredAt: { gte: since } }, { calledAt: { gte: since } },
+                            { startedAt: { gte: since } }, { completedAt: { gte: since } },
+                        ],
+                    },
+                },
+            },
+            orderBy: { arrivedAt: 'asc' },
+            select: {
+                id: true, code: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true,
+                clinic:  { select: { name: true } },
+                patient: { select: { id: true, patientNumber: true, user: { select: { firstName: true, lastName: true, phone: true } } } },
+                queueEntries: {
+                    where:   { status: { in: [...ACTIVE_TASK] } },
+                    orderBy: { enteredAt: 'asc' },
+                    select:  { id: true, status: true, holdReason: true, enteredAt: true, queue: { select: { name: true } } },
+                },
+            },
+        });
+    }
+
+
+        /**
+     * The patient's encounters, newest first, filtered and searched (11 §19). `doctor` is the
+     * clinician who saw the patient: whoever took the doctors' task (the latest, if seen more than
+     * once), null while still waiting. The page, count and doctors' tasks are one round trip; the
+     * doctors' names, a second, only when any were seen.
+     */
+    async findEncounters(patientId: string, organizationId: string, query: EncounterListQueryDto) {
+        const client = this.databaseService.client;
+        const where = { patientId, organizationId, ...encounterListWhere(query) };
+
+        const [patient, count, encounters] = await client.$transaction([
+            client.patient.findFirst({ where: { id: patientId, hospitalId: organizationId }, select: { id: true } }),
+            client.encounter.count({ where }),
+            client.encounter.findMany({
+                where,
+                take:    query.limit,
+                skip:    query.offset,
+                orderBy: { arrivedAt: 'desc' },
+                select: {
+                    id: true, code: true, arrivedAt: true, encounterType: true, visitType: true, status: true,
+                    reasonForVisit: true, closedAt: true,
+                    clinic:       { select: { id: true, name: true } },
+                    // a doctors' list is a clinic's consultation queue; servedBy is the doctor the patient saw
+                    queueEntries: {
+                        where:   { servedBy: { not: null }, queue: { doctorsForClinics: { some: {} } } },
+                        orderBy: { startedAt: 'desc' },
+                        take:    1,
+                        select:  { servedBy: true },
+                    },
+                },
+            }),
+        ]);
+        if (!patient) throw new NotFoundException('Patient not found');
+
+        const doctors = await loadActors(this.databaseService, encounters.map(e => e.queueEntries[0]?.servedBy));
+        return {
+            count,
+            docs: encounters.map(({ queueEntries: [seen], ...encounter }) => ({
+                ...encounter,
+                doctor: seen?.servedBy ? doctors.get(seen.servedBy) ?? null : null,
+            })),
+        };
+    }
+
+
+    
     /**
      * Locks the patient's account and makes sure it can take the fee under the hospital's policy
      * (11 §6.2): BEFORE, the money must be on the account; AFTER, the debt may grow to
@@ -247,19 +360,5 @@ export class StartEncounterService {
         return new Set(rows.map(r => r.queueId));
     }
 
-    /** The patient's unfinished encounter at this branch, with what's still to be done, or null. */
-    findOpen(patientId: string, at: At) {
-        return this.databaseService.client.encounter.findFirst({
-            where:  { patientId, organizationId: at.organizationId, branchId: at.branchId, status: $Enums.EncounterStatus.OPEN },
-            select: {
-                id: true, code: true, arrivedAt: true, firstSeenAt: true, reasonForVisit: true, encounterType: true,
-                clinic: { select: { id: true, name: true } },
-                queueEntries: {
-                    where:   { status: { in: [...ACTIVE_TASK] } },
-                    orderBy: { enteredAt: 'asc' },
-                    select:  { id: true, status: true, holdReason: true, ticketNumber: true, enteredAt: true, queue: { select: { id: true, name: true } } },
-                },
-            },
-        });
-    }
+
 }

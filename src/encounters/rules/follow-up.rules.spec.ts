@@ -1,4 +1,4 @@
-import { followUpCutoff } from './follow-up.rules';
+import { followUpCutoff } from '../follow-up/follow-up.rules';
 
 describe('followUpCutoff', () => {
     it('is the start of today (UTC): visits untouched since yesterday need following up', () => {

@@ -309,6 +309,23 @@ scale, routing to paediatric / neonatal care, fees and insurance dependant limit
 (§2.5), and age-banded national reporting (NHMIS). Pregnancy and chronic programmes (HIV, TB,
 diabetes) are **not** age groups. They're statuses or enrolments, designed separately.
 
+### 2.x Deleting patients (database resets only)
+
+The app has **no patient delete**. When patients are reset in the database, deleting a patient's
+`User` row removes everything that hangs off them, through `onDelete: Cascade` on every link:
+the `Patient` (`Patient.user`), next of kin, encounters and their tasks, charges, their shares,
+ledger entries and payment applications, financial requests (targets, approvals, attachments),
+billing memberships, coverages, the policies they're principal on, and the billing accounts they
+hold (with those accounts' members, entries and charges). Every link cascades, none is set to
+null, so a reset leaves no orphaned rows: a deleted encounter also takes the encounters that point
+at it (a newborn's, a follow-up), a deleted task the tasks routed from it, a deleted share the
+shares that replaced it, a deleted coverage the encounters and charges that used it.
+
+Deleting a single patient this way also removes what they share: the family account they hold,
+and with it the other members' charges and deposits. Accounts that survive (a payer's, another
+holder's family account) keep cached `balance` / `unappliedCredit` that no longer match their
+entries. It's for resets, not for running hospitals.
+
 ## 3. Identification & Duplicate Prevention
 
 The single most important operational control in this document: **search before create.**

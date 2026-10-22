@@ -535,16 +535,16 @@ model Encounter {
   updatedAt          DateTime        @updatedAt
 
   organization       Organization    @relation(fields: [organizationId], references: [id])
-  patient            Patient         @relation(fields: [patientId], references: [id])
+  patient            Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
   branch             Branch          @relation(fields: [branchId], references: [id])
   department         Department      @relation(fields: [departmentId], references: [id])
   clinic             Clinic?         @relation(fields: [clinicId], references: [id])
   appointment        Appointment?    @relation(fields: [appointmentId], references: [id])
-  parent             Encounter?      @relation("EncounterChain", fields: [parentEncounterId], references: [id])
+  parent             Encounter?      @relation("EncounterChain", fields: [parentEncounterId], references: [id], onDelete: Cascade)
   children           Encounter[]     @relation("EncounterChain")
-  followUpOf         Encounter?      @relation("FollowUp", fields: [followUpOfId], references: [id])
+  followUpOf         Encounter?      @relation("FollowUp", fields: [followUpOfId], references: [id], onDelete: Cascade)
   followUps          Encounter[]     @relation("FollowUp")
-  coverage           Coverage?       @relation(fields: [coverageId], references: [id])
+  coverage           Coverage?       @relation(fields: [coverageId], references: [id], onDelete: Cascade)
   queueEntries       QueueEntry[]
   charges            Charge[]
 
@@ -581,11 +581,11 @@ model QueueEntry {
   outcomeNote     String?
   createdBy       String
 
-  encounter       Encounter?       @relation(fields: [encounterId], references: [id])
-  patient         Patient          @relation(fields: [patientId], references: [id])
+  encounter       Encounter?       @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  patient         Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
   queue           Queue            @relation(fields: [queueId], references: [id])
   branch          Branch           @relation(fields: [branchId], references: [id])
-  fromEntry       QueueEntry?      @relation("QueueRouting", fields: [fromEntryId], references: [id])
+  fromEntry       QueueEntry?      @relation("QueueRouting", fields: [fromEntryId], references: [id], onDelete: Cascade)
   routedTo        QueueEntry[]     @relation("QueueRouting")
 
   @@index([queueId, branchId, status, priority, readyAt])
@@ -627,7 +627,7 @@ model BillingAccount {
   updatedBy       String?
 
   organization    Organization       @relation(fields: [organizationId], references: [id])
-  holder          Patient?           @relation("AccountHolder", fields: [holderPatientId], references: [id])
+  holder          Patient?           @relation("AccountHolder", fields: [holderPatientId], references: [id], onDelete: Cascade)
   payer           Payer?             @relation(fields: [payerId], references: [id])
   members         BillingAccountMember[]
   entries         AccountEntry[]
@@ -646,8 +646,8 @@ model BillingAccountMember {
   leftAt    DateTime? // null = current member; one current membership per patient (partial unique index)
   createdBy String
 
-  account   BillingAccount @relation(fields: [accountId], references: [id])
-  patient   Patient        @relation(fields: [patientId], references: [id])
+  account   BillingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  patient   Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
 
   @@index([patientId, leftAt])
   @@index([accountId, leftAt])
@@ -673,12 +673,12 @@ model AccountEntry {
   createdAt     DateTime         @default(now())
   createdBy     String
 
-  account       BillingAccount    @relation(fields: [accountId], references: [id])
-  patient       Patient?          @relation(fields: [patientId], references: [id])   // required on CHARGE (CHECK constraint)
+  account       BillingAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  patient       Patient?          @relation(fields: [patientId], references: [id], onDelete: Cascade)   // required on CHARGE (CHECK constraint)
   branch        Branch            @relation(fields: [branchId], references: [id])
-  allocation    ChargeAllocation? @relation(fields: [allocationId], references: [id])
-  request       FinancialRequest? @relation(fields: [requestId], references: [id])
-  reverses      AccountEntry?     @relation("EntryReversal", fields: [reversesId], references: [id])
+  allocation    ChargeAllocation? @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+  request       FinancialRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  reverses      AccountEntry?     @relation("EntryReversal", fields: [reversesId], references: [id], onDelete: Cascade)
   reversedBy    AccountEntry?     @relation("EntryReversal")
   applications  PaymentApplication[]
 
@@ -768,7 +768,7 @@ model Policy {
   updatedBy          String?
 
   plan               Plan         @relation(fields: [planId], references: [id])
-  principal          Patient      @relation("PolicyPrincipal", fields: [principalPatientId], references: [id])
+  principal          Patient      @relation("PolicyPrincipal", fields: [principalPatientId], references: [id], onDelete: Cascade)
   coverages          Coverage[]
 
   @@unique([planId, policyNumber])
@@ -789,8 +789,8 @@ model Coverage {
   updatedAt    DateTime     @updatedAt
   createdBy    String
 
-  policy       Policy       @relation(fields: [policyId], references: [id])
-  patient      Patient      @relation(fields: [patientId], references: [id])
+  policy       Policy       @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  patient      Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
   charges      Charge[]
   allocations  ChargeAllocation[]
   encounters   Encounter[]
@@ -994,11 +994,11 @@ model Charge {
   payerDiscountId  String?
   pricePercent     Decimal?        @db.Decimal(5, 2)
 
-  patient          Patient         @relation(fields: [patientId], references: [id])
+  patient          Patient         @relation(fields: [patientId], references: [id], onDelete: Cascade)
   branch           Branch          @relation(fields: [branchId], references: [id])
-  encounter        Encounter?      @relation(fields: [encounterId], references: [id])
-  billingAccount   BillingAccount  @relation(fields: [billingAccountId], references: [id])
-  coverage         Coverage?       @relation(fields: [coverageId], references: [id])
+  encounter        Encounter?      @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  billingAccount   BillingAccount  @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
+  coverage         Coverage?       @relation(fields: [coverageId], references: [id], onDelete: Cascade)
   billableItem     BillableItem?   @relation(fields: [billableItemId], references: [id])
   itemPrice        ItemPrice?      @relation(fields: [itemPriceId], references: [id])
   itemCost         ItemCost?       @relation(fields: [itemCostId], references: [id])
@@ -1039,12 +1039,12 @@ model ChargeAllocation {
   createdAt         DateTime         @default(now())
   createdBy         String
 
-  charge            Charge            @relation(fields: [chargeId], references: [id])
-  billingAccount    BillingAccount?   @relation(fields: [billingAccountId], references: [id])
-  coverage          Coverage?         @relation(fields: [coverageId], references: [id])
-  replaces          ChargeAllocation? @relation("AllocationLineage", fields: [replacesId], references: [id])
+  charge            Charge            @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  billingAccount    BillingAccount?   @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
+  coverage          Coverage?         @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+  replaces          ChargeAllocation? @relation("AllocationLineage", fields: [replacesId], references: [id], onDelete: Cascade)
   replacedBy        ChargeAllocation[] @relation("AllocationLineage")
-  request           FinancialRequest? @relation(fields: [requestId], references: [id])
+  request           FinancialRequest? @relation(fields: [requestId], references: [id], onDelete: Cascade)
   entries           AccountEntry[]
   applications      PaymentApplication[]
   requestTargets    FinancialRequestTarget[]
@@ -1079,8 +1079,8 @@ model PaymentApplication {
   reversedAt    DateTime?
   reversedBy    String?
 
-  creditEntry   AccountEntry     @relation(fields: [creditEntryId], references: [id])
-  allocation    ChargeAllocation @relation(fields: [allocationId], references: [id])
+  creditEntry   AccountEntry     @relation(fields: [creditEntryId], references: [id], onDelete: Cascade)
+  allocation    ChargeAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
 
   @@index([allocationId])
   @@index([creditEntryId])
@@ -1108,8 +1108,8 @@ model FinancialRequest {
   cancelledAt       DateTime?
 
   organization      Organization           @relation(fields: [organizationId], references: [id])
-  billingAccount    BillingAccount?        @relation(fields: [billingAccountId], references: [id])
-  charge            Charge?                @relation(fields: [chargeId], references: [id])
+  billingAccount    BillingAccount?        @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
+  charge            Charge?                @relation(fields: [chargeId], references: [id], onDelete: Cascade)
   targets           FinancialRequestTarget[]
   approvals         FinancialRequestApproval[]
   attachments       FinancialRequestAttachment[]
@@ -1126,8 +1126,8 @@ model FinancialRequestTarget {
   allocationId String
   amount       Decimal @db.Decimal(14, 2)
 
-  request      FinancialRequest @relation(fields: [requestId], references: [id])
-  allocation   ChargeAllocation @relation(fields: [allocationId], references: [id])
+  request      FinancialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  allocation   ChargeAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, allocationId])
 }
@@ -1141,7 +1141,7 @@ model FinancialRequestApproval {
   approverLimit Decimal          @db.Decimal(14, 2)
   decidedAt     DateTime         @default(now())
 
-  request       FinancialRequest @relation(fields: [requestId], references: [id])
+  request       FinancialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@unique([requestId, approverId])
 }
@@ -1157,7 +1157,7 @@ model FinancialRequestAttachment {
   uploadedBy  String
   uploadedAt  DateTime @default(now())
 
-  request     FinancialRequest @relation(fields: [requestId], references: [id])
+  request     FinancialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 }
 
 model ApprovalLimit {

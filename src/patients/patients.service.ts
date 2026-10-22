@@ -13,9 +13,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { generateTemporaryPassword } from '../auth/temporary-password';
 import { AGE_SETTINGS_SELECT, AgeSettings, ageGroup, ageInYears } from './age-group';
 import { PatientNumbers } from './patient-numbers';
-import { EncounterListQueryDto } from '@shared/contracts/encounters';
-import { encounterListWhere } from '../encounters/shared/encounter-list.rules';
-import { loadActors } from '../billables/actors';
 
 const BILLING_ACCOUNT_SUMMARY = {
     where: { leftAt: null },
@@ -362,50 +359,6 @@ export class PatientsService {
         });
         if (!patient) throw new NotFoundException('Patient not found');
         return withAgeGroup(patient);
-    }
-
-    /**
-     * The patient's encounters, newest first, filtered and searched (11 §19). `doctor` is the
-     * clinician who saw the patient: whoever took the doctors' task (the latest, if seen more than
-     * once), null while still waiting. The page, count and doctors' tasks are one round trip; the
-     * doctors' names, a second, only when any were seen.
-     */
-    async findEncounters(patientId: string, organizationId: string, query: EncounterListQueryDto) {
-        const client = this.databaseService.client;
-        const where = { patientId, organizationId, ...encounterListWhere(query) };
-
-        const [patient, count, encounters] = await client.$transaction([
-            client.patient.findFirst({ where: { id: patientId, hospitalId: organizationId }, select: { id: true } }),
-            client.encounter.count({ where }),
-            client.encounter.findMany({
-                where,
-                take:    query.limit,
-                skip:    query.offset,
-                orderBy: { arrivedAt: 'desc' },
-                select: {
-                    id: true, code: true, arrivedAt: true, encounterType: true, visitType: true, status: true,
-                    reasonForVisit: true, closedAt: true,
-                    clinic:       { select: { id: true, name: true } },
-                    // a doctors' list is a clinic's consultation queue; servedBy is the doctor the patient saw
-                    queueEntries: {
-                        where:   { servedBy: { not: null }, queue: { doctorsForClinics: { some: {} } } },
-                        orderBy: { startedAt: 'desc' },
-                        take:    1,
-                        select:  { servedBy: true },
-                    },
-                },
-            }),
-        ]);
-        if (!patient) throw new NotFoundException('Patient not found');
-
-        const doctors = await loadActors(this.databaseService, encounters.map(e => e.queueEntries[0]?.servedBy));
-        return {
-            count,
-            docs: encounters.map(({ queueEntries: [seen], ...encounter }) => ({
-                ...encounter,
-                doctor: seen?.servedBy ? doctors.get(seen.servedBy) ?? null : null,
-            })),
-        };
     }
 
     /**
