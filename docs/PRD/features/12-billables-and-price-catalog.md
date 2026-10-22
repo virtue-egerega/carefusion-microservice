@@ -218,6 +218,20 @@ model ClinicBillableItem {
 - **The item must be the organisation's own.** The composite foreign key rejects another
   organisation's item at the database.
 - **A row is never edited**, only inserted or deleted, so it has no `updatedAt`/`updatedBy`.
+
+**A clinic's items.** When reception starts an encounter at a clinic, the frontend lists the items
+to choose from with `GET /billables/clinics/:clinicId/consultation`: the same search as
+`GET /billables/items` (`kind`, default `CONSULTATION`; `status`; `search`; `payerId`), priced for
+the payer, with **the items linked to the clinic first**, then the rest, each by name. Each item
+says whether it's the clinic's (`clinicMatch`).
+
+- **The clinic has a linked item:** it's first in the list, ready to be pre-selected.
+- **Nothing is linked** (no item has `clinicMatch`): it's the plain list, and staff pick the one
+  to charge. No item is chosen for them.
+- **An item that can't be priced** shows `price: null` with `priceError`, as in the search.
+
+Encounter start charges whichever `billableItemId` it's sent. Whether this visit is charged at all
+(continuing at the same clinic, an insured visit) is decided there.
 - Item responses (detail and lists) include `clinics: [{ id, name }]`.
 - Linking is part of app setup, but optional.
 
@@ -629,7 +643,7 @@ scoped to the caller's `organizationId`.
 | `/billables/categories/:id` | PATCH | `billable.category.update` | `name`, `description`, `status`; `kind` only while empty |
 | `/billables/items` | POST | `billable.item.create` + `billable.price.create` (+ `billable.cost.create` for `MARKUP`) | Create with `selfPay: { basis: MANUAL, amount } \| { basis: MARKUP, percent, cost: { packCost, unitsPerPack, source? } }` and `reason` |
 | `/billables/items` | GET | `billable.view` | `{ count, docs }`: the organisation's items by name, for search pickers (registration, encounter start); filter `categoryId`, `kind`, `status`, `clinicId` (linked to that clinic, §4.4), `search` (code/name); `payerId` (omitted = self-pay); `limit` (20) / `offset`; each with its category, current self-pay price, and `price`: its current price for that payer by §9.1, or `price: null` + `priceError` when §9.1 refuses that item; 404 unknown payer, 400 inactive payer |
-| `/billables/items/category/:categoryId` | GET | `billable.view` | `{ category, count, docs }`: the category's items by name with their current self-pay price; filter `status`, `search` (name/code); `limit` (20) / `offset`; 404 if the category isn't the caller's |
+| `/billables/items/category/:categoryId` | GET | `billable.view` | `{ count, docs }`: the category's items by name with their current self-pay price; filter `status`, `search` (name/code); `limit` (20) / `offset`; 404 if the category isn't the caller's |
 | `/billables/items/:id` | GET | `billable.view` | Detail with category and current price list |
 | `/billables/items/:id` | PATCH | `billable.item.update` | `code`, `name`, `description`, `unit`, `categoryId` (same kind), `status` |
 | `/billables/items/:id/clinics` | GET | `billable.view` | `{ count, docs }`: the item's clinic links by clinic name (`clinic { id, name, isActive }`, `linkedAt`); `limit` (20) / `offset`; 404 if the item isn't the caller's |
@@ -646,6 +660,7 @@ scoped to the caller's `organizationId`.
 | `/billables/payers/:id/discounts` | POST / GET | `billable.discount.create` / `billable.view` | Add a dated default discount / history |
 | `/billables/discounts/:id/end`, `/billables/discounts/:id/cancel` | POST | `billable.discount.end` / `billable.discount.cancel` | End / withdraw a discount |
 | `/billables/payers/:id/tariff` | GET | `billable.view` | The payer's resolved price now for every active item; filter `categoryId`, `source`, `search`; paginated |
+| `/billables/clinics/:clinicId/consultation` | GET | `billable.view` | §4.4: `{ count, docs }`: the item search (`kind` default `CONSULTATION`, `status`, `search`, `payerId`, `limit` / `offset`) with the clinic's linked items first (`clinicMatch`); 404 unknown or inactive clinic or unknown payer, 400 inactive payer |
 | `/billables/metrics` | GET | `billable.view` | Overview totals: categories and items (`total`, `active`), `upcomingPrices`, `upcomingDiscounts` (scheduled, not withdrawn) |
 
 Prices are always resolved at the server's current time; clients never send a time. Scheduled and

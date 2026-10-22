@@ -1,6 +1,6 @@
 import { ApiProperty, PartialType, PickType } from '@nestjs/swagger';
 import {
-    ArrayUnique, IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min, MinLength,
+    IsArray, IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength,
 } from 'class-validator';
 import { PaymentMode } from '@shared/enums/billing/billing.enums';
 
@@ -48,15 +48,20 @@ export class DepositDto {
     @IsOptional()
     reference?: string;
 
-    @ApiProperty({
-        type: [String], required: false,
-        description: 'Allocation ids to pay first, in order. Any remainder pays the oldest unpaid bills.',
-    })
-    @IsArray()
-    @ArrayUnique()
-    @IsUUID('all', { each: true })
+    @ApiProperty({ required: false, example: 'Ngozi Okafor', description: "Who paid. Defaults to the account holder's name, else the account's name" })
+    @IsString() @MaxLength(120)
     @IsOptional()
-    targetAllocationIds?: string[];
+    paidByName?: string;
+
+    @ApiProperty({ required: false, example: '+2348031234567' })
+    @IsString() @MaxLength(20)
+    @IsOptional()
+    paidByPhone?: string;
+
+    @ApiProperty({ required: false, example: "Mother's deposit for admission", description: 'Narration; defaults to "Deposit"' })
+    @IsString() @MaxLength(255)
+    @IsOptional()
+    narration?: string;
 }
 
 export class UpdateBillingAccountDto extends PartialType(

@@ -28,6 +28,8 @@ export type PostEntryInput = {
     reversesId?: string;
     modeOfPayment?: $Enums.PaymentMode;
     reference?: string;
+    paidByName?: string;                   // money in: who handed it over
+    paidByPhone?: string;
 };
 
 export type ApplyCreditInput = {
@@ -119,6 +121,8 @@ export class LedgerService {
                     modeOfPayment: input.modeOfPayment,
                     reference:     input.reference,
                     description:   input.description,
+                    paidByName:    input.paidByName,
+                    paidByPhone:   input.paidByPhone,
                     branchId:      input.branchId,
                     createdBy:     input.createdBy,
                 },

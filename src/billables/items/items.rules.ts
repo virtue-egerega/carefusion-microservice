@@ -50,3 +50,15 @@ export function clinicChangeRefusal(add: string[] = [], remove: string[] = []): 
     const both = add.filter(id => removing.has(id));
     return both.length ? { reason: `A clinic can't be both added and removed: ${both.join(', ')}` } : null;
 }
+
+/**
+ * Splits one page of a clinic's list (its linked items first, then the rest) into the two queries:
+ * the page takes from the linked items while they last, then carries on into the others.
+ */
+export function clinicPage(linkedCount: number, offset: number, limit: number) {
+    const linkedTake = Math.max(0, Math.min(limit, linkedCount - offset));
+    return {
+        linked: { skip: offset, take: linkedTake },
+        others: { skip: Math.max(0, offset - linkedCount), take: limit - linkedTake },
+    };
+}

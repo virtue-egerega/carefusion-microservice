@@ -156,7 +156,9 @@ model AccountEntry {
   reversesId    String?          @unique
   modeOfPayment PaymentMode?
   reference     String?                      // POS slip, transfer ref, payer remittance ref
-  description   String
+  description   String                       // the narration: "Deposit", or what the cashier typed
+  paidByName    String?                      // money in: who handed it over (a relative, an employer…)
+  paidByPhone   String?
   branchId      String
   createdAt     DateTime         @default(now())
   createdBy     String
@@ -618,17 +620,41 @@ account's `unappliedCredit`. A credit can be split across several allocations, a
 can be paid by several credits.
 
 **How a credit is applied:**
-- **Targeted.** The cashier ticks the specific items the patient is paying for, or a payer's
-  itemised payment advice lists the lines it pays. Those allocations are paid first.
-- **Oldest first.** Any remainder, or an untargeted deposit, pays the account's unpaid
-  allocations oldest first, across all members of a family account.
-- **Unapplied.** Whatever is left stays as `unappliedCredit` (a prepaid deposit) and is applied
-  automatically when the next charge posts (§6.2 step 8).
+- **Oldest first, and stop.** A patient or family deposit pays the account's unpaid allocations
+  strictly oldest first, across all members of a family account. Each bill is paid in full while
+  the money lasts; the bill where it runs out is part-paid (`PART_PAID`) and application stops
+  there. No bill is ever skipped to pay a newer one, and the cashier doesn't choose which bills a
+  deposit pays.
+- **Why stop, rather than skip a bill the money can't cover and pay newer ones:** paying a bill can
+  release the patient back into a queue (§7.2, `11` §6). If a deposit skipped an older ₦5,000 bill
+  to pay a newer ₦1,000 lab charge, the patient would be sent on for the lab while the older debt
+  stayed unpaid, and newer services could keep jumping ahead of old debts. Oldest first means
+  services are released in the order they were incurred, and what's paid is predictable: staff and
+  patients can always tell which bills a payment covered.
+- **Unapplied.** Whatever is left after every open bill is paid stays as `unappliedCredit` (a
+  prepaid deposit) and is applied the same way, oldest first, when the next charge posts (§6.2
+  step 8).
+- **Payers are different (§7.3).** A remittance with an itemised payment advice pays the lines it
+  lists, and a short payment leaves lines part-paid (D9).
 
 ### 7.2 Family side
 
 A deposit is an `AccountEntry(DEPOSIT)` and is applied as above. The cashier can see, for any
 member, which bills are paid, part-paid or unpaid.
+
+**Who paid.** The person paying is often not the patient: a parent, a sibling, an employer. Each
+deposit records `paidByName` (defaulting to the account holder's name, else the account's name, when
+the cashier leaves it blank) and optionally `paidByPhone`, so refunds and disputes ("I paid ₦50,000
+on Tuesday") can be traced to a person. The cashier's narration goes in `description` (default
+"Deposit").
+
+**Back to the queue.** A patient who owes is never taken off the list they were sent to: the task
+waiting for payment stays in its own queue (the doctor's, the lab's) with status `HELD` and
+`holdReason = AWAITING_PAYMENT` (`11` §6.2). The task itself records the queue, so nothing has to be
+looked up when money arrives. In the deposit's transaction, after the credit is applied, held tasks
+whose visit is now paid (or whose account is back within its credit limit) become `WAITING` again,
+with `readyAt` reset so the unpaid time doesn't count as waiting, and billing tasks with nothing
+left to collect are completed (`QueueHoldsService.settle`).
 
 ### 7.3 Payer side
 
@@ -889,7 +915,7 @@ separate rows, so a queue can never disagree with the money it shows.
   module's payment gate (§6.6) is waiting on payment.
 - **Shows:** patient, account (with family members' unpaid items), each unpaid allocation with its
   basis (copay, over limit, not covered, rebilled), and unapplied credit.
-- **Actions:** take a deposit (targeted or oldest-first), print a receipt, request a refund, void
+- **Actions:** take a deposit (applied oldest first, §7.1), print a receipt, request a refund, void
   or transfer (§8).
 - **Leaves:** when outstanding is back within `creditLimit` and no gate is waiting.
 
@@ -1018,7 +1044,7 @@ Obi's pharmacy cap. Chidi's wife Ada has no coverage.
 | Chidi consult ₦10,000 | PAYER/COVERED 9,000 · ACCOUNT/COPAY 1,000 (paid from credit) | −9,000 | 19,000 |
 | Obi drugs ₦12,000: copay 1,200; requested 10,800; cap 5,000 | PAYER/COVERED 5,000 · ACCOUNT/COPAY 1,200 · ACCOUNT/OVER_LIMIT 5,800 (paid from credit) | −14,000 | 12,000 |
 | Ada lab ₦15,000 | ACCOUNT/NOT_COVERED 15,000: 12,000 paid from credit, 3,000 unpaid → Cashier queue | −14,000 | −3,000 |
-| Ada pays ₦3,000 at cashier, targeted | Ada's lab allocation → PAID | −14,000 | 0 |
+| Ada pays ₦3,000 at cashier | Her lab allocation is the oldest open bill → PAID | −14,000 | 0 |
 | Acme statement ₦14,000; remits ₦13,500 | Chidi 9,000 PAID · Obi 4,500 of 5,000 → PART_PAID | **−500 still owed** | 0 |
 | Acme formally disputes Obi's ₦500 as above agreed tariff | Obi's line split: 4,500 APPROVED/PAID + 500 REJECTED; reversal on Acme account | 0 | 0 |
 | Insurance officer raises `WRITE_OFF` ₦500, `PAYER_TARIFF_DISPUTE`, attaches Acme's dispute letter | No change until approved; the ₦500 sits in the Insurance queue as rejected and unresolved | 0 | 0 |
@@ -1033,7 +1059,7 @@ with the approver's name and the evidence attached.
 | Endpoint | Method | Permission | Purpose |
 |---|---|---|---|
 | `/api/v1/billing-accounts` | POST / GET | `billing.account.create` / `billing.view` | Create family account / search |
-| `/api/v1/billing-accounts/:id` | GET / PATCH | `billing.view` / `billing.account.update` | Detail, holder, status (not `creditLimit`) |
+| `/api/v1/billing-accounts/:id` | GET / PATCH | `billing.view` / `billing.account.update` | Detail, holder, status (not `creditLimit`); GET also returns `outstanding` (still owed on unpaid and part-paid shares) and `unpaidCharges` (how many charges, all members) |
 | `/api/v1/billing-accounts/:id/members` | POST / DELETE | `billing.account.member.add` / `.member.remove` | Move patients in/out |
 | `/api/v1/billing-accounts/:id/deposits` | POST | `billing.payment.receive` | Deposit, optional target allocations |
 | `/api/v1/billing-accounts/:id/transactions` | GET | `billing.view` | **Built.** The transactions page: ledger rows newest first, paginated; filter `entryType`, `direction` (CREDIT/DEBIT), `patientId`, `modeOfPayment`, `branchId`, `from`/`to`; `search` description, reference, patient name or number. Each row names its patient and bill; money in lists the bills it paid (`paid`) and what's left (`unapplied`) |

@@ -20,6 +20,9 @@ const MEMBER_PATIENT = {
     },
 };
 
+// "20,000.00": for messages only; amounts in responses stay Decimal strings
+const NAIRA = new Intl.NumberFormat('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 const OPEN_ACCOUNT_BILLS = {
     state: $Enums.AllocationState.ACTIVE,
     responsibleType: $Enums.ResponsibleType.ACCOUNT,
@@ -145,9 +148,16 @@ export class BillingAccountsService {
         };
     }
 
+    /**
+     * The account with its current members, `outstanding` (still owed on its unpaid and part-paid
+     * shares) and `unpaidCharges` (how many charges those shares are for: a charge with both a copay
+     * and an over-limit share counts once). Paid status lives on the shares, not the charge (10 §6.1).
+     * The sum and count are done by the database, in one round trip with the account.
+     */
     async findOne(accountId: string, organizationId: string) {
         const client = this.databaseService.client;
-        const [account, open] = await Promise.all([
+        const open = { billingAccountId: accountId, ...OPEN_ACCOUNT_BILLS };
+        const [account, owed, unpaidCharges] = await client.$transaction([
             client.billingAccount.findFirst({
                 where: { id: accountId, organizationId },
                 include: {
@@ -155,15 +165,13 @@ export class BillingAccountsService {
                     payer:   { select: { id: true, name: true } },
                 },
             }),
-            client.chargeAllocation.findMany({
-                where:  { billingAccountId: accountId, ...OPEN_ACCOUNT_BILLS },
-                select: { amount: true, paidAmount: true },
-            }),
+            client.chargeAllocation.aggregate({ where: open, _sum: { amount: true, paidAmount: true } }),
+            client.charge.count({ where: { allocations: { some: open } } }),
         ]);
         if (!account) throw new NotFoundException('Billing account not found');
 
-        const outstanding = open.reduce((sum, a) => sum.plus(a.amount.minus(a.paidAmount)), toDecimal(0));
-        return { ...account, outstanding };
+        const outstanding = toDecimal(owed._sum.amount ?? 0).minus(owed._sum.paidAmount ?? 0);
+        return { ...account, outstanding, unpaidCharges };
     }
 
     async updateDetails(accountId: string, dto: UpdateBillingAccountDto, organizationId: string, updatedBy: string) {
@@ -260,7 +268,7 @@ export class BillingAccountsService {
 
     // ── Money ────────────────────────────────────────────────────────────────
 
-    /** PRD 10 §7.2: record the deposit, then pay targeted bills, then the oldest unpaid ones. */
+    /** PRD 10 §7.2: record the deposit, then pay the account's unpaid bills oldest first (§7.1). */
     /** `at.branchId` is the cashier's branch, from their token. */
     async deposit(accountId: string, dto: DepositDto, at: { organizationId: string; branchId: string }, receivedBy: string) {
         return this.databaseService.transaction(async () => {
@@ -277,26 +285,22 @@ export class BillingAccountsService {
                     amount:        toDecimal(dto.amount),
                     modeOfPayment: dto.modeOfPayment,
                     reference:     dto.reference,
-                    description:   'Deposit',
+                    description:   dto.narration?.trim() || 'Deposit',
+                    // who paid: as typed, else the account's holder, else its name (10 §7.2)
+                    paidByName:    dto.paidByName?.trim() || account.holderName || account.name,
+                    paidByPhone:   dto.paidByPhone?.trim() || undefined,
                     branchId:      at.branchId,
                     createdBy:     receivedBy,
                 }, account),
                 { notFound: 'Branch not found' },
             );
-            const paid = await this.ledger.applyCredit({
-                accountId,
-                appliedBy: receivedBy,
-                targetAllocationIds: dto.targetAllocationIds,
-            }, posted.account);
+            // strictly oldest first, part-paying where the money runs out, then stop (10 §7.1)
+            await this.ledger.applyCredit({ accountId, appliedBy: receivedBy }, posted.account);
             // Held patients can now be seen, and paid visits' billing tasks are done (11 §6)
             await this.queueHolds.settle(accountId, receivedBy);
 
-            return {
-                entry:        posted.entry,
-                applied:      paid.applied,
-                applications: paid.applications,
-                account:      { balance: paid.account.balance, unappliedCredit: paid.account.unappliedCredit },
-            };
+            const { id, amount, createdAt } = posted.entry;
+            return { id, amount, createdAt, message: `Deposit of ₦${NAIRA.format(amount.toNumber())} recorded` };
         });
     }
 
@@ -352,7 +356,8 @@ export class BillingAccountsService {
                 orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
                 select: {
                     id: true, entryType: true, amount: true, appliedAmount: true,
-                    modeOfPayment: true, reference: true, description: true, createdAt: true, createdBy: true,
+                    modeOfPayment: true, reference: true, description: true, paidByName: true, paidByPhone: true,
+                    createdAt: true, createdBy: true,
                     reversesId: true,
                     reversedBy:  { select: { id: true, createdAt: true } },
                     branch:      { select: { id: true, name: true } },

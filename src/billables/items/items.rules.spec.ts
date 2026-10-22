@@ -1,4 +1,4 @@
-import { clinicChangeRefusal, itemUpdateRefusal, selfPayRefusal } from './items.rules';
+import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, selfPayRefusal } from './items.rules';
 
 const COST = { packCost: 1234.5, unitsPerPack: 100 };
 const WITH_COST = ['billable.cost.create'];
@@ -77,5 +77,26 @@ describe('clinicChangeRefusal', () => {
 
     it('refuses a clinic in both lists, naming it', () => {
         expect(clinicChangeRefusal(['eye', 'ent'], ['ent'])?.reason).toBe("A clinic can't be both added and removed: ent");
+    });
+});
+
+describe('clinicPage', () => {
+    it("fills the first page with the clinic's items, then the rest", () => {
+        // 3 linked, page of 20 → the 3 linked, then the first 17 others
+        expect(clinicPage(3, 0, 20)).toEqual({ linked: { skip: 0, take: 3 }, others: { skip: 0, take: 17 } });
+    });
+
+    it('carries on into the others where the linked items end', () => {
+        // 3 linked, second page of 2 (items 3–4): the third linked item, then the first other
+        expect(clinicPage(3, 2, 2)).toEqual({ linked: { skip: 2, take: 1 }, others: { skip: 0, take: 1 } });
+    });
+
+    it('takes only others once past the linked items', () => {
+        // 3 linked, offset 20 → others from 17
+        expect(clinicPage(3, 20, 20)).toEqual({ linked: { skip: 20, take: 0 }, others: { skip: 17, take: 20 } });
+    });
+
+    it('is the plain list when nothing is linked', () => {
+        expect(clinicPage(0, 40, 20)).toEqual({ linked: { skip: 40, take: 0 }, others: { skip: 40, take: 20 } });
     });
 });

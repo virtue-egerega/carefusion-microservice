@@ -167,4 +167,38 @@ export class BillableItemsController {
     quoteTotal(@Body() dto: QuoteDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
         return this.pricingService.quoteTotal(orgId, dto.items, dto.payerId, user.permissions);
     }
+
+    @ApiOperation({
+        summary: "Items for a clinic, priced for a payer: the clinic's own first (PRD 12 §4.4)",
+        description: "The same search as GET /billables/items, with the items linked to the clinic first (`clinicMatch: true`), " +
+        "then the rest, each by name: `{ count, docs }`. `kind` defaults to CONSULTATION. When nothing is linked to the " +
+        "clinic, no item has `clinicMatch` and staff pick from the list. Each item has `price` for `payerId` (omitted = self-pay), or `price: null` with " +
+        "`priceError`. 404 for an unknown or inactive clinic, or an unknown payer; 400 for an inactive payer.",
+    })
+    @ApiQuery({ name: 'kind', enum: ServiceCategory, required: false, description: 'Defaults to CONSULTATION' })
+    @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
+    @ApiQuery({ name: 'search', required: false, description: 'Part of the name or code, any case' })
+    @ApiQuery({ name: 'payerId', required: false, description: 'Price each item for this payer; omitted = self-pay' })
+    @Authorize('billable.view')
+    @Get('clinics/:clinicId/consultation')
+    findForClinic(
+        @Param('clinicId', ParseUUIDPipe) clinicId: string,
+        @OrganizationId() orgId: string,
+        @CurrentUser() user: AuthUser,
+        @Query('kind', new ParseEnumPipe(ServiceCategory, { optional: true })) kind?: ServiceCategory,
+        @Query('status', new ParseEnumPipe(CatalogStatus, { optional: true })) status?: CatalogStatus,
+        @Query('search') search?: string,
+        @Query('payerId', new ParseUUIDPipe({ optional: true })) payerId?: string,
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
+    ) {
+        return this.itemsService.findForClinic(orgId, clinicId, {
+            kind:   kind as $Enums.ServiceCategory | undefined,
+            status: status as $Enums.CatalogStatus | undefined,
+            search: search?.trim() || undefined,
+            payerId,
+            limit,
+            offset,
+        }, user.permissions);
+    }
 }

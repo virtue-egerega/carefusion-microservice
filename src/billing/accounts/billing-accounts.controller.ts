@@ -32,7 +32,11 @@ export class BillingAccountsController {
         return this.billingAccountsService.findAll(orgId, limit, offset, search, accountType);
     }
 
-    @ApiOperation({ summary: 'Account detail: members, balance, unapplied credit, outstanding' })
+    @ApiOperation({
+        summary: 'Account detail: members, balance, unapplied credit, outstanding, unpaid charges',
+        description: "`outstanding`: total still owed on the account's unpaid and part-paid shares. `unpaidCharges`: how many charges " +
+        'those are (all members). `unappliedCredit`: money paid in and not yet used, available for the next bills.',
+    })
     @Authorize('billing.view')
     @Get(':id')
     findOne(@Param('id') id: string, @OrganizationId() orgId: string) {
@@ -60,7 +64,10 @@ export class BillingAccountsController {
         return this.billingAccountsService.removeMember(id, patientId, user.sub, orgId);
     }
 
-    @ApiOperation({ summary: 'Record a deposit; pays targeted bills first, then the oldest unpaid' })
+    @ApiOperation({
+        summary: "Record a deposit; it pays the account's unpaid bills oldest first",
+        description: 'Each bill is paid in full while the money lasts; the one where it runs out is part-paid, and application stops there (PRD 10 §7.1). Anything left stays as unapplied credit. Patients held for payment are released in the same transaction. Returns `{ id, amount, createdAt, message }`.',
+    })
     @Authorize('billing.payment.receive')
     @Post(':id/deposits')
     deposit(

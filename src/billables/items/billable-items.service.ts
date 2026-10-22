@@ -5,7 +5,7 @@ import { $Enums, Prisma } from '../../../generated/prisma/client';
 import { CreateBillableItemDto, UpdateBillableItemDto } from '@shared/contracts/billables';
 import { inEffectAt, resolvePrice, selfPayAmount, selfPayAndPayerLines, visiblePrice } from '../pricing/pricing.rules';
 import { payerForPricing } from '../pricing/pricing.service';
-import { clinicChangeRefusal, itemUpdateRefusal, selfPayRefusal } from './items.rules';
+import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, selfPayRefusal } from './items.rules';
 
 export type CategoryItemsQuery = {
     status?: $Enums.CatalogStatus;
@@ -58,6 +58,48 @@ const searchByNameOrCode = (search?: string) => search ? {
         { code: { contains: search, mode: 'insensitive' as const } },
     ],
 } : {};
+
+/** findAll's filters, without the clinic. */
+const itemFilters = (organizationId: string, query: ItemsQuery) => ({
+    organizationId,
+    ...(query.categoryId && { categoryId: query.categoryId }),
+    ...(query.kind && { category: { kind: query.kind } }),
+    ...(query.status && { status: query.status }),
+    ...searchByNameOrCode(query.search),
+});
+
+/** What pricing an item needs: its category, current self-pay line and cost, clinics, and the payer's line. */
+const pricedInclude = (payerId: string | undefined, at: Date) => ({
+    category: { select: { id: true, name: true, kind: true, status: true } },
+    ...currentSelfPay(at),
+    prices:   { where: selfPayAndPayerLines(payerId, at), take: 2 },
+});
+
+type PricingPayer = { id: string; name: string; status: string; discounts: { id: string; percent: Prisma.Decimal }[] };
+
+function assertPayer(payerId: string | undefined, payer: PricingPayer | null) {
+    if (payerId && !payer) throw new NotFoundException('Payer not found');
+    if (payer && payer.status !== 'ACTIVE') throw new BadRequestException(`${payer.name} is inactive`);
+}
+
+/** An item as listed: present() plus `price` for the payer (§9.1), or `priceError` when it can't be priced. */
+function pricedDoc<T extends {
+    id: string; name: string; status: string; category: { kind: string; status: string };
+    prices: (PriceLine & { payerId: string | null; agreementId: string | null })[]; costs: CostRow[]; clinicLinks: ClinicLink[];
+}>({ prices, costs, ...item }: T, payer: PricingPayer | null, canSeeCost: boolean) {
+    const selfPayLine = prices.find(line => line.payerId === null);
+    const price = resolvePrice({
+        item:      { ...item, prices: selfPayLine ? [selfPayLine] : [], costs },
+        payer:     payer ?? undefined,
+        payerLine: prices.find(line => line.payerId !== null),
+        discount:  payer?.discounts[0],
+    });
+    return {
+        ...present(item, selfPayLine, costs[0], canSeeCost),
+        price:      typeof price === 'string' ? null : visiblePrice(price, canSeeCost),
+        priceError: typeof price === 'string' ? price : null,
+    };
+}
 
 const CODE_CONFLICT = 'An item with this code already exists';
 
@@ -145,7 +187,7 @@ export class BillableItemsService {
         };
 
         const [category, count, items] = await client.$transaction([
-            client.billableCategory.findFirst({ where: { id: categoryId, organizationId }, select: { id: true, name: true, kind: true, status: true } }),
+            client.billableCategory.findFirst({ where: { id: categoryId, organizationId }, select: { id: true } }),
             client.billableItem.count({ where }),
             client.billableItem.findMany({
                 where,
@@ -159,7 +201,6 @@ export class BillableItemsService {
 
         const canSeeCost = permissions.includes('billable.cost.view');
         return {
-            category,
             count,
             docs: items.map(({ prices: [line], costs: [cost], ...item }) => present(item, line, cost, canSeeCost)),
         };
@@ -176,50 +217,58 @@ export class BillableItemsService {
         const client = this.databaseService.client;
         const now = new Date();
         const where = {
-            organizationId,
-            ...(query.categoryId && { categoryId: query.categoryId }),
-            ...(query.kind && { category: { kind: query.kind } }),
+            ...itemFilters(organizationId, query),
             ...(query.clinicId && { clinicLinks: { some: { clinicId: query.clinicId } } }),
-            ...(query.status && { status: query.status }),
-            ...searchByNameOrCode(query.search),
         };
 
         const [count, items, payer] = await client.$transaction([
             client.billableItem.count({ where }),
-            client.billableItem.findMany({
-                where,
-                take:    query.limit,
-                skip:    query.offset,
-                orderBy: { name: 'asc' },
-                include: {
-                    category: { select: { id: true, name: true, kind: true, status: true } },
-                    ...currentSelfPay(now),
-                    prices:   { where: selfPayAndPayerLines(query.payerId, now), take: 2 },
-                },
-            }),
+            client.billableItem.findMany({ where, take: query.limit, skip: query.offset, orderBy: { name: 'asc' }, include: pricedInclude(query.payerId, now) }),
             client.payer.findFirst({ where: { id: query.payerId ?? '', organizationId }, select: payerForPricing(now) }),
         ]);
-        if (query.payerId && !payer) throw new NotFoundException('Payer not found');
-        if (payer && payer.status !== 'ACTIVE') throw new BadRequestException(`${payer.name} is inactive`);
+        assertPayer(query.payerId, payer);
+
+        const canSeeCost = permissions.includes('billable.cost.view');
+        return { count, docs: items.map(item => pricedDoc(item, payer, canSeeCost)) };
+    }
+
+    /**
+     * Items for a clinic (PRD 12 §4.4): the same search as findAll, with the items linked to the
+     * clinic first, then the rest, each by name, and `clinicMatch` on each. `kind` defaults to
+     * CONSULTATION. When nothing is linked, no item has `clinicMatch` and staff pick. Counts first
+     * (to know where the linked items end), then the page: two round trips.
+     */
+    async findForClinic(organizationId: string, clinicId: string, query: ItemsQuery, permissions: string[]) {
+        const client = this.databaseService.client;
+        const now = new Date();
+        const base = itemFilters(organizationId, { ...query, kind: query.kind ?? $Enums.ServiceCategory.CONSULTATION });
+        const linkedWhere = { ...base, clinicLinks: { some: { clinicId } } };
+        const otherWhere  = { ...base, clinicLinks: { none: { clinicId } } };
+
+        const [clinic, linkedCount, otherCount, payer] = await client.$transaction([
+            client.clinic.findFirst({ where: { id: clinicId, isActive: true }, select: { id: true } }),
+            client.billableItem.count({ where: linkedWhere }),
+            client.billableItem.count({ where: otherWhere }),
+            client.payer.findFirst({ where: { id: query.payerId ?? '', organizationId }, select: payerForPricing(now) }),
+        ]);
+        if (!clinic) throw new NotFoundException('Clinic not found or not active');
+        assertPayer(query.payerId, payer);
+
+        // the page runs through the linked items, then on into the rest
+        const page = clinicPage(linkedCount, query.offset, query.limit);
+        const include = pricedInclude(query.payerId, now);
+        const [linked, others] = await client.$transaction([
+            client.billableItem.findMany({ where: linkedWhere, skip: page.linked.skip, take: page.linked.take, orderBy: { name: 'asc' }, include }),
+            client.billableItem.findMany({ where: otherWhere,  skip: page.others.skip, take: page.others.take, orderBy: { name: 'asc' }, include }),
+        ]);
 
         const canSeeCost = permissions.includes('billable.cost.view');
         return {
-            payer: payer && { id: payer.id, name: payer.name },
-            count,
-            docs: items.map(({ prices, costs, ...item }) => {
-                const selfPayLine = prices.find(line => line.payerId === null);
-                const price = resolvePrice({
-                    item:      { ...item, prices: selfPayLine ? [selfPayLine] : [], costs },
-                    payer:     payer ?? undefined,
-                    payerLine: prices.find(line => line.payerId !== null),
-                    discount:  payer?.discounts[0],
-                });
-                return {
-                    ...present(item, selfPayLine, costs[0], canSeeCost),
-                    price:      typeof price === 'string' ? null : visiblePrice(price, canSeeCost),
-                    priceError: typeof price === 'string' ? price : null,
-                };
-            }),
+            count: linkedCount + otherCount,
+            docs: [
+                ...linked.map(item => ({ ...pricedDoc(item, payer, canSeeCost), clinicMatch: true })),
+                ...others.map(item => ({ ...pricedDoc(item, payer, canSeeCost), clinicMatch: false })),
+            ],
         };
     }
 

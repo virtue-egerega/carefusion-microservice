@@ -666,7 +666,9 @@ model AccountEntry {
   reversesId    String?          @unique
   modeOfPayment PaymentMode?
   reference     String?
-  description   String
+  description   String           // the narration: "Deposit", or what the cashier typed
+  paidByName    String?          // money in: who handed it over (10 §7.2)
+  paidByPhone   String?
   branchId      String
   createdAt     DateTime         @default(now())
   createdBy     String
