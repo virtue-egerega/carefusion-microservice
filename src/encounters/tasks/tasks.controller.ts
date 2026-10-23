@@ -29,7 +29,7 @@ export class TasksController {
         summary: "Finish this station's task, and send the patient on (nextQueueId) or let them go",
         description: 'Without nextQueueId, the encounter closes if no other station still has a task for the patient (encounterClosed in the response).',
     })
-    @Authorize('queue.call')
+    @Authorize()
     @Post(':id/complete')
     complete(
         @Param('id', ParseUUIDPipe) id: string,

@@ -60,6 +60,7 @@ model Organization {
   billableCategories     BillableCategory[]
   billableItems          BillableItem[]
   clinicBillableItems    ClinicBillableItem[]
+  consultations          Consultation[]
 
 }
 
@@ -295,6 +296,7 @@ model Clinic {
   consultationQueue   Queue      @relation("ClinicConsultation", fields: [consultationQueueId], references: [id])
   encounters          Encounter[]
   billableItems       ClinicBillableItem[]
+  consultations       Consultation[]
 
   @@index([departmentId])
 }
@@ -374,6 +376,8 @@ model Patient {
   accountEntries            AccountEntry[]
   encounters                Encounter[]
   queueEntries              QueueEntry[]
+  consultations             Consultation[]
+  diagnoses                 Diagnosis[]
 
   @@unique([hospitalId, patientNumber])
 
@@ -550,6 +554,8 @@ model Encounter {
   charges            Charge[]
   triages            TriageAssessment[]
   vitals             Vitals[]
+  consultations      Consultation[]
+  diagnoses          Diagnosis[]
 
   @@unique([organizationId, encounterNumber])
   @@unique([organizationId, code])
@@ -590,6 +596,7 @@ model QueueEntry {
   branch          Branch           @relation(fields: [branchId], references: [id])
   fromEntry       QueueEntry?      @relation("QueueRouting", fields: [fromEntryId], references: [id], onDelete: Cascade)
   routedTo        QueueEntry[]     @relation("QueueRouting")
+  consultation    Consultation?
 
   @@index([queueId, branchId, status, priority, readyAt])
   @@index([encounterId, status])
@@ -1728,4 +1735,262 @@ enum VitalsContext {
   WARD_ROUND
   PRE_OP
   POST_OP
+}
+
+
+// ------------ Consultations (14) ------------
+
+// The doctor's note for an encounter. Several per encounter; at most one per doctor's task (14 §2).
+// Draft while written by its author; signing locks it, and later additions are addenda (14 §7).
+model Consultation {
+  id                  String               @id @default(uuid())
+  organizationId      String
+  encounterId         String
+  patientId           String
+  queueEntryId        String?              @unique   // the doctor's task it was written in; null for a ward round
+  clinicId            String?                        // the encounter's clinic when started
+  doctorId            String                         // the author: only they edit the draft
+  type                ConsultationKind     @default(INITIAL)
+  status              ConsultationStatus   @default(DRAFT)
+
+  presentingHistory   String?                        // history of presenting complaint (14 §3.2)
+  pastSurgicalHistory String?
+  currentMedications  String?                        // drug history, including herbal / OTC (14 §3.5)
+  adherence           MedicationAdherence?
+  adherenceNote       String?
+  socialHistory       String?
+  smoking             SmokingStatus?
+  alcohol             AlcoholUse?
+  familyHistory       String?
+
+  birthHistory        String?                        // children (14 §3.8)
+  immunisationHistory String?
+  developmentHistory  String?
+  feedingHistory      String?
+
+  lastMenstrualPeriod DateTime?            @db.Date  // women of reproductive age (14 §3.8)
+  gravida             Int?
+  parity              Int?                           // births after 28 weeks: the "P2" of "G3P2+1"
+  abortions           Int?                           // losses before 28 weeks: the "+1"
+  contraception       String?
+
+  generalExamNote     String?
+  summary             String?
+  impression          String?
+  advice              String?                        // counselling and warning signs, printable for the patient
+  planNotes           String?
+  followUpOn          DateTime?            @db.Date
+  outcome             ConsultationOutcome?
+  outcomeNote         String?
+
+  startedAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  signedAt            DateTime?
+
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  encounter           Encounter            @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  patient             Patient              @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  queueEntry          QueueEntry?          @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
+  clinic              Clinic?              @relation(fields: [clinicId], references: [id])
+  complaints          ConsultationComplaint[]
+  systemReviews       ConsultationSystemReview[]
+  generalSigns        ConsultationGeneralSign[]
+  examinations        ConsultationExamination[]
+  diagnoses           Diagnosis[]
+  addenda             ConsultationAddendum[]
+
+  @@index([encounterId])
+  @@index([patientId, startedAt])
+  @@index([organizationId, doctorId, status])
+}
+
+// What the patient came with, in their words: "Fever × 3/7" (14 §3.1)
+model ConsultationComplaint {
+  id             String       @id @default(uuid())
+  consultationId String
+  complaint      String
+  duration       String?                            // free text: "3 days", "since childhood"
+  position       Int                                // the order the doctor listed them
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, position])
+}
+
+// Review of systems: one row per system asked about (14 §3.3)
+model ConsultationSystemReview {
+  id             String       @id @default(uuid())
+  consultationId String
+  system         BodySystem
+  normal         Boolean      @default(false)       // "nothing to note"
+  findings       String?
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, system])
+}
+
+// General examination checklist: a sign listed was examined, present or absent (14 §4.1)
+model ConsultationGeneralSign {
+  id             String       @id @default(uuid())
+  consultationId String
+  sign           GeneralSign
+  present        Boolean
+  grade          Int?                               // 1–3 (+ to +++), present signs only
+  note           String?
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, sign])
+}
+
+// Systemic examination: one row per system examined (14 §4.2)
+model ConsultationExamination {
+  id             String       @id @default(uuid())
+  consultationId String
+  system         BodySystem
+  normal         Boolean      @default(false)
+  findings       String?
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, system])
+}
+
+// A coded diagnosis. The patient's diagnoses across visits are their past medical history (14 §3.4, §5).
+model Diagnosis {
+  id             String              @id @default(uuid())
+  consultationId String
+  encounterId    String
+  patientId      String
+  codeSystem     DiagnosisCodeSystem @default(ICD_10)
+  code           String
+  description    String                             // copied from the code list at the time
+  isPrimary      Boolean             @default(false) // at most one per consultation (partial unique index in SQL)
+  certainty      DiagnosisCertainty
+  reported       Boolean             @default(false) // diagnosed elsewhere, from the history
+  note           String?
+  recordedBy     String
+  recordedAt     DateTime            @default(now())
+
+  consultation   Consultation        @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  encounter      Encounter           @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  patient        Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  diagnosisCode  DiagnosisCode       @relation(fields: [codeSystem, code], references: [codeSystem, code])
+
+  @@unique([consultationId, codeSystem, code])
+  @@index([patientId, recordedAt])
+  @@index([encounterId])
+}
+
+// The ICD-10 list, shared by every hospital; retired codes stay for old diagnoses (14 §5)
+model DiagnosisCode {
+  codeSystem DiagnosisCodeSystem
+  code       String                                 // "B54", "I10", "E11.9"
+  title      String
+  chapter    String?
+  isActive   Boolean             @default(true)
+
+  diagnoses  Diagnosis[]
+
+  @@id([codeSystem, code])
+}
+
+// Added to a signed note, attributed to whoever adds it (14 §7)
+model ConsultationAddendum {
+  id             String       @id @default(uuid())
+  consultationId String
+  text           String
+  addedBy        String
+  addedAt        DateTime     @default(now())
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@index([consultationId, addedAt])
+}
+
+enum ConsultationKind {
+  INITIAL
+  FOLLOW_UP
+  RESULT_REVIEW
+  REFERRAL
+  EMERGENCY
+  WARD_ROUND
+  ADMISSION_CLERKING
+  PRE_OPERATIVE
+}
+
+enum ConsultationStatus {
+  DRAFT
+  SIGNED
+}
+
+enum MedicationAdherence {
+  GOOD
+  PARTIAL
+  POOR
+  NOT_APPLICABLE
+}
+
+enum SmokingStatus {
+  NEVER
+  FORMER
+  CURRENT
+}
+
+enum AlcoholUse {
+  NONE
+  OCCASIONAL
+  REGULAR
+  HEAVY
+}
+
+enum BodySystem {
+  CONSTITUTIONAL
+  CARDIOVASCULAR
+  RESPIRATORY
+  GASTROINTESTINAL
+  GENITOURINARY
+  NEUROLOGICAL
+  MUSCULOSKELETAL
+  SKIN
+  ENT
+  EYES
+  BREAST
+  ENDOCRINE
+  PSYCHIATRIC
+  OTHER
+}
+
+enum GeneralSign {
+  PALLOR
+  JAUNDICE
+  CYANOSIS
+  CLUBBING
+  LYMPHADENOPATHY
+  OEDEMA
+  DEHYDRATION
+}
+
+enum DiagnosisCodeSystem {
+  ICD_10
+  ICD_11
+}
+
+enum DiagnosisCertainty {
+  PROVISIONAL
+  DIFFERENTIAL
+  CONFIRMED
+  RULED_OUT
+}
+
+enum ConsultationOutcome {
+  SENT_HOME
+  AWAITING_RESULTS
+  FOLLOW_UP
+  REFERRED_INTERNAL
+  REFERRED_OUT
+  ADMIT
+  LEFT_AGAINST_ADVICE
+  DIED
 }

@@ -21,22 +21,16 @@ export function vitalsProblem(reading: Reading): string | null {
 // A device or phone clock a little ahead of the server's isn't a reading from the future
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-/** Why `takenAt` can't be right: before the patient arrived, or in the future. Null if it's fine. */
-export function takenAtProblem(takenAt: Date, arrivedAt: Date, now: Date): string | null {
-    if (takenAt.getTime() > now.getTime() + CLOCK_SKEW_MS) return "A reading can't be taken in the future";
-    if (takenAt < arrivedAt) return 'A reading must be taken after the patient arrived';
-    return null;
-}
 
 /**
  * A correction's new reading: the old reading with the changed fields applied (11 §9). A field sent
  * as null clears it; a field left out keeps the old value.
  */
-export function correctedReading<T extends Reading & { takenAt: Date; notes: string | null }>(
-    old: T, changes: Reading & { takenAt?: Date; notes?: string | null },
+export function correctedReading<T extends Reading & { notes: string | null }>(
+    old: T, changes: Reading & { notes?: string | null },
 ) {
-    const merged = { takenAt: changes.takenAt ?? old.takenAt, notes: changes.notes !== undefined ? changes.notes : old.notes } as
-        Record<VitalField, unknown> & { takenAt: Date; notes: string | null };
+    const merged = {notes: changes.notes !== undefined ? changes.notes : old.notes } as
+        Record<VitalField, unknown> & { notes: string | null };
     for (const field of VITAL_FIELDS) merged[field] = changes[field] !== undefined ? changes[field] : old[field];
     return merged;
 }

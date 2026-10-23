@@ -5,7 +5,7 @@ import { $Enums } from '../../generated/prisma/client';
 import { CorrectVitalsDto, RecordTriageDto, RecordVitalsDto, VitalsQueryDto } from '@shared/contracts/triage';
 import { loadActors } from '../billables/actors';
 import { ACTIVE_TASK } from '../encounters/tasks/tasks.rules';
-import { correctedReading, retriageProblem, takenAtProblem, vitalsProblem } from './rules/triage.rules';
+import { correctedReading, retriageProblem, vitalsProblem } from './rules/triage.rules';
 
 const VITALS_SELECT = {
     id: true, context: true, takenAt: true, notes: true,
@@ -25,12 +25,12 @@ export class TriageService {
 
     /** Records one reading on an open encounter (11 §9). */
     async recordVitals(encounterId: string, dto: RecordVitalsDto, organizationId: string, recordedBy: string) {
-        const encounter = await this.openEncounter(encounterId, organizationId);
-        const problem = vitalsProblem(dto) ?? takenAtProblem(dto.takenAt, encounter.arrivedAt, new Date());
+        await this.openEncounter(encounterId, organizationId);
+        const problem = vitalsProblem(dto);
         if (problem) throw new BadRequestException(problem);
-
+        
         const { id } = await this.databaseService.client.vitals.create({
-            data:   { ...dto, context: dto.context as $Enums.VitalsContext | undefined, encounterId, recordedBy },
+            data:   { ...dto, takenAt: new Date(), context: dto.context as $Enums.VitalsContext | undefined, encounterId, recordedBy },
             select: { id: true },
         });
         return { id, message: 'Vital signs recorded' };
@@ -53,12 +53,13 @@ export class TriageService {
 
         const { editReason, ...changes } = dto;
         const reading = correctedReading(old, changes);
-        const problem = vitalsProblem(reading) ?? takenAtProblem(reading.takenAt, old.encounter.arrivedAt, new Date());
+        const problem = vitalsProblem(reading);
         if (problem) throw new BadRequestException(problem);
 
         const { id } = await withConstraintErrors(
             () => client.vitals.create({
                 data: {
+                    takenAt: new Date(),
                     encounterId: old.encounterId,
                     context:     old.context,
                     ...reading,

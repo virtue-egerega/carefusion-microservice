@@ -7,6 +7,9 @@ action below).
 Referenced by: future Pharmacy, Laboratory, and Radiology features (they fulfill the orders
 created here).
 
+> **Superseded in part.** `Consultation` and `Diagnosis` (§2) are replaced by `14-consultations.md`;
+> `Vitals` (§3) by `11` §9. Orders (§5) are redesigned in `14` §10.
+
 ## 1. What Problem This Solves
 
 Once a patient reaches a doctor or nurse in a queue (`04`), something clinical has to actually get

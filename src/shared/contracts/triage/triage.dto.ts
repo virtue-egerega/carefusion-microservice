@@ -13,10 +13,6 @@ const bool = ({ value }: { value: unknown }) => value === true || value === 'tru
 // The limits catch typos (385 for 38.5), not abnormal values: an abnormal reading is recorded as taken.
 
 export class RecordVitalsDto {
-    @ApiProperty({ type: String, format: 'date-time', description: 'When the reading was taken, not when it was typed' })
-    @Type(() => Date) @IsDate()
-    takenAt!: Date;
-
     @ApiProperty({ enum: VitalsContext, required: false, default: VitalsContext.TRIAGE })
     @IsEnum(VitalsContext) @IsOptional()
     context?: VitalsContext;

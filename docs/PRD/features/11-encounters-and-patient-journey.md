@@ -755,44 +755,8 @@ against the inpatient encounter.
 
 ## 10. Consultation (re-anchored from `08` §2)
 
-### 10.1 Changes to `08`
-
-- `Consultation.appointmentId @unique` becomes **`encounterId`** (not unique) plus an optional
-  `queueEntryId`. An encounter can have several consultations: the triage doctor and then a
-  specialist, an emergency doctor and then a surgical review, every ward round of an admission.
-- New field **`consultationType`**:
-
-```prisma
-enum ConsultationType {
-  INITIAL           // first consultation of the encounter
-  FOLLOW_UP         // in a follow-up encounter (§15.3)
-  RESULT_REVIEW     // reviewing results within the same encounter
-  REFERRAL          // seen on internal referral (§15.1)
-  EMERGENCY         // emergency assessment
-  WARD_ROUND        // inpatient daily review (§13.6)
-  ADMISSION_CLERKING // full admission history & examination
-  PRE_OPERATIVE
-}
-```
-
-- Draft → signed → immutable, with addenda as `ClinicalNote`s: unchanged from `08` §6.
-- **`Diagnosis` gains `certainty`** (`PROVISIONAL`, `DIFFERENTIAL`, `CONFIRMED`, `RULED_OUT`). An
-  emergency doctor's working diagnosis is provisional, and the ward confirms or rules it out
-  later. Without this, a provisional diagnosis is indistinguishable from a confirmed one in the
-  patient's history.
-
-### 10.2 Who can consult
-
-Doctors (and nurse practitioners where the hospital permits) with `consultation.create` in the
-queue the patient is in (`05` §7). Signing requires `consultation.sign`. A trainee's (house
-officer's) consultation may need co-signature by a senior. **[Q 13]**
-
-### 10.3 Templates
-
-Specialties need different structured fields: antenatal (gestational age, fundal height, fetal
-heart rate), dental (tooth chart), ophthalmology (visual acuity). v1 keeps `08`'s general
-structure for every specialty. Specialty templates are flagged as a follow-up feature. Until then,
-specialty-specific findings go in the free-text sections. **[Q 15]**
+The consultation note (what it records, diagnoses, signing and addenda) is defined in
+**`14-consultations.md`**, which replaces §10.1–10.3. Consultations are their own top-level module.
 
 ### 10.4 Consultation fee
 
@@ -1205,8 +1169,8 @@ Added here:
 | ~~`queue.send`~~ *(retired)* | Sending needs no key: any staff member may send to the queues on their send lists (§5.7) | — |
 | `queue.payment.override` | Release a payment-held entry / waive an admission deposit | Consultant, emergency lead, supervisor |
 | `triage.view`, `triage.create` *(built)* | See / record triage and vitals (§8, §9); replace `vitals.record` | Doctor, nurse, pharmacist |
-| `consultation.create` *(exists)* | Write a consultation | Doctor |
-| `consultation.sign` | Sign consultations and discharge summaries | Doctor (senior, if co-signature applies **[Q 13]**) |
+| `consultation.view`, `consultation.create` | Read / write and sign consultations (`14` §8) | Doctor |
+| `consultation.sign` | Co-sign trainees' notes; sign discharge summaries | Doctor (senior, if co-signature applies **[Q 13]**) |
 | `order.cancel` | Cancel an order (§11.3) | Ordering doctor |
 | `admission.request` | Request admission | Doctor |
 | `bed.assign` | Assign / transfer beds | Bed manager, ward nurse |
@@ -1247,8 +1211,7 @@ are done by different people.
 | `/queue-entries/:id/priority` | PATCH | `queue.manage` | Raise / lower, with reason |
 | `/queue-entries/:id/release-hold` | POST | `queue.payment.override` | Override a payment hold, with reason |
 | `/encounters/:id/triage`, `/encounters/:id/vitals`, `/vitals/:id` | | `triage.view` / `triage.create` | **Built.** §9.1 |
-| `/encounters/:id/consultations` | POST | `consultation.create` | Start a consultation |
-| `/consultations/:id` / `…/sign` | PATCH / POST | `consultation.create` / `consultation.sign` | Edit draft / sign |
+| `/encounters/:id/consultations`, `/consultations/:id`, … | | `consultation.view` / `consultation.create` | See `14` §9 |
 | `/encounters/:id/admissions` | POST | `admission.request` | Request admission |
 | `/admissions/:id/assign-bed` | POST | `bed.assign` | Admit into a bed (§13.4) |
 | `/encounters/:id/bed-transfer` | POST | `bed.assign` | Transfer |

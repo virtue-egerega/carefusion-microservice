@@ -23,8 +23,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     // Clinical
     { key: 'triage.view',            name: 'View Triage',             description: "See an encounter's triage assessment and vital signs" },
     { key: 'triage.create',          name: 'Record Triage',           description: 'Record triage and vital signs; re-triage, correct and remove readings' },
-    { key: 'consultation.create',    name: 'Create Consultation',     description: 'Create consultation notes' },
-    { key: 'diagnosis.create',       name: 'Record Diagnosis',        description: 'Record patient diagnoses' },
+    { key: 'consultation.view',      name: 'View Consultations',      description: "Read consultation notes and a patient's diagnoses" },
+    { key: 'consultation.create',    name: 'Write Consultations',     description: 'Write, diagnose and sign your own consultation notes; add addenda to signed notes' },
     { key: 'prescription.create',    name: 'Write Prescription',      description: 'Write prescriptions' },
     { key: 'prescription.dispense',  name: 'Dispense Medication',     description: 'Dispense medication' },
     { key: 'lab.request',            name: 'Request Lab Test',        description: 'Request laboratory tests' },
@@ -106,6 +106,8 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
     // and keep seeing what they record (reading triage and vitals needs triage.view)
     'vitals.record':   ['triage.create', 'triage.view'],
     'billing.create':  ['billing.charge.create'],
+    // a diagnosis is only recorded in a consultation (14 §8)
+    'diagnosis.create': ['consultation.create', 'consultation.view'],
     // every staff member sends the patient on; the duty profile's send list is the control (11 §5.7)
     'queue.send':      [],
     // "receive payments" and "approve" must not share a key (PRD 10 §8); approval is granted separately
