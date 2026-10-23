@@ -127,9 +127,9 @@ Nursing Station; Antenatal and Postnatal → O&G Nursing Station).
   on it twice. Being on both lists at once is normal: the patient pays while the nurse takes their
   vitals.
 
-**Reception records no clinical details.** The reason for the visit and any referral are recorded
-at the nursing station during triage (§8): the nurse's chief complaint becomes the encounter's
-`reasonForVisit`.
+**Reception records no clinical details.** The reason for the visit is recorded at the nursing
+station during triage (§8): the nurse's presenting complaint becomes the encounter's
+`reasonForVisit`. Referrals are recorded when the encounter starts (designed later).
 
 **No doctor is chosen at check-in, or anywhere in the system.** Reception records clinics and
 queues, never a doctor. A patient who wants a particular doctor sorts it out where the doctors' list
@@ -186,6 +186,7 @@ model Encounter {
   ageAtArrivalDays  Int?                                 // snapshot: age on the day the encounter opened (06 §2.7); null if DOB unknown
   ageGroup          AgeGroup?                            // snapshot: group under the cutoffs in force that day
   acuity            Acuity?                              // latest emergency triage acuity, for task-list ordering
+  triagePriority    QueuePriority?                       // latest triage priority (§8.1), given to the encounter's tasks
   coverageId        String?                              // chosen at check-in (10 §5); null = self-pay
   referringFacility String?
   referringClinician String?
@@ -510,8 +511,9 @@ patient go. Defaults the frontend should suggest:
 | Doctor | Created by orders: lab, imaging, pharmacy, procedure room… Otherwise nowhere |
 | Pharmacy, lab, cashier… | Back to the doctor if they're seeing them again, otherwise nowhere |
 
-**Sending a patient without working a task.** Reception (and anyone else allowed) can put a patient
-on another station's list: `POST /encounters/:id/tasks`, or `sendTo` at check-in. Only to queues on
+**Sending a patient without working a task.** Any staff member can put a patient on another
+station's list: `POST /encounters/:id/tasks`, or `sendTo` at check-in. Every station sends patients
+on, so this needs no permission key (the old `queue.send` is retired); the control is the queues on
 the caller's duty profiles' **send lists**:
 
 ```prisma
@@ -634,69 +636,122 @@ nursing station, doctors' queue, consultation template and fees (`01` §3.2).
 
 ## 8. Triage
 
-Two flavours share one model:
+Triage is its own top-level module (`src/triage/`), like consultations: the nursing station's
+assessment of an encounter, and the vital signs taken during it. Permissions: **`triage.view`**
+(read) and **`triage.create`** (record, re-triage, correct and remove readings), for the doctors,
+nurses and pharmacists who triage. `triage.create` replaces the old `vitals.record`, whose holders
+carry over.
 
-- **Outpatient triage** (at the clinic's nursing station): vitals plus a short chief complaint, to
-  prioritise the doctors' list. No acuity scale required. The chief complaint is copied to
-  `Encounter.reasonForVisit`, so every task list shows why the patient came. **Referrals are recorded here**: the
-  nurse sets `visitType = REFERRAL_IN` and the referring facility and clinician (internal or
-  external), from the referral letter.
-- **Emergency triage** (the Emergency department's Triage Queue): a formal acuity scale. Recommended default: the **South African Triage
-  Scale** (with a vitals-based early warning score), which is widely used in Nigerian emergency
-  departments. Acuity is stored as clinical levels (`IMMEDIATE`, `VERY_URGENT`, `URGENT`,
-  `ROUTINE`, `DEAD_ON_ARRIVAL`); the frontend shows each scale's colours (SATS red, orange,
-  yellow, green, blue). The scale is configurable per
-  organisation. **[Q 8]**
+**Outpatient triage** (the clinic's nursing station) is built now. **Emergency triage** with a formal
+acuity scale (SATS by default, `Encounter.acuity`) comes later **[Q 8]**. **Referrals** are recorded
+when the encounter starts, not at triage; that's designed later.
+
+### 8.1 The assessment
+
+One current assessment per encounter. Re-triaging, or correcting it, records a **new version** that
+replaces the previous one; the old version stays on record, never edited.
 
 ```prisma
 model TriageAssessment {
-  id             String       @id @default(uuid())
-  encounterId    String
-  queueEntryId   String?
-  scale          TriageScale
-  acuity         Acuity?                              // required for emergency scales
-  earlyWarningScore Int?                              // e.g. SATS TEWS, computed from the linked vitals
-  chiefComplaint String
-  painScore      Int?                                 // 0–10
-  discriminators String[]                             // e.g. "active seizure", "chest pain"
-  vitalsId       String?
-  notes          String?
-  triagedBy      String
-  triagedAt      DateTime     @default(now())
-
-  encounter      Encounter    @relation(fields: [encounterId], references: [id])
-  vitals         Vitals?      @relation(fields: [vitalsId], references: [id])
-
-  @@index([encounterId, triagedAt])
+  id                  String          @id @default(uuid())
+  encounterId         String
+  presentingComplaint String                      // copied to Encounter.reasonForVisit
+  onset               String?                     // free text: "2 days ago"
+  painLocation        String?
+  avpu                Avpu                        // level of consciousness
+  dangerSigns         DangerSign[]                // none or more
+  priority            QueuePriority               // the nurse's decision
+  suggestedPriority   QueuePriority?              // what the protocol suggested, kept beside it
+  replacesId          String?         @unique     // the version this one replaces; one replacement each
+  changeReason        String?                     // why it was re-triaged or corrected
+  triagedBy           String
+  triagedAt           DateTime        @default(now())
 }
 
-enum TriageScale {
-  OPD_BASIC
-  SATS
-  ESI
-  MANCHESTER
-}
+enum Avpu       { ALERT VOICE PAIN UNRESPONSIVE }
+enum DangerSign { UNABLE_TO_DRINK PERSISTENT_VOMITING CONVULSIONS LETHARGY SEVERE_DEHYDRATION DIFFICULTY_BREATHING }
 ```
 
-**Re-triage** adds a new row. It never edits the old one. The latest acuity is copied to
-`Encounter.acuity` and reorders the patient's open emergency queue entries. A patient whose
-waiting time exceeds their acuity's target (`IMMEDIATE` at once, `VERY_URGENT` 10 min, `URGENT`
-60 min, `ROUTINE` 4 h) is flagged on the task list for re-triage.
+**Priority, not acuity.** Outpatient triage sets **task priority** (`EMERGENCY` / `URGENT` /
+`ROUTINE`, §5.2), which the doctors' list already sorts by. The latest assessment's priority is
+copied to `Encounter.triagePriority`, applied to the encounter's active tasks, and given to every
+task created for the encounter after it, so the doctors' list orders by it without anyone raising
+priority by hand.
+
+**The suggested priority** is worked out by the frontend from the hospital's triage protocol and sent
+as `suggestedPriority`, beside the nurse's `priority`; the record shows both. The protocol (which
+vitals count as abnormal, by age group) is still to be confirmed by the medical lead, so the backend
+doesn't compute it yet. When it's confirmed, the rule and the age-based normal ranges move to the
+backend and are served to the frontend, so they're defined once.
+
+Recording an assessment doesn't move the patient: sending them on to the doctors' list is still
+completing the triage task (§5.3), which creates the doctors' task `AWAITING_SERVICE` (§6.2).
+
+### 8.2 Rules
+
+- The encounter must be the caller's organisation's and `OPEN`.
+- A new version must replace the current one (the client sends nothing: the backend links it). Two
+  nurses re-triaging at once can't both replace the same version (`replacesId` is unique).
 
 ## 9. Vitals (re-anchored from `08` §3)
 
-`Vitals.appointmentId` becomes **`encounterId`**, so the same model serves outpatient triage,
-emergency observations and inpatient ward observations. `08` §3 had deferred inpatient vitals to a
-later feature; they live here now.
+A nurse can take vitals several times in an encounter; each reading is one row, tied to the
+encounter, so the same model serves outpatient triage, emergency observations and ward rounds.
 
-Added fields: `gcs Int?` (Glasgow Coma Scale, 3–15), `bloodGlucose Decimal?` (mmol/L),
-`painScore Int?`, `headCircumference Decimal?` and `muac Decimal?` (paediatrics), and `context`
-(`TRIAGE`, `OBSERVATION`, `WARD_ROUND`, `PRE_OP`, `POST_OP`). Units are fixed per field and
-documented in the API (kg, cm, °C, mmHg, %, breaths/min, beats/min), never free text.
+```prisma
+model Vitals {
+  id              String        @id @default(uuid())
+  encounterId     String
+  context         VitalsContext @default(TRIAGE)
+  takenAt         DateTime                       // when it was taken, not typed; required
+  temperature     Decimal?      @db.Decimal(3, 1) // °C, 30–45
+  pulse           Int?                            // bpm, 20–250
+  respiratoryRate Int?                            // /min, 4–90
+  systolic        Int?                            // mmHg, 40–260
+  diastolic       Int?                            // mmHg, 20–160
+  spo2            Int?                            // %, 50–100
+  painScore       Int?                            // 0–10
+  bloodGlucose    Decimal?      @db.Decimal(3, 1) // mmol/L, 1–35
+  weight          Decimal?      @db.Decimal(5, 2) // kg, 0.3–350
+  height          Decimal?      @db.Decimal(4, 1) // cm, 20–250
+  notes           String?
+  replacesId      String?       @unique          // a correction replaces the reading it corrects
+  editReason      String?                        // required on a correction
+  removedAt       DateTime?                      // removed readings stay on record, struck through
+  removedBy       String?
+  removeReason    String?
+  recordedBy      String
+  recordedAt      DateTime      @default(now())
+}
+
+enum VitalsContext { TRIAGE OBSERVATION WARD_ROUND PRE_OP POST_OP }
+```
+
+- **At least one vital**, and **blood pressure comes as a pair** (systolic and diastolic together,
+  or neither).
+- **The limits catch typos** (385 for 38.5), not abnormal values: an abnormal reading is recorded as
+  taken. Units are fixed per field.
+- **`takenAt`** is a full date and time, no earlier than the patient's arrival and not in the future.
+- **Correcting a reading** saves the corrected reading as a new row replacing it, with `editReason`;
+  the original stays on record. **Removing** sets `removedAt` / `removedBy` / `removeReason`; the
+  reading stays visible, struck through. A replaced or removed reading can't be corrected again.
+- The extra fields of the earlier design (GCS, MUAC, head circumference) are added when the forms
+  need them.
 
 **Inpatient observation charts** (frequency orders such as "4-hourly vitals", fluid balance,
 neuro-observations) belong to the Nursing PRD. They write `Vitals(context = OBSERVATION)` rows
 against the inpatient encounter.
+
+### 9.1 Triage APIs
+
+| Endpoint | Method | Permission | Purpose |
+|---|---|---|---|
+| `/encounters/:id/triage` | POST | `triage.create` | Record the assessment, or re-triage (`changeReason`): a new version replacing the current one; `{ id, message }` |
+| `/encounters/:id/triage` | GET | `triage.view` | The current assessment and its earlier versions, newest first |
+| `/encounters/:id/vitals` | POST | `triage.create` | Record a reading; `{ id, message }` |
+| `/encounters/:id/vitals` | GET | `triage.view` | `{ count, docs }` by `takenAt`, newest first; filters `context`, `from` / `to`, `includeRemoved` (default true), `includeReplaced` (default false); `limit` / `offset` |
+| `/vitals/:id` | PATCH | `triage.create` | Correct a reading: the changed fields plus `editReason`; `{ id, message }` (the new reading) |
+| `/vitals/:id/remove` | POST | `triage.create` | `{ reason }`; `{ message }` |
 
 ## 10. Consultation (re-anchored from `08` §2)
 
@@ -1147,10 +1202,9 @@ Added here:
 | `encounter.reopen` | Reopen a closed encounter | Billing supervisor, records |
 | `queue.view`, `queue.manage` *(exist)* | See a task list; re-prioritise; cancel a task with a reason | — |
 | `queue.call` *(built)* | Call, start and complete tasks on one's queues, and send the patient on | Every station's staff |
-| `queue.send` *(built)* | Put patients on the queues of one's send lists (billing, nursing stations) | Reception |
+| ~~`queue.send`~~ *(retired)* | Sending needs no key: any staff member may send to the queues on their send lists (§5.7) | — |
 | `queue.payment.override` | Release a payment-held entry / waive an admission deposit | Consultant, emergency lead, supervisor |
-| `triage.record` | Triage assessment | Nurse |
-| `vitals.record` *(exists)* | Vitals | Nurse |
+| `triage.view`, `triage.create` *(built)* | See / record triage and vitals (§8, §9); replace `vitals.record` | Doctor, nurse, pharmacist |
 | `consultation.create` *(exists)* | Write a consultation | Doctor |
 | `consultation.sign` | Sign consultations and discharge summaries | Doctor (senior, if co-signature applies **[Q 13]**) |
 | `order.cancel` | Cancel an order (§11.3) | Ordering doctor |
@@ -1176,8 +1230,8 @@ are done by different people.
 | `/charges/patients/:patientId` | GET | `billing.view` | **Built.** Every charge the patient incurred, newest first, whoever pays: date and time, kind, the service or item (`description`, `billableItem`), `quantity`, `unitPrice`, `amount`, and `shares`, one per party that owes part of it (`owedBy` ACCOUNT / PAYER / HOSPITAL, `amount, paid, outstanding, paymentStatus`, plus the account, or the payer, plan and member number); `encounterId`, `limit`, `offset`. What the patient must pay is a separate list |
 | `/encounters/open?patientId=` | GET | `encounter.create` | **Built.** The patient's unfinished visit at this branch and its remaining tasks |
 | `/encounters/follow-up` | GET | `encounter.follow_up` | **Built.** Unfinished visits with no task activity today (§14.2) |
-| `/queues/sendable` | GET | `queue.send` | **Built.** The queues the caller can send patients to (§5.7) |
-| `/encounters/:id/tasks` | POST | `queue.send` | **Built.** Put the patient on one of those lists, e.g. billing |
+| `/queues/sendable` | GET | any staff | **Built.** The queues the caller can send patients to (§5.7) |
+| `/encounters/:id/tasks` | POST | any staff | **Built.** Put the patient on one of those lists, e.g. billing |
 | `/duty-profiles/:id/send-queues` | POST / DELETE | `duty_profile.manage` | **Built.** Manage a profile's send list |
 | `/appointments/:id/check-in` | POST | `encounter.create` | Check in a booking: creates the encounter |
 | `/encounters/:id` | GET | access rule (`05` §7) | Encounter with its entries, triage, consultations, orders, charges |
@@ -1192,8 +1246,7 @@ are done by different people.
 | `/queue-entries/:id/cancel` | POST | `queue.manage` | **Built.** Cancel with a reason; `patientLeft` records the leaving disposition (§14.2) |
 | `/queue-entries/:id/priority` | PATCH | `queue.manage` | Raise / lower, with reason |
 | `/queue-entries/:id/release-hold` | POST | `queue.payment.override` | Override a payment hold, with reason |
-| `/encounters/:id/triage` | POST | `triage.record` | Triage / re-triage |
-| `/encounters/:id/vitals` | POST | `vitals.record` | Vitals |
+| `/encounters/:id/triage`, `/encounters/:id/vitals`, `/vitals/:id` | | `triage.view` / `triage.create` | **Built.** §9.1 |
 | `/encounters/:id/consultations` | POST | `consultation.create` | Start a consultation |
 | `/consultations/:id` / `…/sign` | PATCH / POST | `consultation.create` / `consultation.sign` | Edit draft / sign |
 | `/encounters/:id/admissions` | POST | `admission.request` | Request admission |

@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Avpu, DangerSign, VitalsContext } from '@shared/enums/triage/triage.enums';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   UserType, UserStatus, HospitalStaffRole, Gender, MaritalStatus,
@@ -73,6 +74,11 @@ export class EnumsController {
         queuePriority: toOptions(QueuePriority),
         queueEntryStatus: toOptions(QueueEntryStatus),
         holdReason: toOptions(HoldReason),
+      },
+      triage: {
+        avpu: toOptions(Avpu),
+        dangerSign: toOptions(DangerSign),
+        vitalsContext: toOptions(VitalsContext),
       },
       notifications: {
         notificationType: toOptions(NotificationType),

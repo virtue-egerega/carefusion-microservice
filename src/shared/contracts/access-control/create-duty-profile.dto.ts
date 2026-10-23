@@ -30,7 +30,7 @@ export class CreateDutyProfileDto {
     @IsOptional()
     sendQueueIds?: string[];
 
-    @ApiProperty({ description: 'Permission keys to grant, e.g. ["patient.view","vitals.record"]', type: [String], required: false })
+    @ApiProperty({ description: 'Permission keys to grant, e.g. ["patient.view","triage.create"]', type: [String], required: false })
     @IsArray()
     @IsString({ each: true })
     @IsOptional()

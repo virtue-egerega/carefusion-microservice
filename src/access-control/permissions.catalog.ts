@@ -21,7 +21,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'patient.assign',   name: 'Assign Patient',      description: 'Assign a patient to a staff member or department' },
 
     // Clinical
-    { key: 'vitals.record',          name: 'Record Vitals',           description: 'Record patient vital signs' },
+    { key: 'triage.view',            name: 'View Triage',             description: "See an encounter's triage assessment and vital signs" },
+    { key: 'triage.create',          name: 'Record Triage',           description: 'Record triage and vital signs; re-triage, correct and remove readings' },
     { key: 'consultation.create',    name: 'Create Consultation',     description: 'Create consultation notes' },
     { key: 'diagnosis.create',       name: 'Record Diagnosis',        description: 'Record patient diagnoses' },
     { key: 'prescription.create',    name: 'Write Prescription',      description: 'Write prescriptions' },
@@ -39,7 +40,6 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'queue.view',         name: 'View Queue',           description: 'View queue entries' },
     { key: 'queue.manage',       name: 'Manage Queue',         description: 'Add, remove or reorder queue entries' },
     { key: 'queue.call',         name: 'Work Queue Tasks',     description: 'Call, start and complete tasks on your queues, and send the patient on' },
-    { key: 'queue.send',         name: 'Send Patients',        description: "Put patients on other stations' lists (billing, nursing stations) from your duty profiles' send lists" },
     { key: 'appointment.create', name: 'Book Appointment',     description: 'Book appointments' },
     { key: 'appointment.manage', name: 'Manage Appointments',  description: 'Reschedule or cancel appointments' },
     { key: 'encounter.create',   name: 'Create Encounter',     description: 'Open a patient visit or walk-in encounter' },
@@ -102,7 +102,12 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
 // replacements (system-seeded profiles excluded — their sets come from SYSTEM_DUTY_PROFILES),
 // then the old Permission row is deleted.
 export const RETIRED_PERMISSIONS: Record<string, string[]> = {
+    // triage is its own module with its own keys (11 §8); holders of vitals.record keep recording,
+    // and keep seeing what they record (reading triage and vitals needs triage.view)
+    'vitals.record':   ['triage.create', 'triage.view'],
     'billing.create':  ['billing.charge.create'],
+    // every staff member sends the patient on; the duty profile's send list is the control (11 §5.7)
+    'queue.send':      [],
     // "receive payments" and "approve" must not share a key (PRD 10 §8); approval is granted separately
     'billing.approve': ['billing.payment.receive'],
     // Split so reception can open/join accounts while removals stay with Accounts
@@ -173,7 +178,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         sendQueueKeys: ['CASHIER_QUEUE', ...new Set(CLINIC_CATALOG.map(c => c.triageQueue))],
         permissions: [
             'patient.register', 'patient.list', 'patient.view', 'patient.edit', 'patient.assign',
-            'queue.view', 'queue.manage', 'queue.send',
+            'queue.view', 'queue.manage',
             'appointment.create', 'appointment.manage',
             'encounter.create', 'encounter.follow_up',
             'billing.view', 'billing.account.create', 'billing.account.member.add', 'coverage.view', 'coverage.select',

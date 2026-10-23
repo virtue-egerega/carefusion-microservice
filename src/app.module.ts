@@ -22,6 +22,7 @@ import { StaffModule } from './staff/staff.module';
 import { EncountersModule } from './encounters/encounters.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { QueueManagementModule } from'./queue-management/queue-management.module';
+import { TriageModule } from './triage/triage.module';
 
 @Module({
     imports: [
@@ -45,6 +46,7 @@ import { QueueManagementModule } from'./queue-management/queue-management.module
         StaffModule,
         EncountersModule,
         QueueManagementModule,
+        TriageModule,
         ClinicsModule,
     ],
     controllers: [AppController],

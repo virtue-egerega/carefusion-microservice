@@ -11,7 +11,7 @@ export class SendingController {
     constructor(private readonly sendingService: SendingService) {}
 
     @ApiOperation({ summary: 'Queues you can send patients to (your duty profiles\' send lists): billing, nursing stations…' })
-    @Authorize('queue.send')
+    @Authorize()
     @Get('queues/sendable')
     sendable(@CurrentUser() user: AuthUser) {
         return this.sendingService.sendable(user);
@@ -21,7 +21,7 @@ export class SendingController {
         summary: "Put the patient on another station's list, e.g. send them to billing",
         description: 'The visit must be open. A clinic doctors\' task waits for payment when the hospital collects before consultation.',
     })
-    @Authorize('queue.send')
+    @Authorize()
     @Post('encounters/:id/tasks')
     addTask(
         @Param('id', ParseUUIDPipe) id: string,

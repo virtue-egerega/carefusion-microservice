@@ -514,6 +514,7 @@ model Encounter {
   ageAtArrivalDays   Int?                                 // snapshot at check-in (06 §2.7); null if DOB unknown
   ageGroup           AgeGroup?                            // snapshot under the cutoffs in force that day
   acuity             Acuity?                              // latest emergency triage acuity, for task-list ordering
+  triagePriority     QueuePriority?                       // latest outpatient triage priority, given to the encounter's tasks (11 §8.1)
   coverageId         String?                              // chosen at check-in (10 §5); null = self-pay
   referringFacility  String?
   referringClinician String?
@@ -547,6 +548,8 @@ model Encounter {
   coverage           Coverage?       @relation(fields: [coverageId], references: [id], onDelete: Cascade)
   queueEntries       QueueEntry[]
   charges            Charge[]
+  triages            TriageAssessment[]
+  vitals             Vitals[]
 
   @@unique([organizationId, encounterNumber])
   @@unique([organizationId, code])
@@ -1642,4 +1645,87 @@ enum HoldReason {
   AWAITING_PAYMENT   // the payment gate (11 §6)
   AWAITING_PREAUTH
   AWAITING_RESULT
+}
+
+// ------------ Triage (11 §8–9) ------------
+
+// The nursing station's assessment of an encounter. One current version; re-triaging or correcting
+// adds a version that replaces it, and the old one stays on record (11 §8.1).
+model TriageAssessment {
+  id                  String            @id @default(uuid())
+  encounterId         String
+  presentingComplaint String                                // copied to Encounter.reasonForVisit
+  onset               String?                               // free text: "2 days ago"
+  painLocation        String?
+  avpu                Avpu                                  // level of consciousness
+  dangerSigns         DangerSign[]
+  priority            QueuePriority                         // the nurse's decision
+  suggestedPriority   QueuePriority?                        // what the protocol suggested, kept beside it
+  replacesId          String?           @unique             // the version this one replaces
+  changeReason        String?                               // why it was re-triaged or corrected
+  triagedBy           String
+  triagedAt           DateTime          @default(now())
+
+  encounter           Encounter         @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  replaces            TriageAssessment? @relation("TriageVersions", fields: [replacesId], references: [id], onDelete: Cascade)
+  replacedBy          TriageAssessment? @relation("TriageVersions")
+
+  @@index([encounterId, triagedAt])
+}
+
+// One reading of vital signs. Corrections add a reading that replaces it; removals keep it on
+// record, struck through (11 §9).
+model Vitals {
+  id              String        @id @default(uuid())
+  encounterId     String
+  context         VitalsContext @default(TRIAGE)
+  takenAt         DateTime                          // when it was taken, not typed
+  temperature     Decimal?      @db.Decimal(3, 1)   // °C
+  pulse           Int?                              // bpm
+  respiratoryRate Int?                              // /min
+  systolic        Int?                              // mmHg
+  diastolic       Int?                              // mmHg
+  spo2            Int?                              // %
+  painScore       Int?                              // 0–10
+  bloodGlucose    Decimal?      @db.Decimal(3, 1)   // mmol/L
+  weight          Decimal?      @db.Decimal(5, 2)   // kg
+  height          Decimal?      @db.Decimal(4, 1)   // cm
+  notes           String?
+  replacesId      String?       @unique            // the reading this corrects
+  editReason      String?                          // required on a correction
+  removedAt       DateTime?
+  removedBy       String?
+  removeReason    String?
+  recordedBy      String
+  recordedAt      DateTime      @default(now())
+
+  encounter       Encounter     @relation(fields: [encounterId], references: [id], onDelete: Cascade)
+  replaces        Vitals?       @relation("VitalsCorrections", fields: [replacesId], references: [id], onDelete: Cascade)
+  replacedBy      Vitals?       @relation("VitalsCorrections")
+
+  @@index([encounterId, takenAt])
+}
+
+enum Avpu {
+  ALERT
+  VOICE
+  PAIN
+  UNRESPONSIVE
+}
+
+enum DangerSign {
+  UNABLE_TO_DRINK
+  PERSISTENT_VOMITING
+  CONVULSIONS
+  LETHARGY
+  SEVERE_DEHYDRATION
+  DIFFICULTY_BREATHING
+}
+
+enum VitalsContext {
+  TRIAGE
+  OBSERVATION
+  WARD_ROUND
+  PRE_OP
+  POST_OP
 }

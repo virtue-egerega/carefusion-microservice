@@ -55,6 +55,8 @@ export class TaskFactory {
 
         const ready = t.ready || t.queue.isConsultation;
         const ticketNumber = await nextTicket(this.databaseService, t.queue.id, t.branchId, t.now);
+        // a triaged patient keeps the triage priority on every list they're sent to (11 §8.1)
+        const encounter = await this.databaseService.client.encounter.findUnique({ where: { id: t.encounterId }, select: { triagePriority: true } });
 
         const task = await withConstraintErrors(
             () => this.databaseService.client.queueEntry.create({
@@ -65,6 +67,7 @@ export class TaskFactory {
                     branchId:        t.branchId,
                     ticketNumber,
                     status:          ready ? $Enums.QueueEntryStatus.AWAITING_SERVICE : $Enums.QueueEntryStatus.WAITING,
+                    ...(encounter?.triagePriority && { priority: encounter.triagePriority, priorityReason: 'Triage' }),
                     fromEntryId:     t.fromEntryId,
                     enteredAt:       t.now,
                     readyAt:         t.now,
