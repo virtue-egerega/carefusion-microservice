@@ -3,8 +3,8 @@ import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Authorize, CurrentUser, OrganizationId } from '../auth/auth.decorators';
 import type { AuthUser } from '../auth/permissions.guard';
 import {
-    AddAddendumDto, AddDiagnosisDto, ConsultationListQueryDto, DiagnosisCodeQueryDto, PatientDiagnosisQueryDto, StartConsultationDto,
-    UpdateConsultationDto, UpdateDiagnosisDto,
+    AddAddendumDto, AddDiagnosisDto, ConsultationListQueryDto, DiagnosisChapterQueryDto, DiagnosisCodeQueryDto, DiagnosisGroupQueryDto,
+    ClinicalListQueryDto, PatientDiagnosisQueryDto, StartConsultationDto, UpdateConsultationDto, UpdateDiagnosisDto,
 } from '@shared/contracts/consultations';
 import { ConsultationsService } from './consultations.service';
 
@@ -54,8 +54,8 @@ export class ConsultationsController {
 
     @ApiOperation({
         summary: 'Save sections of your draft',
-        description: 'Send only what changes: a field left out keeps its value, null clears it. `complaints`, `systemReviews`, ' +
-            '`generalSigns` and `examinations` are whole lists that replace the saved ones. 403 not your note, 409 signed.',
+        description: 'Send only what changes: a field left out keeps its value, null clears it. `complaints`, `reviewFindings`, `systemReviews`, ' +
+            '`generalSigns`, `examFindings` and `examinations` are whole lists that replace the saved ones. 403 not your note, 409 signed.',
     })
     @Authorize('consultation.create')
     @Patch('consultations/:id')
@@ -127,6 +127,32 @@ export class ConsultationsController {
         return this.consultationsService.addAddendum(id, dto.text, orgId, user.sub);
     }
 
+    // ── Review of systems ────────────────────────────────────────────────────
+
+    @ApiOperation({
+        summary: 'The review-of-systems symptom list by body system (PRD 14 §3.3): `{ count, docs }`',
+        description: 'Each system with its symptoms in order: `code` (what a note stores), `label` (plain words) and `term` ' +
+            "(the clinical term). With `consultationId`, symptoms that don't apply to that patient (by sex and age) are left out. " +
+            'Record each symptom asked about as POSITIVE or NEGATIVE in `reviewFindings`; leave out the ones not asked.',
+    })
+    @Authorize()
+    @Get('review-of-systems')
+    reviewOfSystems(@Query() query: ClinicalListQueryDto, @OrganizationId() orgId: string) {
+        return this.consultationsService.reviewOfSystems(query, orgId);
+    }
+
+    @ApiOperation({
+        summary: 'The systemic examination list by body system (PRD 14 §4.2): `{ count, docs }`',
+        description: 'Each system with its items in examination order: `code` (what a note stores), `label` and `hint` (what it ' +
+            "covers). With `consultationId`, items that don't apply to that patient are left out. Record each item examined as " +
+            'NORMAL or ABNORMAL (with a note) in `examFindings`; leave out the ones not examined.',
+    })
+    @Authorize()
+    @Get('examination')
+    examination(@Query() query: ClinicalListQueryDto, @OrganizationId() orgId: string) {
+        return this.consultationsService.examination(query, orgId);
+    }
+
     // ── Past medical history and the code list ───────────────────────────────
 
     @ApiOperation({
@@ -139,7 +165,25 @@ export class ConsultationsController {
         return this.consultationsService.patientDiagnoses(id, query, orgId);
     }
 
-    @ApiOperation({ summary: 'Search the diagnosis code list (ICD-10) by code or title: `{ count, docs }`' })
+    @ApiOperation({ summary: "The code list's 22 chapters, each with its code range and number of groups: `{ count, docs }`" })
+    @Authorize()
+    @Get('diagnosis-codes/chapters')
+    diagnosisChapters(@Query() query: DiagnosisChapterQueryDto) {
+        return this.consultationsService.diagnosisChapters(query);
+    }
+
+    @ApiOperation({ summary: "The code list's groups, e.g. A00–A09 Intestinal infectious diseases: `{ count, docs }`; filter by `chapter`" })
+    @Authorize()
+    @Get('diagnosis-codes/groups')
+    diagnosisGroups(@Query() query: DiagnosisGroupQueryDto) {
+        return this.consultationsService.diagnosisGroups(query);
+    }
+
+    @ApiOperation({
+        summary: 'Find diagnosis codes (ICD-10): `{ count, docs }` in code order',
+        description: 'By `search` (a code or words in the title), `chapter`, `group`, or a range `from`–`to` (A00–A09 includes ' +
+            'A09.9); filters combine. Headings with subdivisions come back `selectable: false`: shown, not chosen.',
+    })
     @Authorize()
     @Get('diagnosis-codes')
     diagnosisCodes(@Query() query: DiagnosisCodeQueryDto) {

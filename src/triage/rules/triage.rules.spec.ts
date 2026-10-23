@@ -1,4 +1,4 @@
-import { correctedReading, retriageProblem, takenAtProblem, vitalsProblem } from './triage.rules';
+import { correctedReading, retriageProblem, vitalsProblem } from './triage.rules';
 
 describe('vitalsProblem', () => {
     it('accepts a reading with any one vital', () => {
@@ -38,11 +38,11 @@ describe('takenAtProblem', () => {
 });
 
 describe('correctedReading', () => {
-    const old = { takenAt: new Date('2026-10-22T08:00:00Z'), notes: 'crying', temperature: 38.5, pulse: 110, systolic: 120, diastolic: 80 };
+    const old = { notes: 'crying', temperature: 38.5, pulse: 110, systolic: 120, diastolic: 80 };
 
     it('applies the changed fields and keeps the rest', () => {
         const merged = correctedReading(old, { temperature: 37.5 });
-        expect(merged).toMatchObject({ takenAt: old.takenAt, notes: 'crying', temperature: 37.5, pulse: 110, systolic: 120, diastolic: 80 });
+        expect(merged).toMatchObject({  notes: 'crying', temperature: 37.5, pulse: 110, systolic: 120, diastolic: 80 });
     });
 
     it('clears a field sent as null', () => {

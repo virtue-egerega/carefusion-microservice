@@ -51,6 +51,18 @@ export enum BodySystem {
     ENDOCRINE = 'ENDOCRINE',
     PSYCHIATRIC = 'PSYCHIATRIC',
     OTHER = 'OTHER',
+    HAEMATOLOGICAL_LYMPHATIC = 'HAEMATOLOGICAL_LYMPHATIC',
+    ALLERGIC_IMMUNOLOGICAL = 'ALLERGIC_IMMUNOLOGICAL',
+}
+
+export enum ReviewFinding {
+    POSITIVE = 'POSITIVE',
+    NEGATIVE = 'NEGATIVE',
+}
+
+export enum ExamFinding {
+    NORMAL = 'NORMAL',
+    ABNORMAL = 'ABNORMAL',
 }
 
 export enum GeneralSign {

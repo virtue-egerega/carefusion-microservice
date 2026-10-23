@@ -27,6 +27,8 @@ templates come later (§10).
 | D10 | **Signing locks the note; corrections are addenda.** | 7 |
 | D11 | **No consultation fee here.** Charging for consultations is left out entirely for now. | 11 |
 | D12 | **Allergies and orders** (investigations, prescriptions, procedures) **are designed next**, in their own sections. | 10 |
+| D13 | **Review of systems is recorded per symptom**, positive or negative, from a standard list by body system; not assessed is no row, never "negative". | 3.3 |
+| D14 | **Systemic examination is recorded per item**, normal or abnormal (with a note), from a standard list by body system; not examined is no row. | 4.2 |
 
 ## 2. The Consultation
 
@@ -83,8 +85,10 @@ model Consultation {
   encounter            Encounter          @relation(fields: [encounterId], references: [id], onDelete: Cascade)
   patient              Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
   complaints           ConsultationComplaint[]
+  reviewFindings       ConsultationReviewFinding[]
   systemReviews        ConsultationSystemReview[]
   generalSigns         ConsultationGeneralSign[]
+  examFindings         ConsultationExamFinding[]
   examinations         ConsultationExamination[]
   diagnoses            Diagnosis[]
   addenda              ConsultationAddendum[]
@@ -139,40 +143,89 @@ taken before coming, relevant negatives. For pain the screen prompts SOCRATES; i
 
 ### 3.3 Review of systems
 
-Asking about each body system for symptoms not already mentioned. One row per system reviewed:
+Asking about each body system for symptoms not already mentioned. It's recorded **per symptom**,
+from a standard list grouped by body system, because "not ticked" must never be read as "denied".
+
+**Three states per symptom**, as clinical documentation requires:
+
+| State | Stored as | Reads as |
+|---|---|---|
+| **Positive** | A row, `finding = POSITIVE` | The patient has it ("Cough: positive, productive, 2 weeks") |
+| **Negative** | A row, `finding = NEGATIVE` | Asked, and the patient denies it: a pertinent negative |
+| **Not assessed** | No row | Not asked. Never shown as negative |
+
+Each symptom can carry a note. Each system can carry a note too, for anything not on the list.
 
 ```prisma
-model ConsultationSystemReview {
+model ConsultationReviewFinding {
+  id             String        @id @default(uuid())
+  consultationId String
+  symptom        String                          // a code from the symptom list: "HAEMOPTYSIS"
+  finding        ReviewFinding                   // POSITIVE or NEGATIVE; not assessed has no row
+  note           String?                         // "productive, 2 weeks"
+
+  consultation   Consultation  @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, symptom])
+}
+
+model ConsultationSystemReview {                 // a system's note: symptoms not on the list, comments
   id             String     @id @default(uuid())
   consultationId String
   system         BodySystem
-  normal         Boolean    @default(false)     // "nothing to note"
-  findings       String?
+  note           String
 
   consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
 
   @@unique([consultationId, system])
 }
 
-enum BodySystem {
-  CONSTITUTIONAL        // fever, weight loss, night sweats, fatigue (review of systems)
+enum ReviewFinding { POSITIVE NEGATIVE }
+
+enum BodySystem {           // the screen's order comes from the symptom list, not this enum
+  CONSTITUTIONAL
   CARDIOVASCULAR
   RESPIRATORY
-  GASTROINTESTINAL      // abdomen on examination
+  GASTROINTESTINAL          // abdomen on examination
   GENITOURINARY
   NEUROLOGICAL
   MUSCULOSKELETAL
   SKIN
-  ENT
+  ENT                       // ears, nose, mouth and throat
   EYES
   BREAST
   ENDOCRINE
   PSYCHIATRIC
   OTHER
+  HAEMATOLOGICAL_LYMPHATIC
+  ALLERGIC_IMMUNOLOGICAL
 }
 ```
 
-A row is either ticked normal or has findings. The same systems serve the examination (§4.2).
+**The symptom list** follows the 14 review-of-systems groups used in clinical documentation
+(constitutional, eyes, ENT, cardiovascular, respiratory, gastrointestinal, genitourinary,
+musculoskeletal, skin and breast, neurological, psychiatric, endocrine, haematological/lymphatic,
+allergic/immunological), with breast kept apart from skin. CareFusion defines it in code
+(`src/consultations/review-of-systems.catalog.ts`), like the department and queue catalog. Each
+symptom has:
+- a **stable code** (`HAEMOPTYSIS`), which is what's stored, so a label can be reworded without
+  touching recorded notes;
+- a **plain label** for the screen ("Coughing up blood") and the **clinical term** for the printed
+  note ("Haemoptysis"), in British spelling;
+- **who it applies to**, where that matters: female-only (vaginal discharge, menstrual problems),
+  male-only (testicular pain), children only (poor feeding). Saving a symptom that doesn't apply to
+  the patient is refused, the same rule as §3.8.
+
+A retired symptom stays in the list marked `retired`, so old notes still show it; it can't be
+recorded again.
+
+**Focused or full.** The list doesn't force a full review: a focused consultation records only the
+systems it covers, and everything else stays "not assessed". The screen can offer "all negative" for
+a system, which sets each of its symptoms negative. Letting a hospital switch symptoms off or add
+its own, and specialty review templates, come later (§10).
+
+`GET /review-of-systems` serves the list grouped by system, in order. With `consultationId` it
+leaves out symptoms that don't apply to that patient.
 
 ### 3.4 Past medical and surgical history
 
@@ -256,27 +309,61 @@ reading through the vitals endpoint (`11` §9) with `context = OBSERVATION`.
 
 ### 4.2 Systemic examination
 
-One row per system examined, normal or with findings:
+Recorded **per item examined**, from a standard list grouped by body system, the same way as the
+review of systems (§3.3): what was examined is written down, and "not examined" is never read as
+"normal".
+
+| State | Stored as | Reads as |
+|---|---|---|
+| **Normal** | A row, `finding = NORMAL` | Examined, nothing abnormal ("Heart sounds: S1, S2, no added sounds") |
+| **Abnormal** | A row, `finding = ABNORMAL`, with a **required** note | Examined, and what was found ("Pansystolic murmur at the apex, grade 3/6") |
+| **Not examined** | No row | Not examined |
+
+Each system also takes a note for anything not on the list.
 
 ```prisma
-model ConsultationExamination {
+model ConsultationExamFinding {
+  id             String      @id @default(uuid())
+  consultationId String
+  element        String                         // a code from the examination list: "HEART_SOUNDS"
+  finding        ExamFinding                    // NORMAL or ABNORMAL; not examined has no row
+  note           String?                        // required when ABNORMAL
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, element])
+}
+
+model ConsultationExamination {                 // a system's note: anything not on the list
   id             String     @id @default(uuid())
   consultationId String
   system         BodySystem
-  normal         Boolean    @default(false)
-  findings       String?
+  note           String
 
   consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
 
   @@unique([consultationId, system])
 }
+
+enum ExamFinding { NORMAL ABNORMAL }
 ```
 
-The findings are text. The screen prompts what each system covers (cardiovascular: pulse, apex
-beat, heart sounds, murmurs; respiratory: expansion, percussion, breath sounds; abdomen: tenderness,
-liver, spleen, bowel sounds; neurological: consciousness, cranial nerves, power, tone, reflexes);
-the prompts aren't fields. An intimate examination (breast, PV, PR) records the chaperone in its
-findings.
+**The examination list** is defined by CareFusion in code
+(`src/consultations/examination.catalog.ts`), in the order of a standard systemic examination:
+cardiovascular, respiratory, abdomen, neurological, musculoskeletal, skin, ears/nose/throat, eyes,
+breast, genitourinary, mental state, thyroid, lymph nodes. Each item has:
+- a **stable code** (`HEART_SOUNDS`), which is what's stored;
+- a **label** for the screen and the printed note ("Heart sounds") and a **hint** of what it
+  covers ("S1, S2; added sounds; rubs"), which guides the note without being fields;
+- **who it applies to**, as for symptoms: male-only (scrotum and testes), female-only (speculum and
+  bimanual examination, women's sections applying), infants and children (anterior fontanelle).
+
+Intimate examinations (breast, external genitalia, speculum, bimanual, digital rectal) say in their
+hint to record the chaperone in the note. The general examination checklist (§4.1) and vitals stay
+as they are; antenatal, eye and dental examinations come with specialty templates (§10).
+
+`GET /examination` serves the list grouped by system, in order. With `consultationId` it leaves out
+items that don't apply to that patient.
 
 ## 5. Diagnoses
 
@@ -310,10 +397,30 @@ model DiagnosisCode {                 // the ICD-10 list, shared by every hospit
   codeSystem  DiagnosisCodeSystem
   code        String                  // "B54", "I10", "E11.9"
   title       String
-  chapter     String?
+  chapter     String?                 // "I Certain infectious and parasitic diseases"
+  selectable  Boolean @default(true)  // false for a heading with subdivisions (B50)
   isActive    Boolean @default(true)  // retired codes stay for old diagnoses
 
   @@id([codeSystem, code])
+}
+
+model DiagnosisChapter {              // "I Certain infectious and parasitic diseases"
+  codeSystem DiagnosisCodeSystem
+  number     String                   // "01"
+  numeral    String                   // "I"
+  title      String
+  position   Int                      // WHO's order: chapter XXII (U) is last though U sorts before Z
+  @@id([codeSystem, number])
+}
+
+model DiagnosisCodeGroup {            // "A00–A09 Intestinal infectious diseases"
+  codeSystem DiagnosisCodeSystem
+  firstCode  String
+  lastCode   String                   // the group holds A00 … A09.9
+  chapter    String                   // the chapter's number
+  title      String
+  position   Int
+  @@id([codeSystem, firstCode])
 }
 ```
 
@@ -326,8 +433,16 @@ model DiagnosisCode {                 // the ICD-10 list, shared by every hospit
 - **Results change certainty later without editing the signed note.** A result-review consultation
   records the diagnosis again, `CONFIRMED` or `RULED_OUT`. The patient's list shows each condition's
   latest certainty.
-- **The code list** is seeded once for all hospitals from a WHO ICD-10 file (**[Q 1]**: the source
-  file and its licence).
+- **Code to the most specific level.** A heading with subdivisions (`B50` Plasmodium falciparum
+  malaria, split into `B50.0`, `B50.8`, `B50.9`) is shown in search with `selectable: false` and
+  can't be chosen; a category without subdivisions (`A33`) can.
+- **The code list** is WHO ICD-10 2019 (with the COVID-19 updates), from WHO's "plain text tabular"
+  download, kept in `prisma/data/icd10/` (the codes, chapters and groups files) and loaded by the
+  seed for all hospitals: 22 chapters, 263 groups, 12,221 codes, 10,633 selectable.
+- **Browsing.** Codes can be found by words or code, or browsed by chapter, by group, or by a range
+  of three-character codes: `from=A00&to=A09` holds every code from A00 to A09.9 (codes compare as
+  text, which is ICD-10's order). The filters combine. Re-seeding with a newer file adds new codes,
+  refreshes titles, and retires codes the file no longer has; recorded diagnoses keep theirs.
 
 ## 6. Plan and Outcome
 
@@ -403,16 +518,20 @@ consultation. Its holders carry over. Every action is scoped to the caller's org
 | `/encounters/:id/consultations` | GET | `consultation.view` | `{ count, docs }`; filters `status`, `type`, `doctorId`; `limit` / `offset` |
 | `/patients/:id/consultations` | GET | `consultation.view` | `{ count, docs }`, newest first; filters `status`, `type`, `clinicId`, `doctorId`, `from` / `to`, `search` (complaints, diagnoses) |
 | `/consultations/:id` | GET | `consultation.view` | The note with its complaints, reviews, signs, examinations, diagnoses and addenda, the encounter's triage and latest vitals, and `sections` (§3.8) |
-| `/consultations/:id` | PATCH | `consultation.create` | Save any sections of one's own draft. `complaints`, `systemReviews`, `generalSigns` and `examinations` are sent as whole lists and replace the saved ones; `{ message }` |
+| `/consultations/:id` | PATCH | `consultation.create` | Save any sections of one's own draft. `complaints`, `reviewFindings`, `systemReviews`, `generalSigns`, `examFindings` and `examinations` are sent as whole lists and replace the saved ones; `{ message }` |
 | `/consultations/:id` | DELETE | `consultation.create` | Discard one's own draft |
 | `/consultations/:id/diagnoses` | POST | `consultation.create` | Add a diagnosis to one's own draft; `{ id, message }` |
 | `/consultations/:id/diagnoses/:diagnosisId` | PATCH / DELETE | `consultation.create` | Change or remove one, in a draft only |
 | `/consultations/:id/sign` | POST | `consultation.create` | Sign one's own draft (§7) |
 | `/consultations/:id/addenda` | POST | `consultation.create` | Add an addendum to a signed note |
 | `/patients/:id/diagnoses` | GET | `consultation.view` | Past medical history: `{ count, docs }`, each condition with its latest certainty; filters `certainty`, `reported`, `search` |
-| `/diagnosis-codes` | GET | any staff | Search the code list: `{ count, docs }`; `search` (code or title), `codeSystem` |
+| `/diagnosis-codes` | GET | any staff | Find codes: `{ count, docs }` in code order; `search` (code or title), `chapter`, `group`, `from` / `to` (a range), `codeSystem`. Headings come back `selectable: false` |
+| `/examination` | GET | any staff | The systemic examination list by body system (§4.2): `{ count, docs }`, each system with its items. `consultationId` leaves out what doesn't apply to that patient |
+| `/review-of-systems` | GET | any staff | The symptom list by body system (§3.3): `{ count, docs }`, each system with its symptoms. `consultationId` leaves out what doesn't apply to that patient |
+| `/diagnosis-codes/chapters` | GET | any staff | The 22 chapters in WHO's order, each with `firstCode` / `lastCode` and its number of groups |
+| `/diagnosis-codes/groups` | GET | any staff | The groups in WHO's order: `{ count, docs }`; filters `chapter`, `search` |
 
-Enums the forms need (`BodySystem`, `GeneralSign`, `MedicationAdherence`, `SmokingStatus`,
+Enums the forms need (`BodySystem`, `ReviewFinding`, `ExamFinding`, `GeneralSign`, `MedicationAdherence`, `SmokingStatus`,
 `AlcoholUse`, `DiagnosisCertainty`, `ConsultationKind`, `ConsultationOutcome`) are served by
 `GET /enums` under `consultation`.
 
@@ -440,4 +559,4 @@ Enums the forms need (`BodySystem`, `GeneralSign`, `MedicationAdherence`, `Smoki
 
 | # | Question | Recommendation |
 |---|---|---|
-| Q1 | Which ICD-10 file seeds the code list, and under what licence? | WHO ICD-10 (not the US ICD-10-CM), as used by NHIA. Hospitals don't edit the list |
+| Q1 | ~~Which ICD-10 file~~ **Decided:** WHO ICD-10 2019, plain text tabular (§5). **Still open:** do WHO's download terms allow shipping the files inside software installed at hospitals? | Read the terms accepted at download; if redistribution isn't allowed, each installation downloads the files itself and the seed reads them from the same folder |

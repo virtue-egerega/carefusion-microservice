@@ -3,13 +3,17 @@ import { DatabaseService } from '../database/database.service';
 import { withConstraintErrors } from '../database/prisma-errors';
 import { $Enums, Prisma } from '../../generated/prisma/client';
 import {
-    AddDiagnosisDto, ConsultationListQueryDto, DiagnosisCodeQueryDto, PatientDiagnosisQueryDto, StartConsultationDto,
-    UpdateConsultationDto, UpdateDiagnosisDto,
+    AddDiagnosisDto, ConsultationListQueryDto, DiagnosisChapterQueryDto, DiagnosisCodeQueryDto, DiagnosisGroupQueryDto,
+    ClinicalListQueryDto, PatientDiagnosisQueryDto, StartConsultationDto, UpdateConsultationDto, UpdateDiagnosisDto,
 } from '@shared/contracts/consultations';
 import { loadActors } from '../billables/actors';
 import {
-    applicableSections, datesAndCountsProblem, diagnosisProblem, generalSignsProblem, sectionProblem, signProblem, systemListProblem,
+    applicableSections, appliesToPatient, datesAndCountsProblem, diagnosisProblem, examFindingsProblem, generalSignsProblem,
+    reviewFindingsProblem, sectionProblem, signProblem, systemNotesProblem,
 } from './rules/consultation.rules';
+import { codeRangeWhere } from './rules/icd10-file';
+import { REVIEW_OF_SYSTEMS, ROS_SYMPTOMS } from './review-of-systems.catalog';
+import { EXAM_ELEMENTS, EXAMINATION } from './examination.catalog';
 
 /** The draft row, locked for the rest of the transaction, with what saving needs (14 §2–§7). */
 type LockedNote = {
@@ -109,9 +113,11 @@ export class ConsultationsService {
                 patient:       { select: { sex: true } },
                 clinic:        { select: { id: true, name: true } },
                 complaints:    { orderBy: { position: 'asc' }, select: { complaint: true, duration: true } },
-                systemReviews: { select: { system: true, normal: true, findings: true } },
+                reviewFindings: { select: { symptom: true, finding: true, note: true } },
+                systemReviews: { select: { system: true, note: true } },
                 generalSigns:  { select: { sign: true, present: true, grade: true, note: true } },
-                examinations:  { select: { system: true, normal: true, findings: true } },
+                examFindings:  { select: { element: true, finding: true, note: true } },
+                examinations:  { select: { system: true, note: true } },
                 diagnoses:     { orderBy: [{ isPrimary: 'desc' }, { recordedAt: 'asc' }] },
                 addenda:       { orderBy: { addedAt: 'asc' } },
             },
@@ -127,12 +133,25 @@ export class ConsultationsService {
             loadActors(this.databaseService, [note.doctorId, ...note.diagnoses.map(d => d.recordedBy), ...note.addenda.map(a => a.addedBy)]),
         ]);
 
-        const { patient, encounter, doctorId, diagnoses, addenda, ...rest } = note;
+        const { patient, encounter, doctorId, diagnoses, addenda, reviewFindings, examFindings, ...rest } = note;
         return {
             ...rest,
             encounter: { id: encounter.id, code: encounter.code, arrivedAt: encounter.arrivedAt },
             doctor:    people.get(doctorId) ?? null,
             sections:  applicableSections(encounter.ageGroup, patient.sex),
+            // each finding with its system, label and clinical term, in the list's order
+            reviewFindings: reviewFindings
+                .map(f => {
+                    const symptom = ROS_SYMPTOMS.get(f.symptom);
+                    return { ...f, system: symptom?.system ?? null, label: symptom?.label ?? f.symptom, term: symptom?.term ?? f.symptom };
+                })
+                .sort((a, b) => listOrder(SYMPTOM_ORDER, a.symptom) - listOrder(SYMPTOM_ORDER, b.symptom)),
+            examFindings: examFindings
+                .map(f => {
+                    const element = EXAM_ELEMENTS.get(f.element);
+                    return { ...f, system: element?.system ?? null, label: element?.label ?? f.element };
+                })
+                .sort((a, b) => listOrder(ELEMENT_ORDER, a.element) - listOrder(ELEMENT_ORDER, b.element)),
             diagnoses: diagnoses.map(({ recordedBy, ...d }) => ({ ...d, recordedBy: people.get(recordedBy) ?? null })),
             addenda:   addenda.map(({ addedBy, ...a }) => ({ ...a, addedBy: people.get(addedBy) ?? null })),
             triage,
@@ -173,10 +192,10 @@ export class ConsultationsService {
      * lists (complaints, reviews, signs, examinations) replace the saved ones. Only the author, only a draft.
      */
     async update(id: string, dto: UpdateConsultationDto, organizationId: string, userId: string) {
-        const { complaints, systemReviews, generalSigns, examinations, ...fields } = dto;
+        const { complaints, reviewFindings, systemReviews, generalSigns, examFindings, examinations, ...fields } = dto;
         const listProblem =
-            (systemReviews && systemListProblem(systemReviews, 'Review of systems')) ||
-            (examinations && systemListProblem(examinations, 'Examination')) ||
+            (systemReviews && systemNotesProblem(systemReviews, 'Review of systems')) ||
+            (examinations && systemNotesProblem(examinations, 'Examination')) ||
             (generalSigns && generalSignsProblem(generalSigns));
         if (listProblem) throw new BadRequestException(listProblem);
 
@@ -186,6 +205,8 @@ export class ConsultationsService {
 
             const problem =
                 sectionProblem(fields, applicableSections(note.ageGroup, note.sex)) ??
+                (reviewFindings ? reviewFindingsProblem(reviewFindings, note) : null) ??
+                (examFindings ? examFindingsProblem(examFindings, note) : null) ??
                 datesAndCountsProblem({ ...note, ...definedOnly(fields) }, new Date());
             if (problem) throw new BadRequestException(problem);
 
@@ -200,17 +221,25 @@ export class ConsultationsService {
                     await client.encounter.update({ where: { id: note.encounterId }, data: { reasonForVisit: complaints[0].complaint.trim() } });
                 }
             }
+            if (reviewFindings !== undefined) {
+                await client.consultationReviewFinding.deleteMany({ where: { consultationId: id } });
+                await client.consultationReviewFinding.createMany({ data: (reviewFindings ?? []).map(f => ({ consultationId: id, ...f, finding: f.finding as $Enums.ReviewFinding })) });
+            }
             if (systemReviews !== undefined) {
                 await client.consultationSystemReview.deleteMany({ where: { consultationId: id } });
-                await client.consultationSystemReview.createMany({ data: (systemReviews ?? []).map(r => ({ consultationId: id, ...r, system: r.system as $Enums.BodySystem })) });
+                await client.consultationSystemReview.createMany({ data: (systemReviews ?? []).map(r => ({ consultationId: id, system: r.system as $Enums.BodySystem, note: r.note.trim() })) });
             }
             if (generalSigns !== undefined) {
                 await client.consultationGeneralSign.deleteMany({ where: { consultationId: id } });
                 await client.consultationGeneralSign.createMany({ data: (generalSigns ?? []).map(s => ({ consultationId: id, ...s, sign: s.sign as $Enums.GeneralSign })) });
             }
+            if (examFindings !== undefined) {
+                await client.consultationExamFinding.deleteMany({ where: { consultationId: id } });
+                await client.consultationExamFinding.createMany({ data: (examFindings ?? []).map(f => ({ consultationId: id, ...f, finding: f.finding as $Enums.ExamFinding })) });
+            }
             if (examinations !== undefined) {
                 await client.consultationExamination.deleteMany({ where: { consultationId: id } });
-                await client.consultationExamination.createMany({ data: (examinations ?? []).map(e => ({ consultationId: id, ...e, system: e.system as $Enums.BodySystem })) });
+                await client.consultationExamination.createMany({ data: (examinations ?? []).map(e => ({ consultationId: id, system: e.system as $Enums.BodySystem, note: e.note.trim() })) });
             }
             return { message: 'Consultation saved' };
         });
@@ -236,9 +265,10 @@ export class ConsultationsService {
 
         const code = await this.databaseService.client.diagnosisCode.findUnique({
             where:  { codeSystem_code: { codeSystem, code: dto.code.trim().toUpperCase() } },
-            select: { code: true, title: true, isActive: true },
+            select: { code: true, title: true, isActive: true, selectable: true },
         });
         if (!code?.isActive) throw new NotFoundException(`${dto.code} isn't an active ${codeSystem.replace('_', '-')} code`);
+        if (!code.selectable) throw new BadRequestException(`${code.code} has subdivisions: choose the specific code`);
 
         return withConstraintErrors(
             () => this.databaseService.transaction(async () => {
@@ -337,6 +367,55 @@ export class ConsultationsService {
         return { id: addendumId, message: 'Addendum added' };
     }
 
+    // ── Review of systems (14 §3.3) ──────────────────────────────────────────
+
+    /**
+     * The symptom list by body system, in the screen's order: `{ count, docs }`. Retired symptoms are
+     * left out; with `consultationId`, so are those that don't apply to that patient.
+     */
+    async reviewOfSystems(query: ClinicalListQueryDto, organizationId: string) {
+        const patient = await this.listPatient(query, organizationId);
+        const docs = REVIEW_OF_SYSTEMS
+            .map(({ system, label, symptoms }) => ({
+                system,
+                label,
+                symptoms: symptoms
+                    .filter(s => !s.retired && (!patient || appliesToPatient(s, patient)))
+                    .map(({ code, label, term, sex, children, reproductive }) => ({ code, label, term, sex: sex ?? null, children: !!children, reproductive: !!reproductive })),
+            }))
+            .filter(s => s.symptoms.length);
+        return { count: docs.length, docs };
+    }
+
+    /**
+     * The systemic examination list by body system, in examination order: `{ count, docs }`. Retired
+     * items are left out; with `consultationId`, so are those that don't apply to that patient (14 §4.2).
+     */
+    async examination(query: ClinicalListQueryDto, organizationId: string) {
+        const patient = await this.listPatient(query, organizationId);
+        const docs = EXAMINATION
+            .map(({ system, label, elements }) => ({
+                system,
+                label,
+                elements: elements
+                    .filter(e => !e.retired && (!patient || appliesToPatient(e, patient)))
+                    .map(({ code, label, hint, sex, children, reproductive }) => ({ code, label, hint, sex: sex ?? null, children: !!children, reproductive: !!reproductive })),
+            }))
+            .filter(s => s.elements.length);
+        return { count: docs.length, docs };
+    }
+
+    /** The patient a list is filtered for: the consultation's age group and sex, or null for the full list. */
+    private async listPatient(query: ClinicalListQueryDto, organizationId: string) {
+        if (!query.consultationId) return null;
+        const note = await this.databaseService.client.consultation.findFirst({
+            where:  { id: query.consultationId, organizationId },
+            select: { encounter: { select: { ageGroup: true } }, patient: { select: { sex: true } } },
+        });
+        if (!note) throw new NotFoundException('Consultation not found');
+        return { ageGroup: note.encounter.ageGroup as string | null, sex: note.patient.sex as string | null };
+    }
+
     // ── Past medical history and the code list ───────────────────────────────
 
     /**
@@ -373,26 +452,94 @@ export class ConsultationsService {
         return { count: rows.length ? Number(rows[0].total) : 0, docs: rows.map(({ total, ...row }) => row) };
     }
 
-    /** Searches the diagnosis code list by code or title: `{ count, docs }`. Active codes only. */
+    /**
+     * Searches the diagnosis code list by code or title: `{ count, docs }`, in code order. Active codes
+     * only. Headings with subdivisions (B50) come back with `selectable: false`, to show, not to pick.
+     */
     async diagnosisCodes(query: DiagnosisCodeQueryDto) {
         const client = this.databaseService.client;
+        const codeSystem = query.codeSystem as $Enums.DiagnosisCodeSystem;
         const search = query.search?.trim();
+        if (query.to && !query.from) throw new BadRequestException('Give from with to');
+        const ranges = [
+            query.chapter ? await this.chapterRange(codeSystem, query.chapter) : null,
+            query.group ? await this.groupRange(codeSystem, query.group) : null,
+            query.from ? { firstCode: query.from, lastCode: query.to ?? query.from } : null,
+        ].filter((range): range is { firstCode: string; lastCode: string } => !!range);
+
         const where: Prisma.DiagnosisCodeWhereInput = {
-            codeSystem: query.codeSystem as $Enums.DiagnosisCodeSystem,
-            isActive:   true,
-            ...(search && { OR: [{ code: { startsWith: search.toUpperCase() } }, { title: { contains: search, mode: 'insensitive' } }] }),
+            codeSystem,
+            isActive: true,
+            AND: [
+                ...ranges.map(r => codeRangeWhere(r.firstCode, r.lastCode)),
+                ...(search ? [{ OR: [{ code: { startsWith: search.toUpperCase() } }, { title: { contains: search, mode: 'insensitive' as const } }] }] : []),
+            ],
         };
         const [count, docs] = await client.$transaction([
             client.diagnosisCode.count({ where }),
             client.diagnosisCode.findMany({
                 where, take: query.limit, skip: query.offset, orderBy: { code: 'asc' },
-                select: { codeSystem: true, code: true, title: true, chapter: true },
+                select: { codeSystem: true, code: true, title: true, chapter: true, selectable: true },
+            }),
+        ]);
+        return { count, docs };
+    }
+
+    /** The code list's chapters in WHO's order, each with the range of codes it holds: `{ count, docs }`. */
+    async diagnosisChapters(query: DiagnosisChapterQueryDto) {
+        const client = this.databaseService.client;
+        const codeSystem = query.codeSystem as $Enums.DiagnosisCodeSystem;
+        const [chapters, groups] = await client.$transaction([
+            client.diagnosisChapter.findMany({ where: { codeSystem }, orderBy: { position: 'asc' }, select: { number: true, numeral: true, title: true } }),
+            client.diagnosisCodeGroup.findMany({ where: { codeSystem }, orderBy: { position: 'asc' }, select: { chapter: true, firstCode: true, lastCode: true } }),
+        ]);
+        const docs = chapters.map(chapter => {
+            const own = groups.filter(g => g.chapter === chapter.number);
+            return { ...chapter, firstCode: own[0]?.firstCode ?? null, lastCode: own.at(-1)?.lastCode ?? null, groups: own.length };
+        });
+        return { count: docs.length, docs };
+    }
+
+    /** The code list's groups ("A00–A09 Intestinal infectious diseases") in WHO's order: `{ count, docs }`. */
+    async diagnosisGroups(query: DiagnosisGroupQueryDto) {
+        const client = this.databaseService.client;
+        const search = query.search?.trim();
+        const where: Prisma.DiagnosisCodeGroupWhereInput = {
+            codeSystem: query.codeSystem as $Enums.DiagnosisCodeSystem,
+            ...(query.chapter && { chapter: query.chapter }),
+            ...(search && { title: { contains: search, mode: 'insensitive' } }),
+        };
+        const [count, docs] = await client.$transaction([
+            client.diagnosisCodeGroup.count({ where }),
+            client.diagnosisCodeGroup.findMany({
+                where, take: query.limit, skip: query.offset, orderBy: { position: 'asc' },
+                select: { firstCode: true, lastCode: true, chapter: true, title: true },
             }),
         ]);
         return { count, docs };
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /** The codes a chapter holds: from its first group's first code to its last group's last. */
+    private async chapterRange(codeSystem: $Enums.DiagnosisCodeSystem, chapter: string) {
+        const client = this.databaseService.client;
+        const [first, last] = await client.$transaction([
+            client.diagnosisCodeGroup.findFirst({ where: { codeSystem, chapter }, orderBy: { position: 'asc' }, select: { firstCode: true } }),
+            client.diagnosisCodeGroup.findFirst({ where: { codeSystem, chapter }, orderBy: { position: 'desc' }, select: { lastCode: true } }),
+        ]);
+        if (!first || !last) throw new NotFoundException(`Chapter ${chapter} not found`);
+        return { firstCode: first.firstCode, lastCode: last.lastCode };
+    }
+
+    private async groupRange(codeSystem: $Enums.DiagnosisCodeSystem, firstCode: string) {
+        const group = await this.databaseService.client.diagnosisCodeGroup.findUnique({
+            where:  { codeSystem_firstCode: { codeSystem, firstCode } },
+            select: { firstCode: true, lastCode: true },
+        });
+        if (!group) throw new NotFoundException(`No group starts at ${firstCode}`);
+        return group;
+    }
 
     /**
      * Locks the note for the rest of the transaction and checks it can be changed: it's the
@@ -454,6 +601,11 @@ type PatientCondition = {
     consultationId: string;
     encounterId: string;
 };
+
+// an item's place in its list, so a note's findings read in the screen's order
+const SYMPTOM_ORDER = new Map([...ROS_SYMPTOMS.keys()].map((code, index) => [code, index]));
+const ELEMENT_ORDER = new Map([...EXAM_ELEMENTS.keys()].map((code, index) => [code, index]));
+const listOrder = (order: Map<string, number>, code: string) => order.get(code) ?? Number.MAX_SAFE_INTEGER;
 
 /** The fields actually sent: a PATCH leaves out what it doesn't change. */
 function definedOnly<T extends object>(fields: T): Partial<T> {

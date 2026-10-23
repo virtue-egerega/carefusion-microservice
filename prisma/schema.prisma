@@ -38,6 +38,7 @@ model Organization {
   childMaxYears         Int     @default(12)    // CHILD up to this age, then ADOLESCENT
   paediatricMaxAge      Int?                    // last age (years) treated as paediatric; set by the hospital
   geriatricMinAge       Int?                    // first age (years) treated as older adult; set by the hospital
+  nearExpiryDays        Int     @default(90)    // stock expiring within this many days is flagged (15 §12.2)
   paymentPlan           PaymentPlan?
   businessType          BusinessType @default(HOSPITAL)
   orgType               OrgType @default(STANDALONE)
@@ -61,6 +62,11 @@ model Organization {
   billableItems          BillableItem[]
   clinicBillableItems    ClinicBillableItem[]
   consultations          Consultation[]
+  drugs                  Drug[]
+  suppliers              Supplier[]
+  manufacturers          Manufacturer[]
+  storageLocations       StorageLocation[]
+  goodsReceipts          GoodsReceipt[]
 
 }
 
@@ -90,6 +96,9 @@ model Branch {
   patients       Patient[]
   encounters     Encounter[]
   queueEntries   QueueEntry[]
+  storageLocations  StorageLocation[]
+  goodsReceipts     GoodsReceipt[]
+  stockTransactions StockTransaction[]
 
   @@index([organizationId])
 }
@@ -852,6 +861,7 @@ model BillableItem {
   costs          ItemCost[]
   clinicLinks    ClinicBillableItem[]
   charges        Charge[]
+  stockItem      StockItem?
 
   @@unique([organizationId, code])
   @@unique([id, organizationId]) // target of ClinicBillableItem's composite FK
@@ -877,6 +887,7 @@ model ItemCost {
 
   item          BillableItem @relation(fields: [itemId], references: [id])
   charges       Charge[]
+  receiptItems  GoodsReceiptItem[] // costs rolled forward by a goods receipt (15 §11)
 
   @@index([itemId, effectiveFrom])
 }
@@ -972,6 +983,310 @@ model PayerDiscount {
   charges       Charge[]
 
   @@index([payerId, effectiveFrom])
+}
+
+// ------------ Inventory: drugs & consumables (15) ------------
+// Stock is held per location + batch + status (StockBalance). StockMovement is append-only and an insert trigger is
+// the only writer of StockBalance; triggers, partial indexes and CHECKs are appended to the migration SQL (15 §9.2).
+
+// The drug itself, the same in every hospital: seeded by CareFusion (organizationId null) or added by a hospital.
+model Drug {
+  id               String        @id @default(uuid())
+  organizationId   String?       // null = system row; set = added by that hospital
+  genericName      String        // "Paracetamol"
+  strength         String?       // "500 mg", "250 mg/5 ml"
+  dosageForm       DosageForm
+  route            DrugRoute
+  prescriptionOnly Boolean       @default(true)
+  controlled       Boolean       @default(false)
+  status           CatalogStatus @default(ACTIVE)
+  createdAt        DateTime      @default(now())
+  createdBy        String?       // null for seeded rows
+  updatedAt        DateTime      @updatedAt
+  updatedBy        String?
+
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  stockItems       StockItem[]
+
+  @@index([genericName])
+  @@index([organizationId])
+}
+
+// A billable the hospital holds in stock (1:1): "Emzor Paracetamol 500mg". PHARMACY-kind items must name their drug.
+model StockItem {
+  itemId              String           @id
+  organizationId      String
+  drugId              String?          // required for PHARMACY-kind items
+  brandName           String?          // "Emzor Paracetamol"
+  manufacturerId      String?          // the maker identifies the product, not the batch
+  registrationNo      String?          // NAFDAC registration number
+  batchTracked        Boolean          @default(true)  // batch number + expiry required on receipt
+  quarantineOnReceipt Boolean          @default(false) // receipt lines default to QUARANTINE
+  storageCondition    StorageCondition @default(ROOM_TEMPERATURE)
+  createdAt           DateTime         @default(now())
+  createdBy           String
+  updatedAt           DateTime         @updatedAt
+  updatedBy           String?
+
+  item                BillableItem     @relation(fields: [itemId, organizationId], references: [id, organizationId])
+  drug                Drug?            @relation(fields: [drugId], references: [id])
+  manufacturer        Manufacturer?    @relation(fields: [manufacturerId], references: [id])
+  packs               ItemPack[]
+  batches             StockBatch[]
+  receiptItems        GoodsReceiptItem[]
+
+  @@unique([itemId, organizationId]) // target of StockBatch's composite FK
+  @@index([organizationId])
+  @@index([drugId])
+  @@index([manufacturerId])
+}
+
+// How the item is bought or handled, in base units (BillableItem.unit). The base unit itself is an implicit pack of 1.
+model ItemPack {
+  id           String        @id @default(uuid())
+  itemId       String
+  name         String        // "Box of 100", "Strip of 10"
+  unitsPerPack Int           // never edited; a new size is a new pack
+  barcode      String?
+  isDefault    Boolean       @default(false)
+  status       CatalogStatus @default(ACTIVE)
+  createdAt    DateTime      @default(now())
+  createdBy    String
+  updatedAt    DateTime      @updatedAt
+  updatedBy    String?
+
+  stockItem    StockItem     @relation(fields: [itemId], references: [itemId])
+  receiptItems GoodsReceiptItem[]
+
+  @@unique([itemId, name])
+}
+
+model Supplier {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  contactName    String?
+  phone          String[]
+  email          String?
+  address        String?
+  taxId          String?       // TIN
+  notes          String?
+  status         CatalogStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  createdBy      String
+  updatedAt      DateTime      @updatedAt
+  updatedBy      String?
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  receipts       GoodsReceipt[]
+
+  @@unique([organizationId, name])
+}
+
+// Who makes a product: picked or created when stocking an item, like suppliers.
+model Manufacturer {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String        // "Emzor Pharmaceutical Industries"
+  country        String?
+  status         CatalogStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  createdBy      String
+  updatedAt      DateTime      @updatedAt
+  updatedBy      String?
+
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  stockItems     StockItem[]
+
+  @@unique([organizationId, name])
+}
+
+// A manufacturer's lot of one stock item. Created only by posting a receipt; later deliveries of the same lot reuse it.
+model StockBatch {
+  id               String       @id @default(uuid())
+  organizationId   String
+  itemId           String
+  batchNumber      String?      // null only for items that aren't batch-tracked
+  manufacturedOn   DateTime?    @db.Date
+  expiryDate       DateTime?    @db.Date // required for batch-tracked items; expired from the day after
+  qualityStatus    BatchQuality @default(RELEASED)
+  qualityReason    String?
+  qualityChangedAt DateTime?
+  qualityChangedBy String?
+  recallReference  String?      // required when RECALLED
+  firstReceivedAt  DateTime     // FIFO tie-break; rotation order for untracked items
+  createdAt        DateTime     @default(now())
+  createdBy        String
+
+  stockItem        StockItem    @relation(fields: [itemId, organizationId], references: [itemId, organizationId])
+  balances         StockBalance[]
+  movements        StockMovement[]
+  receiptItems     GoodsReceiptItem[]
+
+  @@unique([itemId, batchNumber]) // nulls distinct: every untracked receipt line gets its own batch
+  @@unique([id, organizationId])
+  @@index([itemId, expiryDate])
+}
+
+// A place stock is kept in a branch: Main Store, OPD Dispensary, Ward 3. Flat in v1 (15 §7).
+model StorageLocation {
+  id               String           @id @default(uuid())
+  organizationId   String
+  branchId         String
+  code             String           // "MS", "OPD-DISP"
+  name             String
+  type             LocationType
+  storageCondition StorageCondition @default(ROOM_TEMPERATURE)
+  status           CatalogStatus    @default(ACTIVE)
+  createdAt        DateTime         @default(now())
+  createdBy        String
+  updatedAt        DateTime         @updatedAt
+  updatedBy        String?
+
+  organization     Organization     @relation(fields: [organizationId], references: [id])
+  branch           Branch           @relation(fields: [branchId], references: [id])
+  balances         StockBalance[]
+  movements        StockMovement[]
+  receipts         GoodsReceipt[]
+  receiptItems     GoodsReceiptItem[]
+
+  @@unique([organizationId, code])
+  @@unique([id, organizationId]) // target of balance and movement composite FKs
+  @@index([organizationId, branchId])
+}
+
+// How much of one batch sits at one location in one status. Written only by the movement trigger; never by code.
+model StockBalance {
+  id             String          @id @default(uuid())
+  organizationId String
+  branchId       String
+  locationId     String
+  itemId         String
+  batchId        String
+  status         StockStatus
+  quantity       Int             @default(0) // base units; CHECK >= 0
+  updatedAt      DateTime        @updatedAt
+
+  location       StorageLocation @relation(fields: [locationId, organizationId], references: [id, organizationId])
+  batch          StockBatch      @relation(fields: [batchId, organizationId], references: [id, organizationId])
+
+  @@unique([locationId, batchId, status])
+  @@index([organizationId, itemId, status])
+  @@index([batchId])
+}
+
+// One stock event (a receipt, a status change, an issue) and its movements.
+model StockTransaction {
+  id             String               @id @default(uuid())
+  organizationId String
+  branchId       String
+  type           StockTransactionType
+  sourceType     String?              // "GoodsReceipt", "Dispensing"…
+  sourceId       String?
+  reason         String?
+  occurredAt     DateTime             @default(now())
+  createdBy      String
+
+  branch         Branch               @relation(fields: [branchId], references: [id])
+  movements      StockMovement[]
+  receipt        GoodsReceipt?
+
+  @@index([organizationId, occurredAt])
+  @@index([sourceType, sourceId])
+}
+
+// A signed change to one balance. Append-only.
+model StockMovement {
+  id             String           @id @default(uuid())
+  transactionId  String
+  organizationId String
+  locationId     String
+  itemId         String
+  batchId        String
+  status         StockStatus
+  quantity       Int              // signed base units; never 0
+  createdAt      DateTime         @default(now())
+
+  transaction    StockTransaction @relation(fields: [transactionId], references: [id])
+  location       StorageLocation  @relation(fields: [locationId, organizationId], references: [id, organizationId])
+  batch          StockBatch       @relation(fields: [batchId, organizationId], references: [id, organizationId])
+
+  @@index([transactionId])
+  @@index([batchId, createdAt])
+  @@index([locationId, itemId, createdAt])
+  @@index([itemId, createdAt])
+}
+
+// A delivery (or opening stock) as it arrived. Drafts change no stock; posting is one transaction (15 §10.2).
+model GoodsReceipt {
+  id                  String          @id @default(uuid())
+  organizationId      String
+  branchId            String
+  number              String          // "GRN-000123" (SequenceCounter "grn:<orgId>")
+  type                ReceiptType     @default(DELIVERY)
+  locationId          String          // where it's received; lines may put away elsewhere in the branch
+  supplierId          String?         // required for DELIVERY
+  supplierInvoiceNo   String?
+  supplierInvoiceDate DateTime?       @db.Date
+  deliveryNote        String?
+  receivedAt          DateTime        // when the goods physically arrived
+  status              ReceiptStatus   @default(DRAFT)
+  notes               String?
+  transactionId       String?         @unique // set when posted
+  createdAt           DateTime        @default(now())
+  createdBy           String
+  updatedAt           DateTime        @updatedAt
+  updatedBy           String?
+  postedAt            DateTime?
+  postedBy            String?
+  cancelledAt         DateTime?
+  cancelledBy         String?
+  cancelReason        String?
+
+  organization        Organization     @relation(fields: [organizationId], references: [id])
+  branch              Branch           @relation(fields: [branchId], references: [id])
+  location            StorageLocation  @relation(fields: [locationId], references: [id])
+  supplier            Supplier?        @relation(fields: [supplierId], references: [id])
+  transaction         StockTransaction? @relation(fields: [transactionId], references: [id])
+  items               GoodsReceiptItem[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status, receivedAt])
+  @@index([supplierId, receivedAt])
+}
+
+model GoodsReceiptItem {
+  id             String           @id @default(uuid())
+  receiptId      String
+  itemId         String
+  packId         String?          // null = received in base units
+  packName       String           // snapshot: "Box of 100"
+  unitsPerPack   Int              // snapshot
+  packsDelivered Int
+  packsAccepted  Int              // only accepted packs enter stock
+  rejectReason   String?          // required when fewer accepted than delivered
+  packCost       Decimal          @db.Decimal(14, 2) // as on the invoice line
+  batchNumber    String?
+  manufacturedOn DateTime?        @db.Date
+  expiryDate     DateTime?        @db.Date
+  locationId     String?          // put-away override within the receipt's branch
+  receiveAs      StockStatus      @default(AVAILABLE) // AVAILABLE | QUARANTINE
+  updateCost     Boolean          @default(true)      // roll ItemCost forward on posting (15 §11)
+  keepCostReason String?          // required when updateCost is false
+  batchId        String?          // set on posting
+  itemCostId     String?          // set when posting rolled the cost
+  createdAt      DateTime         @default(now())
+
+  receipt        GoodsReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  stockItem      StockItem        @relation(fields: [itemId], references: [itemId])
+  pack           ItemPack?        @relation(fields: [packId], references: [id])
+  location       StorageLocation? @relation(fields: [locationId], references: [id])
+  batch          StockBatch?      @relation(fields: [batchId], references: [id])
+  itemCost       ItemCost?        @relation(fields: [itemCostId], references: [id])
+
+  @@index([receiptId])
+  @@index([itemId])
+  @@index([batchId])
 }
 
 // ------------ Charges & allocation (§5, §6) ------------
@@ -1793,8 +2108,10 @@ model Consultation {
   queueEntry          QueueEntry?          @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
   clinic              Clinic?              @relation(fields: [clinicId], references: [id])
   complaints          ConsultationComplaint[]
+  reviewFindings      ConsultationReviewFinding[]
   systemReviews       ConsultationSystemReview[]
   generalSigns        ConsultationGeneralSign[]
+  examFindings        ConsultationExamFinding[]
   examinations        ConsultationExamination[]
   diagnoses           Diagnosis[]
   addenda             ConsultationAddendum[]
@@ -1817,13 +2134,26 @@ model ConsultationComplaint {
   @@unique([consultationId, position])
 }
 
-// Review of systems: one row per system asked about (14 §3.3)
+// Review of systems, per symptom from the standard list (14 §3.3): positive or negative. A symptom
+// not asked about has no row: "not assessed" is never read as denied.
+model ConsultationReviewFinding {
+  id             String        @id @default(uuid())
+  consultationId String
+  symptom        String                             // a code from review-of-systems.catalog.ts: "HAEMOPTYSIS"
+  finding        ReviewFinding
+  note           String?                            // "productive, 2 weeks"
+
+  consultation   Consultation  @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, symptom])
+}
+
+// A body system's note in the review of systems: symptoms not on the list, comments (14 §3.3)
 model ConsultationSystemReview {
   id             String       @id @default(uuid())
   consultationId String
   system         BodySystem
-  normal         Boolean      @default(false)       // "nothing to note"
-  findings       String?
+  note           String
 
   consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
 
@@ -1844,13 +2174,26 @@ model ConsultationGeneralSign {
   @@unique([consultationId, sign])
 }
 
-// Systemic examination: one row per system examined (14 §4.2)
+// Systemic examination, per item from the standard list (14 §4.2): normal, or abnormal with a note.
+// An item not examined has no row: "not examined" is never read as normal.
+model ConsultationExamFinding {
+  id             String       @id @default(uuid())
+  consultationId String
+  element        String                             // a code from examination.catalog.ts: "HEART_SOUNDS"
+  finding        ExamFinding
+  note           String?                            // required when ABNORMAL
+
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  @@unique([consultationId, element])
+}
+
+// A body system's note in the systemic examination: anything not on the list (14 §4.2)
 model ConsultationExamination {
   id             String       @id @default(uuid())
   consultationId String
   system         BodySystem
-  normal         Boolean      @default(false)
-  findings       String?
+  note           String
 
   consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
 
@@ -1889,11 +2232,36 @@ model DiagnosisCode {
   code       String                                 // "B54", "I10", "E11.9"
   title      String
   chapter    String?
+  selectable Boolean             @default(true)  // false for a heading with subdivisions (B50): code to the most specific level
   isActive   Boolean             @default(true)
 
   diagnoses  Diagnosis[]
 
   @@id([codeSystem, code])
+}
+
+// The code list's chapters and groups, for browsing it (14 §5): "I Certain infectious and parasitic
+// diseases", "A00–A09 Intestinal infectious diseases". position keeps WHO's order (chapter XXII, U, is last).
+model DiagnosisChapter {
+  codeSystem DiagnosisCodeSystem
+  number     String                                 // "01"
+  numeral    String                                 // "I"
+  title      String
+  position   Int
+
+  @@id([codeSystem, number])
+}
+
+model DiagnosisCodeGroup {
+  codeSystem DiagnosisCodeSystem
+  firstCode  String                                 // "A00"
+  lastCode   String                                 // "A09": the group holds every code from A00 to A09.9
+  chapter    String                                 // the chapter's number, "01"
+  title      String
+  position   Int
+
+  @@id([codeSystem, firstCode])
+  @@index([codeSystem, chapter])
 }
 
 // Added to a signed note, attributed to whoever adds it (14 §7)
@@ -1960,6 +2328,18 @@ enum BodySystem {
   ENDOCRINE
   PSYCHIATRIC
   OTHER
+  HAEMATOLOGICAL_LYMPHATIC   // added with the symptom-level review of systems (14 §3.3)
+  ALLERGIC_IMMUNOLOGICAL
+}
+
+enum ReviewFinding {
+  POSITIVE
+  NEGATIVE
+}
+
+enum ExamFinding {
+  NORMAL
+  ABNORMAL
 }
 
 enum GeneralSign {
@@ -1993,4 +2373,89 @@ enum ConsultationOutcome {
   ADMIT
   LEFT_AGAINST_ADVICE
   DIED
+}
+
+// ------------ Inventory (15) ------------
+
+enum DosageForm {
+  TABLET
+  CAPSULE
+  SYRUP
+  SUSPENSION
+  SOLUTION
+  INJECTION
+  INFUSION
+  CREAM
+  OINTMENT
+  GEL
+  DROPS
+  INHALER
+  SUPPOSITORY
+  PESSARY
+  POWDER
+  PATCH
+  OTHER
+}
+
+enum DrugRoute {
+  ORAL
+  IV
+  IM
+  SC
+  TOPICAL
+  INHALATION
+  RECTAL
+  VAGINAL
+  OPHTHALMIC
+  OTIC
+  NASAL
+  SUBLINGUAL
+  OTHER
+}
+
+enum StorageCondition {
+  ROOM_TEMPERATURE // 15–25 °C
+  COOL             // 8–15 °C
+  REFRIGERATED     // 2–8 °C
+  FROZEN
+}
+
+enum BatchQuality {
+  RELEASED // usable
+  ON_HOLD  // under investigation; reversible
+  RECALLED // terminal; stock leaves by write-off or supplier return
+}
+
+enum LocationType {
+  STORE
+  DISPENSARY
+  WARD
+  THEATRE
+  CLINIC
+  OTHER
+}
+
+enum StockStatus {
+  AVAILABLE
+  QUARANTINE // received, awaiting inspection / release
+  DAMAGED    // set aside for write-off or supplier return
+}
+
+enum StockTransactionType {
+  OPENING       // opening stock at go-live (+)
+  RECEIPT       // goods receipt (+)
+  STATUS_CHANGE // net 0 per batch, same location
+  ISSUE         // (−) dispensing / ward use, through the issue contract (15 §12.3)
+  ISSUE_RETURN  // (+) unused stock returned to the batches it was issued from
+}
+
+enum ReceiptType {
+  DELIVERY // from a supplier
+  OPENING  // opening stock at go-live: no supplier
+}
+
+enum ReceiptStatus {
+  DRAFT
+  POSTED
+  CANCELLED // drafts only
 }

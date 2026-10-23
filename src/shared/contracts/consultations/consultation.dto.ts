@@ -1,12 +1,12 @@
 import { ApiProperty, PickType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
-    ArrayMaxSize, IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min,
+    ArrayMaxSize, IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min,
     ValidateNested,
 } from 'class-validator';
 import {
     AlcoholUse, BodySystem, ConsultationKind, ConsultationOutcome, ConsultationStatus, DiagnosisCertainty, DiagnosisCodeSystem,
-    GeneralSign, MedicationAdherence, SmokingStatus,
+    ExamFinding, GeneralSign, MedicationAdherence, ReviewFinding, SmokingStatus,
 } from '@shared/enums/consultations/consultation.enums';
 
 // A section is saved by sending it; null clears it; leaving it out keeps what's saved (PATCH).
@@ -40,19 +40,45 @@ export class ComplaintDto {
     duration?: string;
 }
 
-/** A body system in the review of systems or the systemic examination: normal, or findings. */
-export class SystemFindingDto {
+/** A symptom asked about in the review of systems (14 §3.3). One not asked about is left out: not assessed. */
+export class ReviewFindingDto {
+    @ApiProperty({ example: 'HAEMOPTYSIS', description: 'A code from GET /review-of-systems' })
+    @IsString() @IsNotEmpty() @MaxLength(60)
+    symptom!: string;
+
+    @ApiProperty({ enum: ReviewFinding, description: 'POSITIVE: has it. NEGATIVE: asked, and denies it' })
+    @IsEnum(ReviewFinding)
+    finding!: ReviewFinding;
+
+    @ApiProperty({ required: false, example: 'Productive, 2 weeks' })
+    @IsString() @MaxLength(SHORT) @IsOptional()
+    note?: string;
+}
+
+/** A body system's note in the review of systems or the examination: anything not on the list. */
+export class SystemNoteDto {
     @ApiProperty({ enum: BodySystem })
     @IsEnum(BodySystem)
     system!: BodySystem;
 
-    @ApiProperty({ required: false, default: false, description: 'Nothing to note' })
-    @IsBoolean() @IsOptional()
-    normal?: boolean;
+    @ApiProperty({ example: 'Snores at night' })
+    @IsString() @IsNotEmpty() @MaxLength(NOTE)
+    note!: string;
+}
 
-    @ApiProperty({ required: false })
+/** An item examined in the systemic examination (14 §4.2). One not examined is left out. */
+export class ExamFindingDto {
+    @ApiProperty({ example: 'MURMURS', description: 'A code from GET /examination' })
+    @IsString() @IsNotEmpty() @MaxLength(60)
+    element!: string;
+
+    @ApiProperty({ enum: ExamFinding })
+    @IsEnum(ExamFinding)
+    finding!: ExamFinding;
+
+    @ApiProperty({ required: false, example: 'Pansystolic murmur at the apex, grade 3/6', description: 'Required when ABNORMAL' })
     @IsString() @MaxLength(NOTE) @IsOptional()
-    findings?: string;
+    note?: string;
 }
 
 export class GeneralSignDto {
@@ -84,9 +110,13 @@ export class UpdateConsultationDto {
     @IsString() @MaxLength(NOTE) @IsOptional()
     presentingHistory?: string | null;
 
-    @ApiProperty({ required: false, type: [SystemFindingDto], description: 'Review of systems: the whole list; one row per system' })
-    @IsArray() @ArrayMaxSize(14) @ValidateNested({ each: true }) @Type(() => SystemFindingDto) @IsOptional()
-    systemReviews?: SystemFindingDto[] | null;
+    @ApiProperty({ required: false, type: [ReviewFindingDto], description: 'Review of systems: every symptom asked about, positive or negative; the whole list' })
+    @IsArray() @ArrayMaxSize(300) @ValidateNested({ each: true }) @Type(() => ReviewFindingDto) @IsOptional()
+    reviewFindings?: ReviewFindingDto[] | null;
+
+    @ApiProperty({ required: false, type: [SystemNoteDto], description: 'Review of systems: a note per body system; the whole list' })
+    @IsArray() @ArrayMaxSize(16) @ValidateNested({ each: true }) @Type(() => SystemNoteDto) @IsOptional()
+    systemReviews?: SystemNoteDto[] | null;
 
     @ApiProperty({ required: false })
     @IsString() @MaxLength(NOTE) @IsOptional()
@@ -167,9 +197,13 @@ export class UpdateConsultationDto {
     @IsString() @MaxLength(NOTE) @IsOptional()
     generalExamNote?: string | null;
 
-    @ApiProperty({ required: false, type: [SystemFindingDto], description: 'Systemic examination: the whole list; one row per system' })
-    @IsArray() @ArrayMaxSize(14) @ValidateNested({ each: true }) @Type(() => SystemFindingDto) @IsOptional()
-    examinations?: SystemFindingDto[] | null;
+    @ApiProperty({ required: false, type: [ExamFindingDto], description: 'Systemic examination: every item examined, normal or abnormal; the whole list' })
+    @IsArray() @ArrayMaxSize(300) @ValidateNested({ each: true }) @Type(() => ExamFindingDto) @IsOptional()
+    examFindings?: ExamFindingDto[] | null;
+
+    @ApiProperty({ required: false, type: [SystemNoteDto], description: 'Systemic examination: a note per body system; the whole list' })
+    @IsArray() @ArrayMaxSize(16) @ValidateNested({ each: true }) @Type(() => SystemNoteDto) @IsOptional()
+    examinations?: SystemNoteDto[] | null;
 
     // assessment, plan and outcome (14 §5–§6)
     @ApiProperty({ required: false })
@@ -308,6 +342,37 @@ export class PatientDiagnosisQueryDto extends Page {
     search?: string;
 }
 
+/** For the review-of-systems and examination lists. */
+export class ClinicalListQueryDto {
+    @ApiProperty({ required: false, description: "Leave out what doesn't apply to this consultation's patient" })
+    @IsUUID() @IsOptional()
+    consultationId?: string;
+}
+
+// a three-character ICD-10 code: a letter and two digits ("A00")
+const CATEGORY = /^[A-Z]\d{2}$/;
+const upper = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toUpperCase() : value);
+
+export class DiagnosisChapterQueryDto {
+    @ApiProperty({ required: false, enum: DiagnosisCodeSystem, default: DiagnosisCodeSystem.ICD_10 })
+    @IsEnum(DiagnosisCodeSystem) @IsOptional()
+    codeSystem: DiagnosisCodeSystem = DiagnosisCodeSystem.ICD_10;
+}
+
+export class DiagnosisGroupQueryDto extends Page {
+    @ApiProperty({ required: false, enum: DiagnosisCodeSystem, default: DiagnosisCodeSystem.ICD_10 })
+    @IsEnum(DiagnosisCodeSystem) @IsOptional()
+    codeSystem: DiagnosisCodeSystem = DiagnosisCodeSystem.ICD_10;
+
+    @ApiProperty({ required: false, example: '01', description: "A chapter's number, from GET /diagnosis-codes/chapters" })
+    @Matches(/^\d{2}$/) @IsOptional()
+    chapter?: string;
+
+    @ApiProperty({ required: false, example: 'tuberculosis', description: 'Words in the title' })
+    @IsString() @MaxLength(100) @IsOptional()
+    search?: string;
+}
+
 export class DiagnosisCodeQueryDto extends Page {
     @ApiProperty({ required: false, example: 'malaria', description: 'A code ("B54") or words in the title' })
     @IsString() @MaxLength(100) @IsOptional()
@@ -316,4 +381,20 @@ export class DiagnosisCodeQueryDto extends Page {
     @ApiProperty({ required: false, enum: DiagnosisCodeSystem, default: DiagnosisCodeSystem.ICD_10 })
     @IsEnum(DiagnosisCodeSystem) @IsOptional()
     codeSystem: DiagnosisCodeSystem = DiagnosisCodeSystem.ICD_10;
+
+    @ApiProperty({ required: false, example: '01', description: "Only the chapter's codes (its number)" })
+    @Matches(/^\d{2}$/) @IsOptional()
+    chapter?: string;
+
+    @ApiProperty({ required: false, example: 'A15', description: "Only the group's codes (its first code, from GET /diagnosis-codes/groups)" })
+    @Transform(upper) @Matches(CATEGORY, { message: 'group must be a three-character code, e.g. A15' }) @IsOptional()
+    group?: string;
+
+    @ApiProperty({ required: false, example: 'A00', description: 'Codes from this three-character code (inclusive)' })
+    @Transform(upper) @Matches(CATEGORY, { message: 'from must be a three-character code, e.g. A00' }) @IsOptional()
+    from?: string;
+
+    @ApiProperty({ required: false, example: 'A09', description: "Codes up to this three-character code, with its subdivisions (A09.9). Defaults to from" })
+    @Transform(upper) @Matches(CATEGORY, { message: 'to must be a three-character code, e.g. A09' }) @IsOptional()
+    to?: string;
 }

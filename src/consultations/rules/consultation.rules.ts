@@ -1,5 +1,8 @@
 // Pure consultation rules (PRD 14), no DB access. Unit-tested in consultation.rules.spec.ts.
 
+import { ROS_SYMPTOMS } from '../review-of-systems.catalog';
+import { EXAM_ELEMENTS } from '../examination.catalog';
+
 // ── Sections by age and sex (14 §3.8) ────────────────────────────────────────
 
 export const CHILDREN_FIELDS = ['birthHistory', 'immunisationHistory', 'developmentHistory', 'feedingHistory'] as const;
@@ -53,21 +56,9 @@ export function datesAndCountsProblem(
     return null;
 }
 
-// ── Lists (14 §3.3, §4) ──────────────────────────────────────────────────────
+// ── General examination (14 §4.1) ───────────────────────────────────────────
 
-type SystemFinding = { system: string; normal?: boolean; findings?: string | null };
 type Sign = { sign: string; present: boolean; grade?: number | null };
-
-/** Why a review-of-systems or examination list can't be saved: a system twice, or a row that says nothing. */
-export function systemListProblem(rows: SystemFinding[], what: string): string | null {
-    const seen = new Set<string>();
-    for (const row of rows) {
-        if (seen.has(row.system)) return `${what}: ${row.system} is listed twice`;
-        seen.add(row.system);
-        if (!row.normal && !row.findings?.trim()) return `${what}: mark ${row.system} normal or enter the findings`;
-    }
-    return null;
-}
 
 /** Why a general examination checklist can't be saved: a sign twice, or a grade on an absent sign. */
 export function generalSignsProblem(rows: Sign[]): string | null {
@@ -76,6 +67,58 @@ export function generalSignsProblem(rows: Sign[]): string | null {
         if (seen.has(row.sign)) return `General examination: ${row.sign} is listed twice`;
         seen.add(row.sign);
         if (given(row.grade) && !row.present) return `General examination: ${row.sign} can only be graded when present`;
+    }
+    return null;
+}
+
+// ── Review of systems and systemic examination lists (14 §3.3, §4.2) ─────────
+
+type Patient = { ageGroup: string | null; sex: string | null };
+type ListItem = { label: string; sex?: 'FEMALE' | 'MALE'; children?: true; reproductive?: true; retired?: true };
+
+/** Whether a symptom or examination item applies to the patient: their sex, and the children's / women's rules (14 §3.8). */
+export function appliesToPatient(item: Pick<ListItem, 'sex' | 'children' | 'reproductive'>, patient: Patient): boolean {
+    const sections = applicableSections(patient.ageGroup, patient.sex);
+    if (item.sex && patient.sex && patient.sex !== item.sex) return false;
+    if (item.children && !sections.children) return false;
+    if (item.reproductive && !sections.women) return false;
+    return true;
+}
+
+/** Why findings against a list can't be saved: an unknown or retired item, one twice, or one that doesn't apply. */
+function listFindingsProblem(codes: string[], list: Map<string, ListItem>, patient: Patient, what: string): string | null {
+    const seen = new Set<string>();
+    for (const code of codes) {
+        const known = list.get(code);
+        if (!known) return `${what}: ${code} isn't on the list`;
+        if (known.retired) return `${what}: ${known.label} is no longer on the list`;
+        if (seen.has(code)) return `${what}: ${known.label} is listed twice`;
+        seen.add(code);
+        if (!appliesToPatient(known, patient)) return `${what}: ${known.label} doesn't apply to this patient`;
+    }
+    return null;
+}
+
+/** Why review-of-systems findings can't be saved (14 §3.3). */
+export function reviewFindingsProblem(rows: { symptom: string }[], patient: Patient): string | null {
+    return listFindingsProblem(rows.map(r => r.symptom), ROS_SYMPTOMS, patient, 'Review of systems');
+}
+
+/** Why systemic examination findings can't be saved (14 §4.2): as for symptoms, and an abnormal finding needs its note. */
+export function examFindingsProblem(rows: { element: string; finding: string; note?: string | null }[], patient: Patient): string | null {
+    const problem = listFindingsProblem(rows.map(r => r.element), EXAM_ELEMENTS, patient, 'Examination');
+    if (problem) return problem;
+    const unexplained = rows.find(r => r.finding === 'ABNORMAL' && !r.note?.trim());
+    return unexplained ? `Examination: ${EXAM_ELEMENTS.get(unexplained.element)!.label} is marked abnormal; say what was found` : null;
+}
+
+/** Why a list's per-system notes can't be saved: a system twice, or an empty note. */
+export function systemNotesProblem(rows: { system: string; note: string }[], what: string): string | null {
+    const seen = new Set<string>();
+    for (const row of rows) {
+        if (seen.has(row.system)) return `${what}: ${row.system} has two notes`;
+        seen.add(row.system);
+        if (!row.note.trim()) return `${what}: the ${row.system} note is empty`;
     }
     return null;
 }

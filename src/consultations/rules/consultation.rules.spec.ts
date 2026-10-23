@@ -1,6 +1,6 @@
 import {
-    applicableSections, datesAndCountsProblem, diagnosisProblem, generalSignsProblem, lagosDay, sectionProblem, signProblem,
-    systemListProblem,
+    applicableSections, appliesToPatient, datesAndCountsProblem, diagnosisProblem, examFindingsProblem, generalSignsProblem, lagosDay,
+    reviewFindingsProblem, sectionProblem, signProblem, systemNotesProblem,
 } from './consultation.rules';
 
 describe('applicableSections', () => {
@@ -62,17 +62,6 @@ describe('datesAndCountsProblem', () => {
     });
 });
 
-describe('systemListProblem', () => {
-    it('accepts normal rows and rows with findings', () => {
-        expect(systemListProblem([{ system: 'CARDIOVASCULAR', normal: true }, { system: 'RESPIRATORY', findings: 'Crackles, right base' }], 'Examination')).toBeNull();
-    });
-
-    it('refuses a system twice, or a row that says nothing', () => {
-        expect(systemListProblem([{ system: 'SKIN', normal: true }, { system: 'SKIN', normal: true }], 'Examination')).toBe('Examination: SKIN is listed twice');
-        expect(systemListProblem([{ system: 'SKIN', findings: '  ' }], 'Review of systems')).toBe('Review of systems: mark SKIN normal or enter the findings');
-    });
-});
-
 describe('generalSignsProblem', () => {
     it('accepts absent signs and graded present ones', () => {
         expect(generalSignsProblem([{ sign: 'PALLOR', present: true, grade: 2 }, { sign: 'JAUNDICE', present: false }])).toBeNull();
@@ -115,5 +104,79 @@ describe('signProblem', () => {
         expect(signProblem({ ...ready, hasPrimary: false })).toBe('Add a primary diagnosis before signing');
         expect(signProblem({ ...ready, outcome: null })).toBe('Record the outcome before signing');
         expect(signProblem({ ...ready, outcome: 'FOLLOW_UP' })).toBe('Give the follow-up date before signing');
+    });
+});
+
+describe('appliesToPatient', () => {
+    const woman = { ageGroup: 'ADULT', sex: 'FEMALE' };
+    const man = { ageGroup: 'ADULT', sex: 'MALE' };
+    const girl = { ageGroup: 'UNDER_FIVE', sex: 'FEMALE' };
+
+    it('applies an unrestricted symptom to everyone', () => {
+        expect(appliesToPatient({}, man)).toBe(true);
+        expect(appliesToPatient({}, girl)).toBe(true);
+    });
+
+    it('applies a symptom by sex, and to an unknown sex', () => {
+        expect(appliesToPatient({ sex: 'FEMALE' }, woman)).toBe(true);
+        expect(appliesToPatient({ sex: 'FEMALE' }, man)).toBe(false);
+        expect(appliesToPatient({ sex: 'MALE' }, { ageGroup: 'ADULT', sex: null })).toBe(true);
+    });
+
+    it("applies children's and menstrual symptoms by the history sections' rules", () => {
+        expect(appliesToPatient({ children: true }, girl)).toBe(true);
+        expect(appliesToPatient({ children: true }, woman)).toBe(false);
+        expect(appliesToPatient({ sex: 'FEMALE', reproductive: true }, woman)).toBe(true);
+        expect(appliesToPatient({ sex: 'FEMALE', reproductive: true }, girl)).toBe(false);
+    });
+});
+
+describe('reviewFindingsProblem', () => {
+    const man = { ageGroup: 'ADULT', sex: 'MALE' };
+
+    it('accepts symptoms from the list that apply', () => {
+        expect(reviewFindingsProblem([{ symptom: 'COUGH' }, { symptom: 'HAEMOPTYSIS' }, { symptom: 'TESTICULAR_PAIN' }], man)).toBeNull();
+    });
+
+    it('refuses an unknown symptom, one listed twice, or one that does not apply', () => {
+        expect(reviewFindingsProblem([{ symptom: 'SNEEZY' }], man)).toBe("Review of systems: SNEEZY isn't on the list");
+        expect(reviewFindingsProblem([{ symptom: 'COUGH' }, { symptom: 'COUGH' }], man)).toBe('Review of systems: Cough is listed twice');
+        expect(reviewFindingsProblem([{ symptom: 'VAGINAL_DISCHARGE' }], man)).toBe("Review of systems: Vaginal discharge doesn't apply to this patient");
+        expect(reviewFindingsProblem([{ symptom: 'POOR_FEEDING' }], man)).toBe("Review of systems: Poor feeding doesn't apply to this patient");
+    });
+});
+
+describe('examFindingsProblem', () => {
+    const man = { ageGroup: 'ADULT', sex: 'MALE' };
+    const woman = { ageGroup: 'ADULT', sex: 'FEMALE' };
+
+    it('accepts normal items, and abnormal ones with their note', () => {
+        expect(examFindingsProblem([
+            { element: 'HEART_SOUNDS', finding: 'NORMAL' },
+            { element: 'MURMURS', finding: 'ABNORMAL', note: 'Pansystolic murmur at the apex, grade 3/6' },
+        ], man)).toBeNull();
+    });
+
+    it('needs a note on an abnormal finding', () => {
+        expect(examFindingsProblem([{ element: 'SPLEEN', finding: 'ABNORMAL', note: ' ' }], man)).toBe('Examination: Spleen is marked abnormal; say what was found');
+    });
+
+    it('refuses an unknown item, one listed twice, or one that does not apply', () => {
+        expect(examFindingsProblem([{ element: 'AURA', finding: 'NORMAL' }], man)).toBe("Examination: AURA isn't on the list");
+        expect(examFindingsProblem([{ element: 'LIVER', finding: 'NORMAL' }, { element: 'LIVER', finding: 'NORMAL' }], man)).toBe('Examination: Liver is listed twice');
+        expect(examFindingsProblem([{ element: 'SPECULUM', finding: 'NORMAL' }], man)).toBe("Examination: Speculum examination doesn't apply to this patient");
+        expect(examFindingsProblem([{ element: 'SCROTUM_TESTES', finding: 'NORMAL' }], woman)).toBe("Examination: Scrotum and testes doesn't apply to this patient");
+        expect(examFindingsProblem([{ element: 'FONTANELLE', finding: 'NORMAL' }], man)).toBe("Examination: Anterior fontanelle doesn't apply to this patient");
+    });
+});
+
+describe('systemNotesProblem', () => {
+    it('accepts one note per system', () => {
+        expect(systemNotesProblem([{ system: 'RESPIRATORY', note: 'Snores' }, { system: 'SKIN', note: 'Old burn scar' }], 'Review of systems')).toBeNull();
+    });
+
+    it('refuses a system twice, or an empty note', () => {
+        expect(systemNotesProblem([{ system: 'SKIN', note: 'a' }, { system: 'SKIN', note: 'b' }], 'Review of systems')).toBe('Review of systems: SKIN has two notes');
+        expect(systemNotesProblem([{ system: 'SKIN', note: '  ' }], 'Examination')).toBe('Examination: the SKIN note is empty');
     });
 });

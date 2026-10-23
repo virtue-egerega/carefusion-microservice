@@ -2,7 +2,7 @@ import { Controller, Get } from '@nestjs/common';
 import { Avpu, DangerSign, VitalsContext } from '@shared/enums/triage/triage.enums';
 import {
     AlcoholUse, BodySystem, ConsultationKind, ConsultationOutcome, ConsultationStatus, DiagnosisCertainty, DiagnosisCodeSystem,
-    GeneralSign, MedicationAdherence, SmokingStatus,
+    ExamFinding, GeneralSign, MedicationAdherence, ReviewFinding, SmokingStatus,
 } from '@shared/enums/consultations/consultation.enums';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
@@ -91,6 +91,8 @@ export class EnumsController {
         smokingStatus: toOptions(SmokingStatus),
         alcoholUse: toOptions(AlcoholUse),
         bodySystem: toOptions(BodySystem),
+        reviewFinding: toOptions(ReviewFinding),
+        examFinding: toOptions(ExamFinding),
         generalSign: toOptions(GeneralSign),
         diagnosisCodeSystem: toOptions(DiagnosisCodeSystem),
         diagnosisCertainty: toOptions(DiagnosisCertainty),
