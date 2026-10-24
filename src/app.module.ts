@@ -14,6 +14,7 @@ import { BillablesModule } from './billables/billables.module';
 import { ConsultationsModule } from './consultations/consultations.module';
 import { LaboratoryModule } from './laboratory/laboratory.module';
 import { PharmacyModule } from './pharmacy/pharmacy.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { EnumsModule } from './enums/enums.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { AuthModule } from './auth/auth.module';
@@ -39,6 +40,7 @@ import { TriageModule } from './triage/triage.module';
         ConsultationsModule,
         LaboratoryModule,
         PharmacyModule,
+        InventoryModule,
         EnumsModule,
         DepartmentsModule,
         AuthModule,

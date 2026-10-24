@@ -1,0 +1,2726 @@
+{
+  "therapeutic_uses": [
+    {
+      "name": "Stomatological Preparations",
+      "parent": "Stomatological Preparations",
+      "atc_code": "A01A",
+      "atc_level": 3,
+      "description": "Preparations for conditions of the oral cavity.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Antacids",
+      "parent": "Drugs for Acid Related Disorders",
+      "atc_code": "A02A",
+      "atc_level": 3,
+      "description": "Medicines used to neutralise gastric acid.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Drugs for Peptic Ulcer and Gastro-Oesophageal Reflux Disease (GORD)",
+      "parent": "Drugs for Acid Related Disorders",
+      "atc_code": "A02B",
+      "atc_level": 3,
+      "description": "Medicines classified for peptic ulcer disease and gastro-oesophageal reflux disease.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Antiulcer medicines", "GORD treatment"]
+    },
+    {
+      "name": "Other Drugs for Acid Related Disorders",
+      "parent": "Drugs for Acid Related Disorders",
+      "atc_code": "A02X",
+      "atc_level": 3,
+      "description": "Other medicines classified for acid-related disorders.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Drugs for Functional Gastrointestinal Disorders",
+      "parent": "Drugs for Functional Gastrointestinal Disorders",
+      "atc_code": "A03A",
+      "atc_level": 3,
+      "description": "Medicines classified for functional gastrointestinal disorders.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Belladonna and Derivatives, Plain",
+      "parent": "Drugs for Functional Gastrointestinal Disorders",
+      "atc_code": "A03B",
+      "atc_level": 3,
+      "description": "Plain belladonna preparations and derivatives.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Antispasmodics in Combination with Psycholeptics",
+      "parent": "Drugs for Functional Gastrointestinal Disorders",
+      "atc_code": "A03C",
+      "atc_level": 3,
+      "description": "Combinations of antispasmodics with psycholeptic medicines.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Antispasmodics in Combination with Analgesics",
+      "parent": "Drugs for Functional Gastrointestinal Disorders",
+      "atc_code": "A03D",
+      "atc_level": 3,
+      "description": "Combinations of antispasmodics with analgesic medicines.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Antispasmodics and Anticholinergics in Combination with Other Drugs",
+      "parent": "Drugs for Functional Gastrointestinal Disorders",
+      "atc_code": "A03E",
+      "atc_level": 3,
+      "description": "Combinations of antispasmodics or anticholinergics with other medicines.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Propulsives",
+      "parent": "Drugs for Functional Gastrointestinal Disorders",
+      "atc_code": "A03F",
+      "atc_level": 3,
+      "description": "Medicines that promote gastrointestinal motility.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Prokinetics"]
+    },
+    {
+      "name": "Antiemetics and Antinauseants",
+      "parent": "Antiemetics and Antinauseants",
+      "atc_code": "A04A",
+      "atc_level": 3,
+      "description": "Medicines used to prevent or relieve nausea and vomiting.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Antiemetics", "Antinauseants"]
+    },
+    {
+      "name": "Bile Therapy",
+      "parent": "Bile and Liver Therapy",
+      "atc_code": "A05A",
+      "atc_level": 3,
+      "description": "Medicines classified under bile therapy.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Liver Therapy, Lipotropics",
+      "parent": "Bile and Liver Therapy",
+      "atc_code": "A05B",
+      "atc_level": 3,
+      "description": "Medicines classified under liver therapy and lipotropics.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Drugs for Bile Therapy and Lipotropics in Combination",
+      "parent": "Bile and Liver Therapy",
+      "atc_code": "A05C",
+      "atc_level": 3,
+      "description": "Combinations of medicines for bile therapy and lipotropic use.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Drugs for Constipation",
+      "parent": "Drugs for Constipation",
+      "atc_code": "A06A",
+      "atc_level": 3,
+      "description": "Medicines used to treat constipation.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Laxatives"]
+    },
+    {
+      "name": "Intestinal Antiinfectives",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07A",
+      "atc_level": 3,
+      "description": "Medicines classified as anti-infective agents for intestinal use.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Intestinal Adsorbents",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07B",
+      "atc_level": 3,
+      "description": "Preparations classified as intestinal adsorbents.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Electrolytes with Carbohydrates",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07C",
+      "atc_level": 3,
+      "description": "Electrolyte and carbohydrate preparations, including oral rehydration formulations.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Oral rehydration"]
+    },
+    {
+      "name": "Antipropulsives",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07D",
+      "atc_level": 3,
+      "description": "Medicines that reduce intestinal propulsion and are used in the management of diarrhoea.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Intestinal Antiinflammatory Agents",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07E",
+      "atc_level": 3,
+      "description": "Medicines classified as intestinal anti-inflammatory agents.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Antidiarrheal Microorganisms",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07F",
+      "atc_level": 3,
+      "description": "Microorganism preparations classified for antidiarrheal use.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Other Antidiarrheals",
+      "parent": "Antidiarrheals, Intestinal Antiinflammatory/Antiinfective Agents",
+      "atc_code": "A07X",
+      "atc_level": 3,
+      "description": "Other medicines classified as antidiarrheals.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Antiobesity Preparations, excl. Diet Products",
+      "parent": "Antiobesity Preparations, excl. Diet Products",
+      "atc_code": "A08A",
+      "atc_level": 3,
+      "description": "Medicines classified as antiobesity preparations, excluding diet products.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Antiobesity"]
+    },
+    {
+      "name": "Digestives, incl. Enzymes",
+      "parent": "Digestives, incl. Enzymes",
+      "atc_code": "A09A",
+      "atc_level": 3,
+      "description": "Digestive preparations, including enzymes.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Digestive enzymes"]
+    },
+    {
+      "name": "Insulins and Analogues",
+      "parent": "Drugs Used in Diabetes",
+      "atc_code": "A10A",
+      "atc_level": 3,
+      "description": "Insulin preparations and analogues used in diabetes management.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Insulin"]
+    },
+    {
+      "name": "Blood Glucose Lowering Drugs, excl. Insulins",
+      "parent": "Drugs Used in Diabetes",
+      "atc_code": "A10B",
+      "atc_level": 3,
+      "description": "Non-insulin medicines used to lower blood glucose.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Non-insulin antidiabetics"]
+    },
+    {
+      "name": "Other Drugs Used in Diabetes",
+      "parent": "Drugs Used in Diabetes",
+      "atc_code": "A10X",
+      "atc_level": 3,
+      "description": "Other medicines classified for use in diabetes.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Multivitamins, Combinations",
+      "parent": "Vitamins",
+      "atc_code": "A11A",
+      "atc_level": 3,
+      "description": "Combined multivitamin preparations.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Multivitamins, Plain",
+      "parent": "Vitamins",
+      "atc_code": "A11B",
+      "atc_level": 3,
+      "description": "Multivitamin preparations without additional mineral combinations.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Vitamin A and D, incl. Combinations of the Two",
+      "parent": "Vitamins",
+      "atc_code": "A11C",
+      "atc_level": 3,
+      "description": "Vitamin A and vitamin D preparations, including combinations of both.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Vitamin B1, Plain and in Combination with Vitamin B6 and B12",
+      "parent": "Vitamins",
+      "atc_code": "A11D",
+      "atc_level": 3,
+      "description": "Vitamin B1 preparations, alone or combined with vitamins B6 and B12.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Vitamin B-Complex, incl. Combinations",
+      "parent": "Vitamins",
+      "atc_code": "A11E",
+      "atc_level": 3,
+      "description": "Vitamin B-complex preparations, including combinations.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Vitamin B complex"]
+    },
+    {
+      "name": "Ascorbic Acid (Vitamin C), incl. Combinations",
+      "parent": "Vitamins",
+      "atc_code": "A11G",
+      "atc_level": 3,
+      "description": "Vitamin C preparations, including combinations.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Vitamin C"]
+    },
+    {
+      "name": "Other Plain Vitamin Preparations",
+      "parent": "Vitamins",
+      "atc_code": "A11H",
+      "atc_level": 3,
+      "description": "Other single-vitamin preparations.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Other Vitamin Products, Combinations",
+      "parent": "Vitamins",
+      "atc_code": "A11J",
+      "atc_level": 3,
+      "description": "Other vitamin combinations not classified in the preceding groups.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Calcium",
+      "parent": "Mineral Supplements",
+      "atc_code": "A12A",
+      "atc_level": 3,
+      "description": "Calcium preparations classified as mineral supplements.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Calcium supplements"]
+    },
+    {
+      "name": "Potassium",
+      "parent": "Mineral Supplements",
+      "atc_code": "A12B",
+      "atc_level": 3,
+      "description": "Potassium preparations classified as mineral supplements.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": ["Potassium supplements"]
+    },
+    {
+      "name": "Other Mineral Supplements",
+      "parent": "Mineral Supplements",
+      "atc_code": "A12C",
+      "atc_level": 3,
+      "description": "Mineral supplements other than those classified under calcium or potassium.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Tonics",
+      "parent": "Tonics",
+      "atc_code": "A13A",
+      "atc_level": 3,
+      "description": "Preparations classified as tonics.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Anabolic Steroids",
+      "parent": "Anabolic Agents for Systemic Use",
+      "atc_code": "A14A",
+      "atc_level": 3,
+      "description": "Anabolic steroid preparations for systemic use.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Other Anabolic Agents",
+      "parent": "Anabolic Agents for Systemic Use",
+      "atc_code": "A14B",
+      "atc_level": 3,
+      "description": "Other anabolic agents for systemic use.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Appetite Stimulants",
+      "parent": "Appetite Stimulants",
+      "atc_code": "A15",
+      "atc_level": 2,
+      "description": "Preparations classified specifically as appetite stimulants.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+    {
+      "name": "Other Alimentary Tract and Metabolism Products",
+      "parent": "Other Alimentary Tract and Metabolism Products",
+      "atc_code": "A16A",
+      "atc_level": 3,
+      "description": "Other products classified under alimentary tract and metabolism.",
+      "source_system": "NAFDAC_GREENBOOK",
+      "source_url": "https://greenbook.nafdac.gov.ng/atc-classification",
+      "aliases": []
+    },
+
+  {
+    "atc_code": "B01A",
+    "name": "Antithrombotic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Antithrombotic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B02A",
+    "name": "Antifibrinolytics",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihemorrhagics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B02B",
+    "name": "Vitamin K and Other Hemostatics",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihemorrhagics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B03A",
+    "name": "Iron Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Antianemic Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B03B",
+    "name": "Vitamin B12 and Folic Acid",
+    "description": "",
+    "aliases": [],
+    "parent": "Antianemic Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B03X",
+    "name": "Other Antianemic Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Antianemic Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B05A",
+    "name": "Blood and Related Products",
+    "description": "",
+    "aliases": [],
+    "parent": "Blood Substitutes and Perfusion Solutions",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B05B",
+    "name": "I.V. Solutions",
+    "description": "",
+    "aliases": [],
+    "parent": "Blood Substitutes and Perfusion Solutions",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B05C",
+    "name": "Irrigating Solutions",
+    "description": "",
+    "aliases": [],
+    "parent": "Blood Substitutes and Perfusion Solutions",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B05D",
+    "name": "Peritoneal Dialytics",
+    "description": "",
+    "aliases": [],
+    "parent": "Blood Substitutes and Perfusion Solutions",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B05X",
+    "name": "I.V. Solution Additives",
+    "description": "",
+    "aliases": [],
+    "parent": "Blood Substitutes and Perfusion Solutions",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B05Z",
+    "name": "Hemodialytics and Hemofiltrates",
+    "description": "",
+    "aliases": [],
+    "parent": "Blood Substitutes and Perfusion Solutions",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "B06A",
+    "name": "Other Hematological Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Hematological Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C01A",
+    "name": "Cardiac Glycosides",
+    "description": "",
+    "aliases": [],
+    "parent": "Cardiac Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C01B",
+    "name": "Antiarrhythmics, Class I and III",
+    "description": "",
+    "aliases": [],
+    "parent": "Cardiac Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C01C",
+    "name": "Cardiac Stimulants excl. Cardiac Glycosides",
+    "description": "",
+    "aliases": [],
+    "parent": "Cardiac Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C01D",
+    "name": "Vasodilators Used in Cardiac Diseases",
+    "description": "",
+    "aliases": [],
+    "parent": "Cardiac Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C01E",
+    "name": "Other Cardiac Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Cardiac Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02A",
+    "name": "Antiadrenergic Agents, Centrally Acting",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02B",
+    "name": "Antiadrenergic Agents, Ganglion-Blocking",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02C",
+    "name": "Antiadrenergic Agents, Peripherally Acting",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02D",
+    "name": "Arteriolar Smooth Muscle, Agents Acting On",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02K",
+    "name": "Other Antihypertensives",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02L",
+    "name": "Antihypertensives and Diuretics in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C02N",
+    "name": "Combinations of Antihypertensives in ATC-GR. C02",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihypertensives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C03A",
+    "name": "Low-Ceiling Diuretics, Thiazides",
+    "description": "",
+    "aliases": [],
+    "parent": "Diuretics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C03B",
+    "name": "Low-Ceiling Diuretics, excl. Thiazides",
+    "description": "",
+    "aliases": [],
+    "parent": "Diuretics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C03C",
+    "name": "High-Ceiling Diuretics",
+    "description": "",
+    "aliases": [],
+    "parent": "Diuretics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C03D",
+    "name": "Aldosterone Antagonists and Other Potassium-Sparing Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Diuretics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C03E",
+    "name": "Diuretics and Potassium-Sparing Agents in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Diuretics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C03X",
+    "name": "Other Diuretics",
+    "description": "",
+    "aliases": [],
+    "parent": "Diuretics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C04A",
+    "name": "Peripheral Vasodilators",
+    "description": "",
+    "aliases": [],
+    "parent": "Peripheral Vasodilators",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C05A",
+    "name": "Agents for Treatment of Hemorrhoids and Anal Fissures for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Vasoprotectives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C05B",
+    "name": "Antivaricose Therapy",
+    "description": "",
+    "aliases": [],
+    "parent": "Vasoprotectives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C05C",
+    "name": "Capillary Stabilizing Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Vasoprotectives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C07A",
+    "name": "Beta Blocking Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Beta Blocking Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C07B",
+    "name": "Beta Blocking Agents and Thiazides",
+    "description": "",
+    "aliases": [],
+    "parent": "Beta Blocking Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C07C",
+    "name": "Beta Blocking Agents and Other Diuretics",
+    "description": "",
+    "aliases": [],
+    "parent": "Beta Blocking Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C07D",
+    "name": "Beta Blocking Agents, Thiazides and Other Diuretics",
+    "description": "",
+    "aliases": [],
+    "parent": "Beta Blocking Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C07E",
+    "name": "Beta Blocking Agents and Vasodilators",
+    "description": "",
+    "aliases": [],
+    "parent": "Beta Blocking Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C07F",
+    "name": "Beta Blocking Agents, Other Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Beta Blocking Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C08C",
+    "name": "Selective Calcium Channel Blockers with Mainly Vascular Effects",
+    "description": "",
+    "aliases": [],
+    "parent": "Calcium Channel Blockers",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C08D",
+    "name": "Selective Calcium Channel Blockers with Direct Cardiac Effects",
+    "description": "",
+    "aliases": [],
+    "parent": "Calcium Channel Blockers",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C08E",
+    "name": "Non-Selective Calcium Channel Blockers",
+    "description": "",
+    "aliases": [],
+    "parent": "Calcium Channel Blockers",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C08G",
+    "name": "Calcium Channel Blockers and Diuretics",
+    "description": "",
+    "aliases": [],
+    "parent": "Calcium Channel Blockers",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C09A",
+    "name": "ACE Inhibitors, Plain",
+    "description": "",
+    "aliases": [],
+    "parent": "Agents Acting on the Renin-Angiotensin System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C09B",
+    "name": "ACE Inhibitors, Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Agents Acting on the Renin-Angiotensin System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C09C",
+    "name": "Angiotensin II Receptor Blockers (ARBs), Plain",
+    "description": "",
+    "aliases": [],
+    "parent": "Agents Acting on the Renin-Angiotensin System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C09D",
+    "name": "Angiotensin II Receptor Blockers (ARBs), Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Agents Acting on the Renin-Angiotensin System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C09X",
+    "name": "Other Agents Acting on the Renin-Angiotensin System",
+    "description": "",
+    "aliases": [],
+    "parent": "Agents Acting on the Renin-Angiotensin System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C10A",
+    "name": "Lipid Modifying Agents, Plain",
+    "description": "",
+    "aliases": [],
+    "parent": "Lipid Modifying Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "C10B",
+    "name": "Lipid Modifying Agents, Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Lipid Modifying Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+
+  {
+    "atc_code": "D01A",
+    "name": "Antifungals for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antifungals for Dermatological Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D01B",
+    "name": "Antifungals for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antifungals for Dermatological Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D02A",
+    "name": "Emollients and Protectives",
+    "description": "",
+    "aliases": [],
+    "parent": "Emollients and Protectives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D02B",
+    "name": "Protectives Against UV-Radiation",
+    "description": "",
+    "aliases": [],
+    "parent": "Emollients and Protectives",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D03A",
+    "name": "Cicatrizants",
+    "description": "",
+    "aliases": [],
+    "parent": "Preparations for Treatment of Wounds and Ulcers",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D03B",
+    "name": "Enzymes",
+    "description": "",
+    "aliases": [],
+    "parent": "Preparations for Treatment of Wounds and Ulcers",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D04A",
+    "name": "Antipruritics, Including Antihistamines, Anesthetics, etc.",
+    "description": "",
+    "aliases": [],
+    "parent": "Antipruritics, Including Antihistamines, Anesthetics, etc.",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D05A",
+    "name": "Antipsoriatics for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antipsoriatics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D05B",
+    "name": "Antipsoriatics for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antipsoriatics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D06A",
+    "name": "Antibiotics for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibiotics and Chemotherapeutics for Dermatological Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D06B",
+    "name": "Chemotherapeutics for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibiotics and Chemotherapeutics for Dermatological Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D06C",
+    "name": "Antibiotics and Chemotherapeutics, Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibiotics and Chemotherapeutics for Dermatological Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D07A",
+    "name": "Corticosteroids, Plain",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids, Dermatological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D07B",
+    "name": "Corticosteroids, Combinations with Antiseptics",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids, Dermatological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D07C",
+    "name": "Corticosteroids, Combinations with Antibiotics",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids, Dermatological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D07X",
+    "name": "Corticosteroids, Other Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids, Dermatological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D08A",
+    "name": "Antiseptics and Disinfectants",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiseptics and Disinfectants",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D09A",
+    "name": "Medicated Dressings",
+    "description": "",
+    "aliases": [],
+    "parent": "Medicated Dressings",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D10A",
+    "name": "Anti-Acne Preparations for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Anti-Acne Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D10B",
+    "name": "Anti-Acne Preparations for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Anti-Acne Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "D11A",
+    "name": "Other Dermatological Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Dermatological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G01A",
+    "name": "Antiinfectives and Antiseptics, excl. Combinations with Corticosteroids",
+    "description": "",
+    "aliases": [],
+    "parent": "Gynecological Antiinfectives and Antiseptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G01B",
+    "name": "Antiinfectives/Antiseptics in Combination with Corticosteroids",
+    "description": "",
+    "aliases": [],
+    "parent": "Gynecological Antiinfectives and Antiseptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G02A",
+    "name": "Uterotonics",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Gynecologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G02B",
+    "name": "Contraceptives for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Gynecologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G02C",
+    "name": "Other Gynecologicals",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Gynecologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03A",
+    "name": "Hormonal Contraceptives for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03B",
+    "name": "Androgens",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03C",
+    "name": "Estrogens",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03D",
+    "name": "Progestogens",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03E",
+    "name": "Androgens and Female Sex Hormones in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03F",
+    "name": "Progestogens and Estrogens in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03G",
+    "name": "Gonadotropins and Other Ovulation Stimulants",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03H",
+    "name": "Antiandrogens",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G03X",
+    "name": "Other Sex Hormones and Modulators of the Genital System",
+    "description": "",
+    "aliases": [],
+    "parent": "Sex Hormones and Modulators of the Genital System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G04B",
+    "name": "Urologicals",
+    "description": "",
+    "aliases": [],
+    "parent": "Urologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "G04C",
+    "name": "Drugs Used in Benign Prostatic Hypertrophy",
+    "description": "",
+    "aliases": [],
+    "parent": "Urologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H01A",
+    "name": "Anterior Pituitary Lobe Hormones and Analogues",
+    "description": "",
+    "aliases": [],
+    "parent": "Pituitary and Hypothalamic Hormones and Analogues",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H01B",
+    "name": "Posterior Pituitary Lobe Hormones",
+    "description": "",
+    "aliases": [],
+    "parent": "Pituitary and Hypothalamic Hormones and Analogues",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H01C",
+    "name": "Hypothalamic Hormones",
+    "description": "",
+    "aliases": [],
+    "parent": "Pituitary and Hypothalamic Hormones and Analogues",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H02A",
+    "name": "Corticosteroids for Systemic Use, Plain",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H02B",
+    "name": "Corticosteroids for Systemic Use, Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H02C",
+    "name": "Antiadrenal Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Corticosteroids for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H03A",
+    "name": "Thyroid Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Thyroid Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H03B",
+    "name": "Antithyroid Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Thyroid Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H03C",
+    "name": "Iodine Therapy",
+    "description": "",
+    "aliases": [],
+    "parent": "Thyroid Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H04A",
+    "name": "Glycogenolytic Hormones",
+    "description": "",
+    "aliases": [],
+    "parent": "Pancreatic Hormones",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H05A",
+    "name": "Parathyroid Hormones and Analogues",
+    "description": "",
+    "aliases": [],
+    "parent": "Calcium Homeostasis",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "H05B",
+    "name": "Anti-Parathyroid Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Calcium Homeostasis",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01A",
+    "name": "Tetracyclines",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01B",
+    "name": "Amphenicols",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01C",
+    "name": "Beta-Lactam Antibacterials, Penicillins",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01D",
+    "name": "Other Beta-Lactam Antibacterials",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01E",
+    "name": "Sulfonamides and Trimethoprim",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01F",
+    "name": "Macrolides, Lincosamides and Streptogramins",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01G",
+    "name": "Aminoglycoside Antibacterials",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01M",
+    "name": "Quinolone Antibacterials",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01R",
+    "name": "Combinations of Antibacterials",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J01X",
+    "name": "Other Antibacterials",
+    "description": "",
+    "aliases": [],
+    "parent": "Antibacterials for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J02A",
+    "name": "Antimycotics for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antimycotics for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J04A",
+    "name": "Drugs for Treatment of Tuberculosis",
+    "description": "",
+    "aliases": [],
+    "parent": "Antimycobacterials",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J04B",
+    "name": "Drugs for Treatment of Lepra",
+    "description": "",
+    "aliases": [],
+    "parent": "Antimycobacterials",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J05A",
+    "name": "Direct Acting Antivirals",
+    "description": "",
+    "aliases": [],
+    "parent": "Antivirals for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J06A",
+    "name": "Immune Sera",
+    "description": "",
+    "aliases": [],
+    "parent": "Immune Sera and Immunoglobulins",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J06B",
+    "name": "Immunoglobulins",
+    "description": "",
+    "aliases": [],
+    "parent": "Immune Sera and Immunoglobulins",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J07A",
+    "name": "Bacterial Vaccines",
+    "description": "",
+    "aliases": [],
+    "parent": "Vaccines",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J07B",
+    "name": "Viral Vaccines",
+    "description": "",
+    "aliases": [],
+    "parent": "Vaccines",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J07C",
+    "name": "Bacterial and Viral Vaccines, Combined",
+    "description": "",
+    "aliases": [],
+    "parent": "Vaccines",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "J07X",
+    "name": "Other Vaccines",
+    "description": "",
+    "aliases": [],
+    "parent": "Vaccines",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01A",
+    "name": "Alkylating Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01B",
+    "name": "Antimetabolites",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01C",
+    "name": "Plant Alkaloids and Other Natural Products",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01D",
+    "name": "Cytotoxic Antibiotics and Related Substances",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01E",
+    "name": "Protein Kinase Inhibitors",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01F",
+    "name": "Monoclonal Antibodies and Antibody Drug Conjugates",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L01X",
+    "name": "Other Antineoplastic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Antineoplastic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L02A",
+    "name": "Hormones and Related Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Endocrine Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L02B",
+    "name": "Hormone Antagonists and Related Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Endocrine Therapy",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L03A",
+    "name": "Immunostimulants",
+    "description": "",
+    "aliases": [],
+    "parent": "Immunostimulants",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "L04A",
+    "name": "Immunosuppressants",
+    "description": "",
+    "aliases": [],
+    "parent": "Immunosuppressants",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M01A",
+    "name": "Antiinflammatory and Antirheumatic Products, Non-Steroids",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiinflammatory and Antirheumatic Products",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M01B",
+    "name": "Antiinflammatory/Antirheumatic Agents in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiinflammatory and Antirheumatic Products",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M01C",
+    "name": "Specific Antirheumatic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiinflammatory and Antirheumatic Products",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M02A",
+    "name": "Topical Products for Joint and Muscular Pain",
+    "description": "",
+    "aliases": [],
+    "parent": "Topical Products for Joint and Muscular Pain",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M03A",
+    "name": "Muscle Relaxants, Peripherally Acting Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Muscle Relaxants",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M03B",
+    "name": "Muscle Relaxants, Centrally Acting Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Muscle Relaxants",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M03C",
+    "name": "Muscle Relaxants, Directly Acting Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Muscle Relaxants",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M04A",
+    "name": "Antigout Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Antigout Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M05B",
+    "name": "Drugs Affecting Bone Structure and Mineralization",
+    "description": "",
+    "aliases": [],
+    "parent": "Drugs for Treatment of Bone Diseases",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "M09A",
+    "name": "Other Drugs for Disorders of the Musculo-Skeletal System",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Drugs for Disorders of the Musculo-Skeletal System",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N01A",
+    "name": "Anesthetics, General",
+    "description": "",
+    "aliases": [],
+    "parent": "Anesthetics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N01B",
+    "name": "Anesthetics, Local",
+    "description": "",
+    "aliases": [],
+    "parent": "Anesthetics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N02A",
+    "name": "Opioids",
+    "description": "",
+    "aliases": [],
+    "parent": "Analgesics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N02B",
+    "name": "Other Analgesics and Antipyretics",
+    "description": "",
+    "aliases": [],
+    "parent": "Analgesics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N02C",
+    "name": "Antimigraine Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Analgesics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N03A",
+    "name": "Antiepileptics",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiepileptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N04A",
+    "name": "Anticholinergic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Anti-Parkinson Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N04B",
+    "name": "Dopaminergic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Anti-Parkinson Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N04C",
+    "name": "Other Antiparkinson Drugs",
+    "description": "",
+    "aliases": [],
+    "parent": "Anti-Parkinson Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N05A",
+    "name": "Antipsychotics",
+    "description": "",
+    "aliases": [],
+    "parent": "Psycholeptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N05B",
+    "name": "Anxiolytics",
+    "description": "",
+    "aliases": [],
+    "parent": "Psycholeptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N05C",
+    "name": "Hypnotics and Sedatives",
+    "description": "",
+    "aliases": [],
+    "parent": "Psycholeptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N06A",
+    "name": "Antidepressants",
+    "description": "",
+    "aliases": [],
+    "parent": "Psychoanaleptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N06B",
+    "name": "Psychostimulants, Agents Used for ADHD and Nootropics",
+    "description": "",
+    "aliases": [],
+    "parent": "Psychoanaleptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N06C",
+    "name": "Psycholeptics and Psychoanaleptics in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Psychoanaleptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N06D",
+    "name": "Anti-Dementia Drugs",
+    "description": "",
+    "aliases": [],
+    "parent": "Psychoanaleptics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N07A",
+    "name": "Parasympathomimetics",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Nervous System Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N07B",
+    "name": "Drugs Used in Addictive Disorders",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Nervous System Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N07C",
+    "name": "Antivertigo Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Nervous System Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "N07X",
+    "name": "Other Nervous System Drugs",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Nervous System Drugs",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P01A",
+    "name": "Agents Against Amoebiasis and Other Protozoal Diseases",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiprotozoals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P01B",
+    "name": "Antimalarials",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiprotozoals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P01C",
+    "name": "Agents Against Leishmaniasis and Trypanosomiasis",
+    "description": "",
+    "aliases": [],
+    "parent": "Antiprotozoals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P02B",
+    "name": "Antitrematodals",
+    "description": "",
+    "aliases": [],
+    "parent": "Anthelmintics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P02C",
+    "name": "Antinematodal Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Anthelmintics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P02D",
+    "name": "Anticestodals",
+    "description": "",
+    "aliases": [],
+    "parent": "Anthelmintics",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P03A",
+    "name": "Ectoparasiticides, incl. Scabicides",
+    "description": "",
+    "aliases": [],
+    "parent": "Ectoparasiticides, incl. Scabicides, Insecticides and Repellents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "P03B",
+    "name": "Insecticides and Repellents",
+    "description": "",
+    "aliases": [],
+    "parent": "Ectoparasiticides, incl. Scabicides, Insecticides and Repellents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R01A",
+    "name": "Decongestants and Other Nasal Preparations for Topical Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Nasal Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R01B",
+    "name": "Nasal Decongestants for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Nasal Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R02A",
+    "name": "Throat Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Throat Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R03A",
+    "name": "Adrenergics, Inhalants",
+    "description": "",
+    "aliases": [],
+    "parent": "Drugs for Obstructive Airway Diseases",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R03B",
+    "name": "Other Drugs for Obstructive Airway Diseases, Inhalants",
+    "description": "",
+    "aliases": [],
+    "parent": "Drugs for Obstructive Airway Diseases",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R03C",
+    "name": "Adrenergics for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Drugs for Obstructive Airway Diseases",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R03D",
+    "name": "Other Systemic Drugs for Obstructive Airway Diseases",
+    "description": "",
+    "aliases": [],
+    "parent": "Drugs for Obstructive Airway Diseases",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R05C",
+    "name": "Expectorants, excl. Combinations with Cough Suppressants",
+    "description": "",
+    "aliases": [],
+    "parent": "Cough and Cold Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R05D",
+    "name": "Cough Suppressants, excl. Combinations with Expectorants",
+    "description": "",
+    "aliases": [],
+    "parent": "Cough and Cold Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R05F",
+    "name": "Cough Suppressants and Expectorants, Combinations",
+    "description": "",
+    "aliases": [],
+    "parent": "Cough and Cold Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R05X",
+    "name": "Other Cold Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Cough and Cold Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R06A",
+    "name": "Antihistamines for Systemic Use",
+    "description": "",
+    "aliases": [],
+    "parent": "Antihistamines for Systemic Use",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "R07A",
+    "name": "Other Respiratory System Products",
+    "description": "",
+    "aliases": [],
+    "parent": "Other Respiratory System Products",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01A",
+    "name": "Antiinfectives",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01B",
+    "name": "Antiinflammatory Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01C",
+    "name": "Antiinflammatory Agents and Antiinfectives in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01E",
+    "name": "Antiglaucoma Preparations and Miotics",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01F",
+    "name": "Mydriatics and Cycloplegics",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01G",
+    "name": "Decongestants and Antiallergics",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01H",
+    "name": "Local Anesthetics",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01J",
+    "name": "Diagnostic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01K",
+    "name": "Surgical Aids",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01L",
+    "name": "Ocular Vascular Disorder Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S01X",
+    "name": "Other Ophthalmologicals",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S02A",
+    "name": "Antiinfectives",
+    "description": "",
+    "aliases": [],
+    "parent": "Otologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S02B",
+    "name": "Corticosteroids",
+    "description": "",
+    "aliases": [],
+    "parent": "Otologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S02C",
+    "name": "Corticosteroids and Antiinfectives in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Otologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S02D",
+    "name": "Other Otologicals",
+    "description": "",
+    "aliases": [],
+    "parent": "Otologicals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S03A",
+    "name": "Antiinfectives",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmological and Otological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S03B",
+    "name": "Corticosteroids",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmological and Otological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S03C",
+    "name": "Corticosteroids and Antiinfectives in Combination",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmological and Otological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "S03D",
+    "name": "Other Ophthalmological and Otological Preparations",
+    "description": "",
+    "aliases": [],
+    "parent": "Ophthalmological and Otological Preparations",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V01A",
+    "name": "Allergens",
+    "description": "",
+    "aliases": [],
+    "parent": "Allergens",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V03A",
+    "name": "All Other Therapeutic Products",
+    "description": "",
+    "aliases": [],
+    "parent": "All Other Therapeutic Products",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V04B",
+    "name": "Urine Tests",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V04C",
+    "name": "Other Diagnostic Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Agents",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V06A",
+    "name": "Diet Formulations for Treatment of Obesity",
+    "description": "",
+    "aliases": [],
+    "parent": "General Nutrients",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V06B",
+    "name": "Protein Supplements",
+    "description": "",
+    "aliases": [],
+    "parent": "General Nutrients",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V06C",
+    "name": "Infant Formulas",
+    "description": "",
+    "aliases": [],
+    "parent": "General Nutrients",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V06D",
+    "name": "Other Nutrients",
+    "description": "",
+    "aliases": [],
+    "parent": "General Nutrients",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V07A",
+    "name": "All Other Non-Therapeutic Products",
+    "description": "",
+    "aliases": [],
+    "parent": "All Other Non-Therapeutic Products",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V08A",
+    "name": "X-Ray Contrast Media, Iodinated",
+    "description": "",
+    "aliases": [],
+    "parent": "Contrast Media",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V08B",
+    "name": "X-Ray Contrast Media, Non-Iodinated",
+    "description": "",
+    "aliases": [],
+    "parent": "Contrast Media",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V08C",
+    "name": "Magnetic Resonance Imaging Contrast Media",
+    "description": "",
+    "aliases": [],
+    "parent": "Contrast Media",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V08D",
+    "name": "Ultrasound Contrast Media",
+    "description": "",
+    "aliases": [],
+    "parent": "Contrast Media",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09A",
+    "name": "Central Nervous System",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09B",
+    "name": "Skeleton",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09C",
+    "name": "Renal System",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09D",
+    "name": "Hepatic and Reticulo Endothelial System",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09E",
+    "name": "Respiratory System",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09F",
+    "name": "Thyroid",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09G",
+    "name": "Cardiovascular System",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09H",
+    "name": "Inflammation and Infection Detection",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09I",
+    "name": "Tumour Detection",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V09X",
+    "name": "Other Diagnostic Radiopharmaceuticals",
+    "description": "",
+    "aliases": [],
+    "parent": "Diagnostic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V10A",
+    "name": "Antiinflammatory Agents",
+    "description": "",
+    "aliases": [],
+    "parent": "Therapeutic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V10B",
+    "name": "Pain Palliation (Bone Seeking Agents)",
+    "description": "",
+    "aliases": [],
+    "parent": "Therapeutic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V10X",
+    "name": "Other Therapeutic Radiopharmaceuticals",
+    "description": "",
+    "aliases": [],
+    "parent": "Therapeutic Radiopharmaceuticals",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  },
+  {
+    "atc_code": "V20A",
+    "name": "Surgical Dressings",
+    "description": "",
+    "aliases": [],
+    "parent": "Surgical Dressings",
+    "atc_level": 3,
+    "source_system": "NAFDAC_GREENBOOK",
+    "source_url": "https://greenbook.nafdac.gov.ng/atc-classification"
+  }
+]      
+}

@@ -1012,6 +1012,26 @@ model Drug {
   @@index([organizationId])
 }
 
+// What a medicine is used for, as staff ask for it ("Antacids", "Antiemetics"). System reference data seeded from
+// prisma/data/medicines/therapeutic-uses.json, keyed by ATC code. The parent group is a label shown with the use and
+// searched on, not a row: groups under one parent share its code as a prefix (A02A, A02B → A02).
+model TherapeuticUse {
+  id           String        @id @default(uuid())
+  atcCode      String?       @unique // "A02A"; null only for a use with no ATC group
+  atcLevel     Int?          // 1–5
+  name         String        // ATC names repeat across groups, so atcCode is the key
+  parentName   String?       // "Drugs for Acid Related Disorders"
+  description  String?
+  aliases      String[]      @default([])
+  sourceSystem String?       // "NAFDAC_GREENBOOK"
+  sourceUrl    String?
+  status       CatalogStatus @default(ACTIVE)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([name])
+}
+
 // A billable the hospital holds in stock (1:1): "Emzor Paracetamol 500mg". PHARMACY-kind items must name their drug.
 model StockItem {
   itemId              String           @id

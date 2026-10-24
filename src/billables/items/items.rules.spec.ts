@@ -62,6 +62,24 @@ describe('itemUpdateRefusal', () => {
     it('treats a same-kind miss as not found, since that move would have succeeded', () => {
         expect(itemUpdateRefusal({ kind: 'LABORATORY' }, 'LABORATORY').reason).toBe('Billable item not found');
     });
+
+    it("refuses a new unit once the item has held stock (PRD 15 §3.3)", () => {
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', unit: 'tablet', hasStock: true }, null, 'strip').reason)
+            .toMatch(/stock counted in "tablet", so its unit can't change/);
+    });
+
+    it('treats a unit miss on an item without stock as not found, since that change would have succeeded', () => {
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', unit: 'tablet', hasStock: false }, null, 'strip').reason).toBe('Billable item not found');
+    });
+
+    it('treats an unchanged unit as not found', () => {
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', unit: 'tablet', hasStock: true }, null, 'tablet').reason).toBe('Billable item not found');
+    });
+
+    it('reports the kind mismatch before the unit', () => {
+        expect(itemUpdateRefusal({ kind: 'LABORATORY', unit: 'test', hasStock: true }, 'PHARMACY', 'tablet').reason)
+            .toMatch(/same kind/);
+    });
 });
 
 describe('clinicChangeRefusal', () => {

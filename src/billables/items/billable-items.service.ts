@@ -310,7 +310,14 @@ export class BillableItemsService {
             () => this.databaseService.transaction(async () => {
                 const tx = this.databaseService.client;
                 const { count } = await tx.billableItem.updateMany({
-                    where: { id: itemId, organizationId, ...(targetKind && { category: { kind: targetKind } }) },
+                    where: {
+                        id: itemId, organizationId,
+                        ...(targetKind && { category: { kind: targetKind } }),
+                        // stock is counted in the unit, so it's locked once a batch exists (PRD 15 §3.3)
+                        ...(fields.unit !== undefined && {
+                            OR: [{ unit: fields.unit }, { stockItem: { is: null } }, { stockItem: { batches: { none: {} } } }],
+                        }),
+                    },
                     data:  { ...fields, status: fields.status as $Enums.CatalogStatus | undefined, updatedBy },
                 });
                 if (!count) return 0;
@@ -332,9 +339,13 @@ export class BillableItemsService {
         if (!count) {
             const found = await client.billableItem.findFirst({
                 where:  { id: itemId, organizationId },
-                select: { category: { select: { kind: true } } },
+                select: { unit: true, category: { select: { kind: true } }, stockItem: { select: { _count: { select: { batches: true } } } } },
             });
-            const { reason } = itemUpdateRefusal(found && { kind: found.category.kind }, targetKind);
+            const { reason } = itemUpdateRefusal(
+                found && { kind: found.category.kind, unit: found.unit, hasStock: (found.stockItem?._count.batches ?? 0) > 0 },
+                targetKind,
+                fields.unit,
+            );
             throw found ? new ConflictException(reason) : new NotFoundException(reason);
         }
         return { message: 'Billable item updated' };

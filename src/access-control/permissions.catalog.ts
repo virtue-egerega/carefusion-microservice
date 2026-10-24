@@ -86,6 +86,18 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'billable.discount.end',     name: 'End Payer Discount',        description: 'End a payer discount early' },
     { key: 'billable.discount.cancel',  name: 'Withdraw Payer Discount',   description: "Withdraw a payer discount that hasn't taken effect" },
 
+    // Inventory: drugs & consumables (PRD 15 §17) — one key per job; cost figures still need billable.cost.view
+    { key: 'inventory.view',            name: 'View Inventory',              description: 'Drugs, stocked items, packs, locations, suppliers, manufacturers, batches, stock and receipts' },
+    { key: 'inventory.drug.manage',     name: 'Manage Hospital Drugs',       description: "Add or edit the hospital's own drugs (never system drugs)" },
+    { key: 'inventory.item.manage',     name: 'Manage Stock Items',          description: 'Stock settings, drug link, brand and maker, and packs' },
+    { key: 'inventory.location.manage', name: 'Manage Storage Locations',    description: 'Create, edit and deactivate storage locations' },
+    { key: 'inventory.supplier.manage', name: 'Manage Suppliers & Manufacturers', description: 'Create, edit and deactivate suppliers and manufacturers' },
+    { key: 'inventory.receipt.create',  name: 'Record Goods Receipt',        description: 'Create, edit and cancel draft receipts, including opening stock' },
+    { key: 'inventory.receipt.post',    name: 'Post Goods Receipt',          description: 'Post a receipt into stock (updates the cost price)' },
+    { key: 'inventory.status.release',  name: 'Release Quarantine',          description: 'Release quarantined stock for use' },
+    { key: 'inventory.status.change',   name: 'Change Stock Status',         description: 'Quarantine stock or set it aside as damaged' },
+    { key: 'inventory.batch.quality',   name: 'Hold / Recall Batch',         description: 'Put a batch on hold, release it, or record a recall' },
+
     // Insurance desk
     { key: 'insurance.preauth.record',    name: 'Record Pre-authorisation', description: 'Capture authorisation codes or record refusal' },
     { key: 'insurance.claim.review',      name: 'Record Payer Decisions',   description: 'Record payer approval or rejection per line' },

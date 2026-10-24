@@ -5,6 +5,7 @@ import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys }
 import { PERMISSION_CATALOG, SYSTEM_DUTY_PROFILES } from '../src/access-control/permissions.catalog';
 import { AccessControlService } from '../src/access-control/access-control.service';
 import { parseIcd10Chapters, parseIcd10Codes, parseIcd10Groups } from '../src/consultations/rules/icd10-file';
+import { parseTherapeuticUses } from '../src/inventory/medicines/therapeutic-uses-file';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -111,11 +112,28 @@ async function seedDiagnosisCodes() {
     console.log(`✓ ICD-10: ${chapters.length} chapters, ${groups.length} groups, ${codes.length} codes (${added.length} added, ${changed.length} updated, ${retired} retired)`);
 }
 
+// ATC therapeutic groups, shared by every hospital (15 §3). Insert-only: re-running adds the groups that
+// aren't there yet and leaves existing rows as they are, so it is safe to run any number of times.
+async function seedTherapeuticUses() {
+    const uses = parseTherapeuticUses(JSON.parse(readFileSync(join(__dirname, 'data', 'medicines', 'therapeutic-uses.json'), 'utf8')));
+
+    const existing = new Set(
+        (await prisma.therapeuticUse.findMany({ where: { atcCode: { not: null } }, select: { atcCode: true } })).map(u => u.atcCode),
+    );
+    const added = uses.filter(u => !existing.has(u.atcCode));
+
+    for (let i = 0; i < added.length; i += 1000) {
+        await prisma.therapeuticUse.createMany({ data: added.slice(i, i + 1000), skipDuplicates: true });
+    }
+    console.log(`✓ ${uses.length} therapeutic uses (${added.length} added, ${uses.length - added.length} already there)`);
+}
+
 async function main() {
     console.log('Seeding...');
     await seedDepartments();
     await seedAccessControl();
     await seedDiagnosisCodes();
+    await seedTherapeuticUses();
     console.log('Done.');
 }
 
