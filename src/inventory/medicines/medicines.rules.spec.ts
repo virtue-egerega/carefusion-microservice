@@ -22,12 +22,18 @@ describe('medicineSource', () => {
 });
 
 describe('sameMedicine', () => {
-    it('matches the generic name in any case, with the same form and route', () => {
-        expect(sameMedicine({ genericName: ' paracetamol ', dosageForm: 'TABLET', route: 'ORAL' })).toEqual({
+    it('matches the generic name and strength in any case, with the same form and route', () => {
+        expect(sameMedicine({ genericName: ' paracetamol ', strength: ' 500 MG ', dosageForm: 'TABLET', route: 'ORAL' })).toEqual({
             genericName: { equals: 'paracetamol', mode: 'insensitive' },
+            strength:    { equals: '500 MG', mode: 'insensitive' },
             dosageForm:  'TABLET',
             route:       'ORAL',
         });
+    });
+
+    it('matches only a medicine with no strength when none is given', () => {
+        expect(sameMedicine({ genericName: 'Oxygen', dosageForm: 'MEDICINAL_GAS', route: 'INHALATION' }).strength).toBeNull();
+        expect(sameMedicine({ genericName: 'Oxygen', strength: ' ', dosageForm: 'MEDICINAL_GAS', route: 'INHALATION' }).strength).toBeNull();
     });
 });
 

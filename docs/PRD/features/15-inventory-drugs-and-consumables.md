@@ -51,7 +51,7 @@ confirmation (§24).
 | D10 | **FEFO**: stock leaves earliest-expiry first among eligible stock, and every multi-batch issue records the quantity per batch. | 12 |
 | D11 | **Moves never change the total.** A transfer between locations or branches is dispatch then receive, with the quantity `IN_TRANSIT` in between. | 13 |
 | D12 | **Quantity-changing corrections are maker-checker.** *(proposed)* Adjustments, write-offs and count variances need an approver other than the requester. Value thresholds come later. | 14 |
-| D13 | **Inventory is its own module** (`src/inventory/`), importing Billables; neither Billables nor Billing imports it. The existing `src/pharmacy/` stub is left for Dispensing. | 19 |
+| D13 | **Inventory is its own module** (`src/inventory/`), importing Billables; neither Billables nor Billing imports it. The existing `src/pharmacy/` stub is left for Dispensing. Permissions and routes are named for the pharmacy, which manages all drugs and consumables in a hospital: `pharmacy.*` keys, `/api/pharmacy` paths *(2026-10-25)*. | 19 |
 
 ## 2. What Problem This Solves
 
@@ -71,19 +71,20 @@ hospital can't:
 
 ### 3.1 `Medicine` (system reference data)
 
-The medicine itself, as staff look for it: generic name, one dosage form, one route. Paracetamol
-tablet and paracetamol suspension are two medicines; Paracetamol 500 mg and 1 g tablets are one
-medicine with two products, because strength belongs to the product (§3.2). Medicines are the same
-in every hospital, so CareFusion seeds them, like clinics and queues (`04`).
+The medicine itself, as staff look for it: generic name, strength, one dosage form, one route.
+Paracetamol tablet and paracetamol suspension are two medicines, and so are Allopurinol 100 mg and
+300 mg tablets: NHIA lists each strength as its own line with its own code, and doctors prescribe a
+strength. Medicines are the same in every hospital, so CareFusion seeds them, like clinics and queues (`04`).
 
-The goal is **finding medicines**, not teaching pharmacology: search by name, alias or ingredient,
-filter by therapeutic use, form, route and body system.
+The goal is **finding medicines**, not teaching pharmacology: search by name, strength, alias or
+ingredient, filter by therapeutic use, form, route and body system.
 
 ```prisma
 model Medicine {
   id             String           @id @default(uuid())
   organizationId String?          // null = seeded by CareFusion; set = added by that hospital (USER_ADDED)
   genericName    String           // "Paracetamol", "Artemether + Lumefantrine"
+  strength       String?          // "500 mg", "250 mg/5 ml"; display text, part of identity
   dosageForm     DosageForm
   route          MedicineRoute
   ingredients    String[]         @default([])
@@ -92,13 +93,12 @@ model Medicine {
   atcCode        String?          // the medicine's own WHO ATC code, kept as given
   legalCategory  LegalCategory    @default(POM)
   controlled     Boolean?         // null = the source doesn't say
-  strengths      String[]         @default([]) // strengths the source lists; a reference, not identity
-  presentations  String[]         @default([]) // "Vial", "Ampoule"
-  nhisCodes      String[]         @default([]) // NHIA drug list codes
+  presentation   String?          // "Vial", "Ampoule"
+  nhisCode       String?          // NHIA drug list code: one per strength line
   description    String?
   sourceSystem   String?          // "NHIA_MEDICINES_LIST"
   sourceUrl      String?
-  searchText     String           @default("") // name + aliases + ingredients, kept by a trigger
+  searchText     String           @default("") // name + strength + aliases + ingredients, kept by a trigger
   status         CatalogStatus    @default(ACTIVE)
   createdAt      DateTime         @default(now())
   createdBy      String?          // null for seeded rows
@@ -135,28 +135,29 @@ enum LegalCategory { POM P OTC }   // prescription only, pharmacy, over the coun
 `DosageForm` (63 values, e.g. `TABLET`, `FILM_COATED_TABLET`, `ORAL_SUSPENSION`, `SOLUTION`,
 `INFUSION`, `SOLUTION_FOR_INFUSION`, `INHALATION_LIQUID`, `MEDICINAL_GAS`), `MedicineRoute` (22, the
 specific routes plus WHO's coarser `PARENTERAL`, `OROMUCOSAL`, `INSTILLATION`, `IMPLANT`) and
-`MedicineBodySystem` (16, the BNF chapters; separate from the consultation `BodySystem`) are listed in `prisma/schema.prisma`. Solution, infusion and
+`MedicineBodySystem` (the 16 BNF chapters plus `EAR`, `RENAL`, `AUTONOMIC_NERVOUS_SYSTEM`, `IMMUNESYSTEM` and `DIGESTIVE_SYSTEM`; separate from the consultation `BodySystem`) are listed in `prisma/schema.prisma`. Solution, infusion and
 solution for infusion are three different forms.
 
 ```sql
 -- one medicine per owner; seeded rows share the null owner
-CREATE UNIQUE INDEX "Medicine_identity" ON "Medicine" ("organizationId", lower("genericName"), "dosageForm", "route")
+CREATE UNIQUE INDEX "Medicine_identity" ON "Medicine" ("organizationId", lower("genericName"), lower("strength"), "dosageForm", "route")
   NULLS NOT DISTINCT;
--- searchText = lower(name + aliases + ingredients), set on every insert and update; trigram-indexed
+-- searchText = lower(name + strength + aliases + ingredients), set on every insert and update; trigram-indexed
 CREATE INDEX "Medicine_search_trgm" ON "Medicine" USING gin ("searchText" gin_trgm_ops);
 ```
 
 - **Seeded** from `prisma/data/medicines/medicines-*.json` (`prisma/seed.ts`), `organizationId`
   null. Hospitals can't edit or deactivate seeded rows. The seeder is insert-only: re-running adds
   medicines that aren't there yet and leaves existing ones alone.
-- **Entries for the same medicine are one row.** The NHIA list has a line per strength; entries with
-  the same name (any case), form and route combine their strengths, NHIS codes, aliases and uses.
-  Single values (ATC code, legal category) must agree.
-- **A hospital can add a medicine that's missing** (`inventory.medicine.manage`). It's shown as
+- **One entry is one medicine.** Each strength is its own entry with its own NHIS code; an entry with
+  the same name and strength (any case), form and route as another is reported as a duplicate. A
+  medicine with no strength (a medical gas) leaves it out. *(2026-10-25: strength moved from the
+  product to the medicine.)*
+- **A hospital can add a medicine that's missing** (`pharmacy.medicine.manage`). It's shown as
   `USER_ADDED` and visible only to that hospital. It's refused (409) if it matches a seeded medicine
   or one of the hospital's own. It picks therapeutic uses from the list; it can't invent new ones.
 - **Prescribing and dispensing will work against the medicine.** A doctor prescribes paracetamol
-  tablet, oral; dispensing offers every product in stock that names it, at whatever strength fits.
+  500 mg tablet, oral; dispensing offers every product in stock that names it, whatever the brand.
 - **`controlled` can be unknown.** The NHIA list doesn't say, and guessing `false` would be wrong
   for ketamine, so it stays null until set.
 
@@ -169,8 +170,7 @@ because Emzor Paracetamol and M&B Paracetamol are two products with two prices a
 model StockItem {
   itemId              String           @id
   organizationId      String
-  medicineId          String?          // required for PHARMACY-kind items
-  strength            String?          // "500 mg", "250 mg/5 ml": the product's, display text
+  medicineId          String?          // required for PHARMACY-kind items; its strength is the product's
   brandName           String?          // "Emzor Paracetamol"
   manufacturerId      String?          // the maker identifies the product, not the batch (§5)
   registrationNo      String?          // NAFDAC registration number
@@ -210,8 +210,8 @@ enum StorageCondition {
   categories is same-kind only (`12` §4.2), so this can't drift.
 - **The medicine must be a seeded one or the caller's own.** The service checks this; a foreign key
   can't, since seeded rows have no organisation.
-- **Strength is the product's.** Emzor Paracetamol 500 mg and Emzor Paracetamol 1 g are two items
-  naming one medicine; the medicine's `strengths` only suggest values.
+- **Strength comes from the medicine.** Emzor Paracetamol 500 mg names the Paracetamol 500 mg tablet
+  medicine; Emzor Paracetamol 1 g names the 1 g one. The product has no strength of its own to disagree.
 - **Name and code stay on the item.** `BillableItem.name` is what staff search and what charges
   snapshot ("Emzor Paracetamol 500mg Tablet"); the medicine supplies the structured parts.
 - **The manufacturer is picked from the hospital's list** (§5), or created on the spot, like a
@@ -491,9 +491,9 @@ and one positive movement, net zero. Allowed:
 
 | From | To | Meaning | Permission |
 |---|---|---|---|
-| `QUARANTINE` | `AVAILABLE` | Released after inspection | `inventory.status.release` |
-| `AVAILABLE` | `QUARANTINE` | Pulled back for inspection | `inventory.status.change` |
-| `AVAILABLE`, `QUARANTINE` | `DAMAGED` | Set aside (broken vial, cold-chain failure) | `inventory.status.change` |
+| `QUARANTINE` | `AVAILABLE` | Released after inspection | `pharmacy.stock.release` |
+| `AVAILABLE` | `QUARANTINE` | Pulled back for inspection | `pharmacy.stock.status` |
+| `AVAILABLE`, `QUARANTINE` | `DAMAGED` | Set aside (broken vial, cold-chain failure) | `pharmacy.stock.status` |
 
 `DAMAGED` stock leaves only by write-off (§14) or supplier return. `IN_TRANSIT` (slice 2) is touched
 only by transfers.
@@ -603,7 +603,7 @@ What this buys:
 - **Taking from nothing fails too**: a negative movement against a balance row that doesn't exist
   inserts a negative row, which fails the same CHECK.
 - **Every balance equals the sum of its movements**, by construction. A reconciliation query
-  (`/inventory/ledger/check`) proves it on demand.
+  (`/pharmacy/ledger/check`) proves it on demand.
 - **Composite FKs** keep a movement's batch and location in its organisation.
 - **`itemId` on the movement and balance** is copied from the batch so stock-by-item queries don't
   join; the service sets it from the batch it already loaded, and the batch FK stops it disagreeing
@@ -726,7 +726,7 @@ ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
    invoice number, and per line the product, pack, packs delivered, packs accepted, pack cost, batch
    number, expiry. A draft is freely editable and changes no stock. `receiveAs`
    defaults from `StockItem.quarantineOnReceipt`.
-2. **Post** (`inventory.receipt.post`), in one database transaction:
+2. **Post** (`pharmacy.receipt.post`), in one database transaction:
    - validates every line (below) and reports **all** failing lines in one 400;
    - finds or creates each line's batch (§6.1) and sets `batchId`;
    - writes one `RECEIPT` (or `OPENING`) transaction with a `+packsAccepted × unitsPerPack`
@@ -801,7 +801,7 @@ eligibility rules still apply.
 
 - `Organization.nearExpiryDays` (default 90) sets the near-expiry window, a column like the age
   cutoffs (`06` §2.7).
-- `GET /inventory/expiry` lists batches with stock (at a location, a branch or everywhere), grouped as *expired*,
+- `GET /pharmacy/expiry` lists batches with stock (at a location, a branch or everywhere), grouped as *expired*,
   *expiring within the window*, with quantities by location and value (with `billable.cost.view`).
 - Nothing is flagged by a job: expiry is computed from the date at query time, so expired stock is
   ineligible the moment the day turns. It stays on the balance until written off (§14).
@@ -888,11 +888,11 @@ ALTER TABLE "StockTransferLine" ADD CONSTRAINT transfer_line_discrepancy_note
   CHECK ("quantityReceived" IS NULL OR "quantityReceived" = "quantitySent" OR "discrepancyNote" IS NOT NULL);
 ```
 
-- **Dispatch** (`inventory.transfer.dispatch`): lines by item and quantity (FEFO picks batches) or by
+- **Dispatch** (`pharmacy.transfer.dispatch`): lines by item and quantity (FEFO picks batches) or by
   batch. Only eligible stock is sent. One `TRANSFER_DISPATCH` transaction: −n `AVAILABLE` at the
   source, +n `IN_TRANSIT` at the destination. The goods are visibly on the way, and the total is
   unchanged.
-- **Receive** (`inventory.transfer.receive`), by staff at the destination: the quantity received per
+- **Receive** (`pharmacy.transfer.receive`), by staff at the destination: the quantity received per
   line. One `TRANSFER_RECEIVE` transaction moves the received quantity `IN_TRANSIT` → `AVAILABLE`.
   **A shortfall stays `IN_TRANSIT`** and a pending `LOSS` adjustment (§14) is raised for it
   automatically, so missing stock is never silently dropped: someone must approve it as lost.
@@ -970,7 +970,7 @@ ALTER TABLE "StockAdjustment" ADD CONSTRAINT adjustment_maker_checker
 ### 14.2 Rules
 
 - **Maker-checker** *(proposed)*: any adjustment, whichever direction, is requested
-  (`inventory.adjustment.request`) and approved by someone else (`inventory.adjustment.approve`).
+  (`pharmacy.adjustment.request`) and approved by someone else (`pharmacy.adjustment.approve`).
   The CHECK enforces "someone else" at the database. Same principle as `FinancialRequest` (`10` §8),
   but its own table: it moves stock, not money on accounts. Value-based approval limits, like
   `ApprovalLimit`, can follow if hospitals ask (§24).
@@ -983,7 +983,7 @@ ALTER TABLE "StockAdjustment" ADD CONSTRAINT adjustment_maker_checker
 
 ### 14.3 Batch quality
 
-`POST /inventory/batches/:id/quality` (`inventory.batch.quality`): `RELEASED` ↔ `ON_HOLD`, or
+`POST /pharmacy/batches/:id/quality` (`pharmacy.batch.quality`): `RELEASED` ↔ `ON_HOLD`, or
 → `RECALLED` with `recallReference`; reason required, actor and time recorded on the batch. The recall
 view lists every balance of the batch by location (and, once Dispensing exists, every issue of it).
 
@@ -1074,97 +1074,98 @@ model StockLevel {
 }
 ```
 
-`GET /inventory/low-stock` compares eligible stock at each level.s location with
+`GET /pharmacy/low-stock` compares eligible stock at each level.s location with
 `minQuantity`, and shows stock in transit to it. Purchase-order suggestions build on it (slice 3).
 
 ## 17. Permissions
 
-`inventory.*` in `src/access-control/permissions.catalog.ts`, one key per job.
+`pharmacy.*` in `src/access-control/permissions.catalog.ts`, one key per job.
 
 | Key | Name | Grants |
 |---|---|---|
-| `inventory.view` | View Inventory | Stocked items, packs, locations, suppliers, manufacturers, drugs, batches, balances, movements, receipts, transfers, adjustments, counts, expiry and low-stock views |
-| `inventory.medicine.manage` | Manage Hospital Medicines | Add or edit the hospital's own medicines (never seeded ones) |
-| `inventory.item.manage` | Manage Stock Items | Stock settings, medicine link, strength, brand and maker, packs, reorder levels |
-| `inventory.location.manage` | Manage Storage Locations | Create, edit, deactivate locations |
-| `inventory.supplier.manage` | Manage Suppliers & Manufacturers | Suppliers and manufacturers |
-| `inventory.receipt.create` | Record Goods Receipt | Create, edit and cancel draft receipts (incl. opening stock) |
-| `inventory.receipt.post` | Post Goods Receipt | Post a receipt into stock (rolls cost, §11) |
-| `inventory.status.release` | Release Quarantine | `QUARANTINE` → `AVAILABLE` |
-| `inventory.status.change` | Change Stock Status | Quarantine, mark damaged |
-| `inventory.batch.quality` | Hold / Recall Batch | Batch quality status |
-| `inventory.transfer.dispatch` | Dispatch Transfer | Send stock to another location; cancel own dispatch |
-| `inventory.transfer.receive` | Receive Transfer | Receive at the destination |
-| `inventory.adjustment.request` | Request Stock Adjustment | Raise and cancel adjustments / write-offs |
-| `inventory.adjustment.approve` | Approve Stock Adjustment | Approve or reject someone else's |
-| `inventory.count.manage` | Run Stock Count | Start, count, submit, cancel |
-| `inventory.count.approve` | Approve Stock Count | Approve variances |
+| `pharmacy.stock.view` | Pharmacy: View Stock | Stocked items, packs, locations, suppliers, manufacturers, drugs, batches, balances, movements, receipts, transfers, adjustments, counts, expiry and low-stock views |
+| `pharmacy.medicine.manage` | Manage Hospital Medicines | Add or edit the hospital's own medicines (never seeded ones) |
+| `pharmacy.item.manage` | Manage Stock Items | Stock settings, medicine link, brand and maker, packs, reorder levels |
+| `pharmacy.location.manage` | Manage Storage Locations | Create, edit, deactivate locations |
+| `pharmacy.supplier.manage` | Manage Suppliers & Manufacturers | Suppliers and manufacturers |
+| `pharmacy.receipt.create` | Record Goods Receipt | Create, edit and cancel draft receipts (incl. opening stock) |
+| `pharmacy.receipt.post` | Post Goods Receipt | Post a receipt into stock (rolls cost, §11) |
+| `pharmacy.stock.release` | Release Quarantine | `QUARANTINE` → `AVAILABLE` |
+| `pharmacy.stock.status` | Change Stock Status | Quarantine, mark damaged |
+| `pharmacy.batch.quality` | Hold / Recall Batch | Batch quality status |
+| `pharmacy.transfer.dispatch` | Dispatch Transfer | Send stock to another location; cancel own dispatch |
+| `pharmacy.transfer.receive` | Receive Transfer | Receive at the destination |
+| `pharmacy.adjustment.request` | Request Stock Adjustment | Raise and cancel adjustments / write-offs |
+| `pharmacy.adjustment.approve` | Approve Stock Adjustment | Approve or reject someone else's |
+| `pharmacy.count.manage` | Run Stock Count | Start, count, submit, cancel |
+| `pharmacy.count.approve` | Approve Stock Count | Approve variances |
 
 **Cost visibility** reuses `billable.cost.view` (`12` §10): without it, responses leave out pack
 costs, batch costs and values. The exception is a receipt's own lines, which holders of
-`inventory.receipt.*` see because they enter them.
+`pharmacy.receipt.*` see because they enter them.
 
 **Seeded duty profiles** (slice 1, Pharmacy department, no queues; tenant-editable, and the seeder
 adds back a missing system permission, so tenants extend them rather than trim them):
 
 | Profile | Role | Gains |
 |---|---|---|
-| Pharmacy Technician | `PHARMACY_TECHNICIAN` | `inventory.view`, `receipt.create`, `status.change`, `billable.view` |
-| Pharmacist | `PHARMACIST` | the technician's, plus `receipt.post`, `status.release`, `batch.quality`, `medicine.manage`, `item.manage` |
-| Pharmacy Manager | `MANAGER` | every `inventory.*` key, `billable.view`, `billable.cost.view` |
-| Hospital Administrator | `SUPERADMIN` | gains `inventory.view` |
+| Pharmacy Technician | `PHARMACY_TECHNICIAN` | `pharmacy.stock.view`, `receipt.create`, `stock.status`, `billable.view` |
+| Pharmacist | `PHARMACIST` | the technician's, plus `receipt.post`, `stock.release`, `batch.quality`, `medicine.manage`, `item.manage` |
+| Pharmacy Manager | `MANAGER` | every `pharmacy.*` key, `billable.view`, `billable.cost.view` |
+| Hospital Administrator | `SUPERADMIN` | gains `pharmacy.stock.view` |
 
 A technician records a receipt and a pharmacist posts it, so posting (which moves cost prices) and
 releasing quarantine are always a second person's check. Slice 2 adds its keys to these profiles, and
-may add a ward profile (`inventory.view`, `transfer.receive`, `adjustment.request`) and an internal
-auditor (`inventory.view`, `count.approve`, `billable.cost.view`).
+may add a ward profile (`pharmacy.stock.view`, `transfer.receive`, `adjustment.request`) and an internal
+auditor (`pharmacy.stock.view`, `count.approve`, `billable.cost.view`).
 
 ## 18. APIs
 
-All under `/api/inventory`. Every query is scoped to the caller's `organizationId`; writes record the
+All under `/api/pharmacy`. Every query is scoped to the caller's `organizationId`; writes record the
 actor from the token; lists return `{ count, docs }` with `limit` (20) / `offset`.
 
 | Endpoint | Method | Permission | Purpose |
 |---|---|---|---|
-| `/medicines` | GET | `inventory.view` | `{ count, docs }`: seeded medicines plus the caller's own, each with `source` (`SYSTEM` / `USER_ADDED`) and its uses; filter `search` (name, alias, ingredient; partial), `therapeuticUse` (code), `dosageForm`, `route`, `bodySystem`, `legalCategory`, `status`, `source` |
-| `/therapeutic-uses` | GET | `inventory.view` | `{ count, docs }`: every use with its medicine count, for the filter and the add-medicine form |
-| `/medicines` | POST | `inventory.medicine.manage` | Add a hospital medicine: `genericName`, `dosageForm`, `route`, `ingredients?`, `aliases?`, `therapeuticUses?` (codes), `bodySystems?`, `legalCategory?`, `controlled?`, `description?`; 409 if it matches a seeded or own medicine |
-| `/medicines/:id` | GET / PATCH | `inventory.view` / `inventory.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
-| `/items` | GET | `inventory.view` | Stocked items with category, medicine, strength, brand, stock totals (§8.2) for `locationId?` / `branchId?`; filter `kind`, `categoryId`, `medicineId`, `search` (code, name, brand, generic name), `lowStock`, `status` |
-| `/items/:itemId` | PUT | `inventory.item.manage` | Make an item stocked / update settings: `batchTracked`, `quarantineOnReceipt`, `storageCondition`, `medicineId` (required for `PHARMACY` items), `strength?`, `brandName?`, `manufacturerId?`, `registrationNo?` |
-| `/items/:itemId` | GET | `inventory.view` | Settings, drug, packs, levels, totals |
-| `/items/:itemId/stock` | GET | `inventory.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) value |
-| `/items/:itemId/packs` | POST / GET | `inventory.item.manage` / `inventory.view` | Add pack (`name`, `unitsPerPack`, `barcode?`, `isDefault?`) / list |
-| `/packs/:id` | PATCH | `inventory.item.manage` | `name`, `barcode`, `isDefault`, `status` (never `unitsPerPack`) |
-| `/items/:itemId/levels` | PUT / GET | `inventory.item.manage` / `inventory.view` | Set / list reorder levels per location |
-| `/locations` | POST / GET | `inventory.location.manage` / `inventory.view` | Create / list for `branchId?` |
-| `/locations/:id` | GET / PATCH | `inventory.view` / `inventory.location.manage` | Detail with stock summary / edit, deactivate |
-| `/suppliers`, `/manufacturers` | POST / GET | `inventory.supplier.manage` / `inventory.view` | Create / list (`search`, `status`) |
-| `/suppliers/:id`, `/manufacturers/:id` | GET / PATCH | `inventory.view` / `inventory.supplier.manage` | Detail / edit, deactivate |
-| `/receipts` | POST / GET | `inventory.receipt.create` / `inventory.view` | Draft with lines / list (filter `status`, `supplierId`, `type`, dates) |
-| `/receipts/:id` | GET / PATCH | `inventory.view` / `inventory.receipt.create` | Detail / edit draft (header and lines replaced as a set) |
-| `/receipts/:id/post` | POST | `inventory.receipt.post` | Post (§10.2); 400 lists every failing line |
-| `/receipts/:id/cancel` | POST | `inventory.receipt.create` | Cancel a draft (`reason`) |
-| `/batches` | GET | `inventory.view` | Search by `itemId`, `batchNumber`, `qualityStatus`, expiry range |
-| `/batches/:id` | GET | `inventory.view` | Batch with balances, receipt lines, movements, cost (cost view) |
-| `/batches/:id/quality` | POST | `inventory.batch.quality` | `status`, `reason`, `recallReference?` |
-| `/status-changes` | POST | `inventory.status.*` per §8.3 | `{ locationId, lines: [{ batchId, from, to, quantity }], reason }` |
-| `/transfers` | POST / GET | `inventory.transfer.dispatch` / `inventory.view` | Dispatch / list (filter `status`, `fromLocationId`, `toLocationId`) |
-| `/transfers/:id` | GET | `inventory.view` | Detail |
-| `/transfers/:id/receive` | POST | `inventory.transfer.receive` | `{ lines: [{ lineId, quantityReceived, discrepancyNote? }] }` |
-| `/transfers/:id/cancel` | POST | `inventory.transfer.dispatch` | Before receipt (`reason`) |
-| `/adjustments` | POST / GET | `inventory.adjustment.request` / `inventory.view` | Request / list (filter `status`, `reason`) |
-| `/adjustments/:id` | GET | `inventory.view` | Detail with value (cost view) |
+| `/medicines` | GET | `pharmacy.stock.view` | `{ count, docs }`: seeded medicines plus the caller's own, each with `source` (`SYSTEM` / `USER_ADDED`) and its uses; filter `search` (name, alias, ingredient; partial), `therapeuticUse` (code), `dosageForm`, `route`, `bodySystem`, `legalCategory`, `status`, `source` |
+| `/therapeutic-uses` | GET | `pharmacy.stock.view` | `{ count, docs }`: every use with its medicine count, for the filter and the add-medicine form |
+| `/medicines` | POST | `pharmacy.medicine.manage` | Add a hospital medicine: `genericName`, `strength?`, `dosageForm`, `route`, `presentation?`, `ingredients?`, `aliases?`, `therapeuticUses?` (codes), `bodySystems?`, `legalCategory?`, `controlled?`, `description?`; 409 if it matches a seeded or own medicine |
+| `/medicines/stats` | GET | `pharmacy.stock.view` | Catalogue figures for the medicines page: `total` (active), `inactive`, `userAdded`, `stocked` (named by one of the hospital's products), `controlled`, and how many different `dosageForms`, `routes`, `legalCategories` and `therapeuticUses` the active medicines cover |
+| `/medicines/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
+| `/items` | GET | `pharmacy.stock.view` | Stocked items with category, medicine, strength, brand, stock totals (§8.2) for `locationId?` / `branchId?`; filter `kind`, `categoryId`, `medicineId`, `search` (code, name, brand, generic name), `lowStock`, `status` |
+| `/items/:itemId` | PUT | `pharmacy.item.manage` | Make an item stocked / update settings: `batchTracked`, `quarantineOnReceipt`, `storageCondition`, `medicineId` (required for `PHARMACY` items), `brandName?`, `manufacturerId?`, `registrationNo?` |
+| `/items/:itemId` | GET | `pharmacy.stock.view` | Settings, drug, packs, levels, totals |
+| `/items/:itemId/stock` | GET | `pharmacy.stock.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) value |
+| `/items/:itemId/packs` | POST / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Add pack (`name`, `unitsPerPack`, `barcode?`, `isDefault?`) / list |
+| `/packs/:id` | PATCH | `pharmacy.item.manage` | `name`, `barcode`, `isDefault`, `status` (never `unitsPerPack`) |
+| `/items/:itemId/levels` | PUT / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Set / list reorder levels per location |
+| `/locations` | POST / GET | `pharmacy.location.manage` / `pharmacy.stock.view` | Create / list for `branchId?` |
+| `/locations/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.location.manage` | Detail with stock summary / edit, deactivate |
+| `/suppliers`, `/manufacturers` | POST / GET | `pharmacy.supplier.manage` / `pharmacy.stock.view` | Create / list (`search`, `status`) |
+| `/suppliers/:id`, `/manufacturers/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.supplier.manage` | Detail / edit, deactivate |
+| `/receipts` | POST / GET | `pharmacy.receipt.create` / `pharmacy.stock.view` | Draft with lines / list (filter `status`, `supplierId`, `type`, dates) |
+| `/receipts/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.receipt.create` | Detail / edit draft (header and lines replaced as a set) |
+| `/receipts/:id/post` | POST | `pharmacy.receipt.post` | Post (§10.2); 400 lists every failing line |
+| `/receipts/:id/cancel` | POST | `pharmacy.receipt.create` | Cancel a draft (`reason`) |
+| `/batches` | GET | `pharmacy.stock.view` | Search by `itemId`, `batchNumber`, `qualityStatus`, expiry range |
+| `/batches/:id` | GET | `pharmacy.stock.view` | Batch with balances, receipt lines, movements, cost (cost view) |
+| `/batches/:id/quality` | POST | `pharmacy.batch.quality` | `status`, `reason`, `recallReference?` |
+| `/status-changes` | POST | `pharmacy.stock.status` / `pharmacy.stock.release` per §8.3 | `{ locationId, lines: [{ batchId, from, to, quantity }], reason }` |
+| `/transfers` | POST / GET | `pharmacy.transfer.dispatch` / `pharmacy.stock.view` | Dispatch / list (filter `status`, `fromLocationId`, `toLocationId`) |
+| `/transfers/:id` | GET | `pharmacy.stock.view` | Detail |
+| `/transfers/:id/receive` | POST | `pharmacy.transfer.receive` | `{ lines: [{ lineId, quantityReceived, discrepancyNote? }] }` |
+| `/transfers/:id/cancel` | POST | `pharmacy.transfer.dispatch` | Before receipt (`reason`) |
+| `/adjustments` | POST / GET | `pharmacy.adjustment.request` / `pharmacy.stock.view` | Request / list (filter `status`, `reason`) |
+| `/adjustments/:id` | GET | `pharmacy.stock.view` | Detail with value (cost view) |
 | `/adjustments/:id/approve`, `/reject`, `/cancel` | POST | `…approve` / `…approve` / `…request` | Decide (`note`) / withdraw own |
-| `/counts` | POST / GET | `inventory.count.manage` / `inventory.view` | Start (`locationId`, `categoryId?`, `blind`) / list |
-| `/counts/:id/lines` | PUT | `inventory.count.manage` | Record counted lines (upsert by location + batch + status) |
+| `/counts` | POST / GET | `pharmacy.count.manage` / `pharmacy.stock.view` | Start (`locationId`, `categoryId?`, `blind`) / list |
+| `/counts/:id/lines` | PUT | `pharmacy.count.manage` | Record counted lines (upsert by location + batch + status) |
 | `/counts/:id/submit`, `/approve`, `/cancel` | POST | `…manage` / `…approve` / `…manage` | Lifecycle |
-| `/movements` | GET | `inventory.view` | Ledger: filter `itemId`, `batchId`, `locationId`, `type`, dates |
-| `/expiry` | GET | `inventory.view` | §12.2: `locationId?`, `withinDays?` (default org setting) |
-| `/low-stock` | GET | `inventory.view` | §16 |
-| `/valuation` | GET | `inventory.view` + `billable.cost.view` | Stock value by item / category / location at now (§9.3) |
-| `/ledger/check` | GET | `inventory.view` | Balances that don't equal their movements (should be none) |
-| `/metrics` | GET | `inventory.view` | Overview: stocked items, low stock, expiring, expired, quarantine, pending adjustments, transfers in transit |
+| `/movements` | GET | `pharmacy.stock.view` | Ledger: filter `itemId`, `batchId`, `locationId`, `type`, dates |
+| `/expiry` | GET | `pharmacy.stock.view` | §12.2: `locationId?`, `withinDays?` (default org setting) |
+| `/low-stock` | GET | `pharmacy.stock.view` | §16 |
+| `/valuation` | GET | `pharmacy.stock.view` + `billable.cost.view` | Stock value by item / category / location at now (§9.3) |
+| `/ledger/check` | GET | `pharmacy.stock.view` | Balances that don't equal their movements (should be none) |
+| `/metrics` | GET | `pharmacy.stock.view` | Overview: stocked items, low stock, expiring, expired, quarantine, pending adjustments, transfers in transit |
 
 ## 19. Code Layout and Changes to Existing Models
 

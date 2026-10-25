@@ -86,17 +86,17 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'billable.discount.end',     name: 'End Payer Discount',        description: 'End a payer discount early' },
     { key: 'billable.discount.cancel',  name: 'Withdraw Payer Discount',   description: "Withdraw a payer discount that hasn't taken effect" },
 
-    // Inventory: drugs & consumables (PRD 15 §17) — one key per job; cost figures still need billable.cost.view
-    { key: 'inventory.view',            name: 'View Inventory',              description: 'Medicines, stocked items, packs, locations, suppliers, manufacturers, batches, stock and receipts' },
-    { key: 'inventory.medicine.manage', name: 'Manage Hospital Medicines',   description: "Add or edit the hospital's own medicines (never seeded ones)" },
-    { key: 'inventory.item.manage',     name: 'Manage Stock Items',          description: 'Stock settings, medicine link, strength, brand and maker, and packs' },
-    { key: 'inventory.location.manage', name: 'Manage Storage Locations',    description: 'Create, edit and deactivate storage locations' },
-    { key: 'inventory.supplier.manage', name: 'Manage Suppliers & Manufacturers', description: 'Create, edit and deactivate suppliers and manufacturers' },
-    { key: 'inventory.receipt.create',  name: 'Record Goods Receipt',        description: 'Create, edit and cancel draft receipts, including opening stock' },
-    { key: 'inventory.receipt.post',    name: 'Post Goods Receipt',          description: 'Post a receipt into stock (updates the cost price)' },
-    { key: 'inventory.status.release',  name: 'Release Quarantine',          description: 'Release quarantined stock for use' },
-    { key: 'inventory.status.change',   name: 'Change Stock Status',         description: 'Quarantine stock or set it aside as damaged' },
-    { key: 'inventory.batch.quality',   name: 'Hold / Recall Batch',         description: 'Put a batch on hold, release it, or record a recall' },
+    // Pharmacy: drugs & consumables in stock (PRD 15 §17) — one key per job; cost figures still need billable.cost.view
+    { key: 'pharmacy.stock.view',       name: 'Pharmacy: View Stock',                  description: 'Medicines, stocked items, packs, locations, suppliers, manufacturers, batches, stock and receipts' },
+    { key: 'pharmacy.medicine.manage',  name: 'Pharmacy: Manage Hospital Medicines',   description: "Add or edit the hospital's own medicines (never seeded ones)" },
+    { key: 'pharmacy.item.manage',      name: 'Pharmacy: Manage Stock Items',          description: 'Stock settings, medicine link, brand and maker, and packs' },
+    { key: 'pharmacy.location.manage',  name: 'Pharmacy: Manage Storage Locations',    description: 'Create, edit and deactivate stores, dispensaries and other stock locations' },
+    { key: 'pharmacy.supplier.manage',  name: 'Pharmacy: Manage Suppliers & Manufacturers', description: 'Create, edit and deactivate suppliers and manufacturers' },
+    { key: 'pharmacy.receipt.create',   name: 'Pharmacy: Record Goods Receipt',        description: 'Create, edit and cancel draft receipts, including opening stock' },
+    { key: 'pharmacy.receipt.post',     name: 'Pharmacy: Post Goods Receipt',          description: 'Post a receipt into stock (updates the cost price)' },
+    { key: 'pharmacy.stock.release',    name: 'Pharmacy: Release Quarantine',          description: 'Release quarantined stock for use' },
+    { key: 'pharmacy.stock.status',     name: 'Pharmacy: Change Stock Status',         description: 'Quarantine stock or set it aside as damaged' },
+    { key: 'pharmacy.batch.quality',    name: 'Pharmacy: Hold / Recall Batch',         description: 'Put a batch on hold, release it, or record a recall' },
 
     // Insurance desk
     { key: 'insurance.preauth.record',    name: 'Record Pre-authorisation', description: 'Capture authorisation codes or record refusal' },
@@ -120,8 +120,18 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
     'billing.create':  ['billing.charge.create'],
     // a diagnosis is only recorded in a consultation (14 §8)
     'diagnosis.create': ['consultation.create', 'consultation.view'],
-    // drugs became medicines (15 §3.1)
-    'inventory.drug.manage': ['inventory.medicine.manage'],
+    // drugs became medicines (15 §3.1), then stock keys moved under pharmacy (15 §17)
+    'inventory.drug.manage': ['pharmacy.medicine.manage'],
+    'inventory.view':            ['pharmacy.stock.view'],
+    'inventory.medicine.manage': ['pharmacy.medicine.manage'],
+    'inventory.item.manage':     ['pharmacy.item.manage'],
+    'inventory.location.manage': ['pharmacy.location.manage'],
+    'inventory.supplier.manage': ['pharmacy.supplier.manage'],
+    'inventory.receipt.create':  ['pharmacy.receipt.create'],
+    'inventory.receipt.post':    ['pharmacy.receipt.post'],
+    'inventory.status.change':   ['pharmacy.stock.status'],
+    'inventory.status.release':  ['pharmacy.stock.release'],
+    'inventory.batch.quality':   ['pharmacy.batch.quality'],
     // every staff member sends the patient on; the duty profile's send list is the control (11 §5.7)
     'queue.send':      [],
     // "receive payments" and "approve" must not share a key (PRD 10 §8); approval is granted separately
@@ -170,16 +180,16 @@ const CASHIER_PERMISSIONS = [
 // Pharmacy stock (PRD 15 §17): a technician records receipts, a pharmacist posts them into stock and
 // releases quarantine, so posting and releasing are always a second person's check
 const PHARMACY_TECHNICIAN_PERMISSIONS = [
-    'inventory.view', 'inventory.receipt.create', 'inventory.status.change', 'billable.view',
+    'pharmacy.stock.view', 'pharmacy.receipt.create', 'pharmacy.stock.status', 'billable.view',
 ];
 
 const PHARMACIST_PERMISSIONS = [
     ...PHARMACY_TECHNICIAN_PERMISSIONS,
-    'inventory.receipt.post', 'inventory.status.release', 'inventory.batch.quality',
-    'inventory.medicine.manage', 'inventory.item.manage',
+    'pharmacy.receipt.post', 'pharmacy.stock.release', 'pharmacy.batch.quality',
+    'pharmacy.medicine.manage', 'pharmacy.item.manage',
 ];
 
-const INVENTORY_PERMISSIONS = PERMISSION_CATALOG.map(p => p.key).filter(key => key.startsWith('inventory.'));
+const PHARMACY_PERMISSIONS = PERMISSION_CATALOG.map(p => p.key).filter(key => key.startsWith('pharmacy.'));
 
 // Duty profiles seeded for every organisation. Only Hospital Administrator is assigned
 // automatically (to the onboarding admin). Tenants may edit them afterwards; approval
@@ -197,7 +207,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'appointment.create', 'appointment.manage',
             'billing.view', 'finance.report.view',
             'billable.view',
-            'inventory.view',
+            'pharmacy.stock.view',
         ],
     },
     {
@@ -273,7 +283,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
         role: 'MANAGER',
         departmentKey: 'PHARMACY',
         queueKeys: [],
-        // cost figures still need billable.cost.view (15 §17)
-        permissions: [...INVENTORY_PERMISSIONS, 'billable.view', 'billable.cost.view'],
+        // every pharmacy key; cost figures still need billable.cost.view (15 §17)
+        permissions: [...PHARMACY_PERMISSIONS, 'billable.view', 'billable.cost.view'],
     },
 ];

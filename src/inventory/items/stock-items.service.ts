@@ -28,7 +28,7 @@ const stockItemInclude = {
             category: { select: { id: true, name: true, kind: true } },
         },
     },
-    medicine:     { select: { id: true, genericName: true, dosageForm: true, route: true, legalCategory: true, controlled: true } },
+    medicine:     { select: { id: true, genericName: true, strength: true, dosageForm: true, route: true, legalCategory: true, controlled: true } },
     manufacturer: { select: { id: true, name: true } },
 };
 

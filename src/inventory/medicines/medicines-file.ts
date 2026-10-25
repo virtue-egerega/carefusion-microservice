@@ -1,18 +1,18 @@
 // Reads prisma/data/medicines/medicines-*.json into Medicine rows (15 §3.1). Pure, no DB access: the allowed
 // values come in from the caller (the Prisma enums). Unit-tested in medicines-file.spec.ts.
 //
-// Each entry: { generic_name, dosage_form, route, strength, strength_options, presentation, aliases, ingredients,
-// therapeutic_uses, body_systems, atc_code, legal_category, controlled, nhis_code, description, source_system, source_url }.
-// A medicine is generic name (any case) + dosage form + route. Entries for the same medicine, in one file or
-// across files, are one row: their lists (strengths, aliases, NHIS codes…) are combined, and their single
-// values must agree. Strength is the product's (Emzor Paracetamol 500 mg), so the listed strengths are kept
-// only as the strengths the source lists, not as part of the medicine. Therapeutic uses are codes such as
-// "GENERAL_ANAESTHESIA"; the seeder creates a use the first time a medicine names it.
+// Each entry: { generic_name, strength, dosage_form, route, presentation, aliases, ingredients, therapeutic_uses,
+// body_systems, atc_code, legal_category, controlled, nhis_code, description, source_system, source_url }.
+// One entry is one medicine: generic name and strength (any case) + dosage form + route. Allopurinol 100 mg and
+// 300 mg tablets are two entries and two medicines, each with its own NHIS code. Therapeutic uses are codes
+// such as "GENERAL_ANAESTHESIA"; the seeder creates a use the first time a medicine names it.
 
 export type MedicineRow = {
     genericName: string;
+    strength: string | null;
     dosageForm: string;
     route: string;
+    presentation: string | null;
     ingredients: string[];
     aliases: string[];
     therapeuticUses: string[]; // TherapeuticUse codes
@@ -20,9 +20,7 @@ export type MedicineRow = {
     atcCode: string | null;
     legalCategory: string; // POM when the source doesn't say
     controlled: boolean | null; // null = the source doesn't say
-    strengths: string[];
-    presentations: string[];
-    nhisCodes: string[];
+    nhisCode: string | null;
     description: string | null;
     sourceSystem: string | null;
     sourceUrl: string | null;
@@ -47,9 +45,14 @@ export function useName(code: string): string {
     return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+/** A medicine's identity, matched the way the Medicine_identity index matches it. */
+export function medicineKey(m: { genericName: string; strength: string | null; dosageForm: string; route: string }): string {
+    return [m.genericName.toLowerCase(), (m.strength ?? '').toLowerCase(), m.dosageForm, m.route].join('|');
+}
+
 /**
- * Every medicine across the files, entries for the same medicine combined, in name order. Collects every
- * problem in every file and throws them together, so one run shows them all.
+ * Every medicine across the files, one per entry, in name order. Collects every problem in every file and
+ * throws them together, so one run shows them all.
  */
 export function parseMedicines(files: { name: string; json: unknown }[], values: MedicineValues): MedicineRow[] {
     const errors: string[] = [];
@@ -97,28 +100,26 @@ export function parseMedicines(files: { name: string; json: unknown }[], values:
             const route = single('route', values.routes, true);
             const legalCategory = single('legal_category', values.legalCategories, false);
             if (!absent(entry?.controlled) && typeof entry.controlled !== 'boolean') problems.push('controlled must be true, false or null');
+            if (!absent(entry?.strength_options)) problems.push('strength_options: make one entry per strength instead');
 
             const uses = list('therapeutic_uses');
             const badUses = uses.filter(code => !USE_CODE.test(code));
             if (badUses.length) problems.push(`therapeutic_uses must be codes like GENERAL_ANAESTHESIA: ${badUses.join(', ')}`);
-            const strength = optionalText('strength');
-            const presentation = optionalText('presentation');
-            const nhisCode = optionalText('nhis_code');
 
             const row: MedicineRow = {
                 genericName: genericName ?? '',
+                strength: optionalText('strength'),
                 dosageForm: dosageForm ?? '',
                 route: route ?? '',
+                presentation: optionalText('presentation'),
                 ingredients: list('ingredients'),
                 aliases: list('aliases'),
                 therapeuticUses: uses,
                 bodySystems: list('body_systems', values.bodySystems),
                 atcCode: optionalText('atc_code')?.toUpperCase() ?? null,
-                legalCategory: legalCategory as string,
+                legalCategory: legalCategory ?? 'POM',
                 controlled: typeof entry?.controlled === 'boolean' ? entry.controlled : null,
-                strengths: [...new Set([...(strength ? [strength] : []), ...list('strength_options')])],
-                presentations: presentation ? [presentation] : [],
-                nhisCodes: nhisCode ? [nhisCode] : [],
+                nhisCode: optionalText('nhis_code'),
                 description: optionalText('description'),
                 sourceSystem: optionalText('source_system'),
                 sourceUrl: optionalText('source_url'),
@@ -130,34 +131,20 @@ export function parseMedicines(files: { name: string; json: unknown }[], values:
                 return;
             }
 
-            const key = `${genericName!.toLowerCase()}|${dosageForm}|${route}`;
+            const key = medicineKey(row);
             const earlier = rows.get(key);
-            if (!earlier) {
-                rows.set(key, { row, at });
+            if (earlier) {
+                errors.push(`${at}: same medicine (name, strength, form and route) as ${earlier.at}`);
                 return;
             }
-            const conflicts = combine(earlier.row, row);
-            errors.push(...conflicts.map(field => `${at}: same medicine as ${earlier.at}, but a different ${field}`));
+            rows.set(key, { row, at });
         });
     }
 
     if (errors.length) throw new Error(`Medicine files have ${errors.length} problem(s):\n  ${errors.join('\n  ')}`);
-    return [...rows.values()].map(r => ({ ...r.row, legalCategory: r.row.legalCategory ?? 'POM' }))
-        .sort((a, b) => a.genericName.localeCompare(b.genericName) || a.dosageForm.localeCompare(b.dosageForm) || a.route.localeCompare(b.route));
-}
-
-const LISTS = ['ingredients', 'aliases', 'therapeuticUses', 'bodySystems', 'strengths', 'presentations', 'nhisCodes'] as const;
-const SINGLES = ['atcCode', 'legalCategory', 'controlled', 'description', 'sourceSystem', 'sourceUrl'] as const;
-
-/** Folds a later entry for the same medicine into the first: lists combine, a value fills a gap; returns the fields that disagree. */
-function combine(into: MedicineRow, from: MedicineRow): string[] {
-    for (const field of LISTS) into[field] = [...new Set([...into[field], ...from[field]])];
-
-    const conflicts: string[] = [];
-    for (const field of SINGLES) {
-        if (from[field] === null) continue;
-        if (into[field] === null) (into as Record<string, unknown>)[field] = from[field];
-        else if (into[field] !== from[field]) conflicts.push(field);
-    }
-    return conflicts;
+    return [...rows.values()].map(r => r.row).sort((a, b) =>
+        a.genericName.localeCompare(b.genericName)
+        || (a.strength ?? '').localeCompare(b.strength ?? '', undefined, { numeric: true })
+        || a.dosageForm.localeCompare(b.dosageForm)
+        || a.route.localeCompare(b.route));
 }

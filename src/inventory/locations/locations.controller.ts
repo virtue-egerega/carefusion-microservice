@@ -11,7 +11,7 @@ import { $Enums } from '../../../generated/prisma/client';
 import { LocationsService } from './locations.service';
 
 @ApiTags('inventory')
-@Controller('inventory/locations')
+@Controller('pharmacy/locations')
 export class LocationsController {
     constructor(private readonly locationsService: LocationsService) {}
 
@@ -19,7 +19,7 @@ export class LocationsController {
         summary: 'Add a storage location: a store, dispensary, ward… (PRD 15 §7)',
         description: "In `branchId`, or the caller's branch. Returns `{ id, message }`. 409 if the code is taken.",
     })
-    @Authorize('inventory.location.manage')
+    @Authorize('pharmacy.location.manage')
     @Post()
     create(@Body() dto: CreateStorageLocationDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
         return this.locationsService.create(dto, orgId, user.branchId, user.sub);
@@ -33,7 +33,7 @@ export class LocationsController {
     @ApiQuery({ name: 'type', enum: LocationType, required: false })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name or code, any case' })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get()
     findAll(
         @OrganizationId() orgId: string,
@@ -55,14 +55,14 @@ export class LocationsController {
     }
 
     @ApiOperation({ summary: 'One storage location with its branch and `stockHeld` (units, all statuses)' })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get(':id')
     findOne(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
         return this.locationsService.findOne(id, orgId);
     }
 
     @ApiOperation({ summary: 'Edit or deactivate a storage location', description: '409 when deactivating a location that still holds stock.' })
-    @Authorize('inventory.location.manage')
+    @Authorize('pharmacy.location.manage')
     @Patch(':id')
     update(
         @Param('id', ParseUUIDPipe) id: string,

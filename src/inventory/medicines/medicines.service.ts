@@ -55,7 +55,7 @@ export class MedicinesService {
         const route = fields.route as $Enums.MedicineRoute;
         const [seeded, uses] = await client.$transaction([
             client.medicine.findFirst({
-                where:  { organizationId: null, ...sameMedicine({ genericName: fields.genericName, dosageForm, route }) },
+                where:  { organizationId: null, ...sameMedicine({ genericName: fields.genericName, strength: fields.strength, dosageForm, route }) },
                 select: { id: true },
             }),
             client.therapeuticUse.findMany({ where: { code: { in: codes } }, select: { id: true, code: true } }),
@@ -68,6 +68,7 @@ export class MedicinesService {
                 data: {
                     ...fields,
                     genericName:     fields.genericName.trim(),
+                    strength:        fields.strength?.trim() || null,
                     dosageForm,
                     route,
                     bodySystems:     fields.bodySystems as $Enums.MedicineBodySystem[] | undefined,
@@ -84,7 +85,7 @@ export class MedicinesService {
         return { id, message: 'Medicine added' };
     }
 
-    /** Seeded medicines and the caller's own, by generic name, form and route, each with its uses. */
+    /** Seeded medicines and the caller's own, by generic name, strength, form and route, each with its uses. */
     async findAll(organizationId: string, query: MedicinesQuery) {
         const client = this.databaseService.client;
         const where = {
@@ -110,10 +111,45 @@ export class MedicinesService {
                 ...withUses,
                 take:    query.limit,
                 skip:    query.offset,
-                orderBy: [{ genericName: 'asc' }, { dosageForm: 'asc' }, { route: 'asc' }],
+                orderBy: [{ genericName: 'asc' }, { strength: 'asc' }, { dosageForm: 'asc' }, { route: 'asc' }],
             }),
         ]);
         return { count, docs: medicines.map(toDoc) };
+    }
+
+    /**
+     * Catalogue figures for the medicines page (§18), over the medicines the caller sees, active only:
+     * how many medicines, and how many different dosage forms, routes, legal categories and therapeutic
+     * uses they cover. The queries run in parallel; a batched $transaction would lose groupBy's result types.
+     */
+    async stats(organizationId: string) {
+        const client = this.databaseService.client;
+        const visible = visibleMedicines(organizationId);
+        const active = { AND: [visible, { status: 'ACTIVE' as const }] };
+
+        const [total, inactive, userAdded, stocked, controlled, forms, routes, categories, uses] = await Promise.all([
+            client.medicine.count({ where: active }),
+            client.medicine.count({ where: { AND: [visible, { status: 'INACTIVE' as const }] } }),
+            client.medicine.count({ where: { organizationId, status: 'ACTIVE' } }),
+            client.medicine.count({ where: { AND: [...active.AND, { stockItems: { some: { organizationId } } }] } }),
+            client.medicine.count({ where: { AND: [...active.AND, { controlled: true }] } }),
+            client.medicine.groupBy({ by: ['dosageForm'], where: active }),
+            client.medicine.groupBy({ by: ['route'], where: active }),
+            client.medicine.groupBy({ by: ['legalCategory'], where: active }),
+            client.medicineTherapeuticUse.groupBy({ by: ['useId'], where: { medicine: active } }),
+        ]);
+
+        return {
+            total,
+            inactive,
+            userAdded,
+            stocked,
+            controlled,
+            dosageForms:     forms.length,
+            routes:          routes.length,
+            legalCategories: categories.length,
+            therapeuticUses: uses.length,
+        };
     }
 
     /** One visible medicine with its uses and the organisation's products of it. */
@@ -126,7 +162,6 @@ export class MedicinesService {
                 stockItems: {
                     where:   { organizationId },
                     select:  {
-                        strength:     true,
                         brandName:    true,
                         manufacturer: { select: { id: true, name: true } },
                         item:         { select: { id: true, code: true, name: true, unit: true, status: true } },
@@ -146,7 +181,7 @@ export class MedicinesService {
 
     /**
      * Edits one of the caller's own medicines. `therapeuticUses`, when given, replaces its uses. The
-     * medicine is read first, since a new name, form or route must also not match a seeded medicine.
+     * medicine is read first, since a new name, strength, form or route must also not match a seeded medicine.
      */
     async update(medicineId: string, dto: UpdateMedicineDto, organizationId: string, updatedBy: string) {
         const client = this.databaseService.client;
@@ -154,7 +189,7 @@ export class MedicinesService {
         const [found, uses] = await client.$transaction([
             client.medicine.findFirst({
                 where:  { id: medicineId, ...visibleMedicines(organizationId) },
-                select: { organizationId: true, genericName: true, dosageForm: true, route: true },
+                select: { organizationId: true, genericName: true, strength: true, dosageForm: true, route: true },
             }),
             client.therapeuticUse.findMany({ where: { code: { in: codes ?? [] } }, select: { id: true, code: true } }),
         ]);
@@ -162,12 +197,13 @@ export class MedicinesService {
         if (refusal) throw refusal.forbidden ? new ForbiddenException(refusal.reason) : new NotFoundException(refusal.reason);
         if (codes) this.assertUsesExist(codes, uses);
 
-        if (fields.genericName || fields.dosageForm || fields.route) {
+        if (fields.genericName || fields.strength !== undefined || fields.dosageForm || fields.route) {
             const seeded = await client.medicine.findFirst({
                 where:  {
                     organizationId: null,
                     ...sameMedicine({
                         genericName: fields.genericName ?? found!.genericName,
+                        strength:    fields.strength !== undefined ? fields.strength : found!.strength,
                         dosageForm:  (fields.dosageForm as $Enums.DosageForm | undefined) ?? found!.dosageForm,
                         route:       (fields.route as $Enums.MedicineRoute | undefined) ?? found!.route,
                     }),
@@ -185,6 +221,7 @@ export class MedicinesService {
                     data:  {
                         ...fields,
                         genericName:   fields.genericName?.trim(),
+                        strength:      fields.strength === undefined ? undefined : fields.strength.trim() || null,
                         dosageForm:    fields.dosageForm as $Enums.DosageForm | undefined,
                         route:         fields.route as $Enums.MedicineRoute | undefined,
                         bodySystems:   fields.bodySystems as $Enums.MedicineBodySystem[] | undefined,

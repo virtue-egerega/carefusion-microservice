@@ -10,9 +10,13 @@ import {
 // ── Medicines (PRD 15 §3.1) ──────────────────────────────────────────────────
 
 export class CreateMedicineDto {
-    @ApiProperty({ example: 'Paracetamol', description: 'Without strength or form. Combinations: "Artemether + Lumefantrine"' })
+    @ApiProperty({ example: 'Paracetamol', description: 'Without strength or form, which have their own fields. Combinations: "Artemether + Lumefantrine"' })
     @IsString() @MinLength(2)
     genericName!: string;
+
+    @ApiProperty({ required: false, example: '500 mg', description: 'Display text: "500 mg", "250 mg/5 ml". Leave out for medicines with none (medical gases)' })
+    @IsString() @MinLength(1) @IsOptional()
+    strength?: string;
 
     @ApiProperty({ enum: DosageForm, example: DosageForm.TABLET })
     @IsEnum(DosageForm)
@@ -22,6 +26,10 @@ export class CreateMedicineDto {
     @IsEnum(MedicineRoute)
     route!: MedicineRoute;
 
+    @ApiProperty({ required: false, example: 'Tablet', description: '"Vial", "Ampoule", "20 mL bottle"' })
+    @IsString() @IsOptional()
+    presentation?: string;
+
     @ApiProperty({ type: [String], required: false, example: ['Paracetamol'], description: 'Defaults to the generic name' })
     @IsArray() @ArrayUnique() @IsString({ each: true }) @MinLength(1, { each: true }) @IsOptional()
     ingredients?: string[];
@@ -30,7 +38,7 @@ export class CreateMedicineDto {
     @IsArray() @ArrayUnique() @IsString({ each: true }) @MinLength(1, { each: true }) @IsOptional()
     aliases?: string[];
 
-    @ApiProperty({ type: [String], required: false, example: ['PAIN', 'FEVER'], description: 'Codes from GET /inventory/therapeutic-uses' })
+    @ApiProperty({ type: [String], required: false, example: ['PAIN', 'FEVER'], description: 'Codes from GET /pharmacy/therapeutic-uses' })
     @IsArray() @ArrayUnique() @IsString({ each: true }) @IsOptional()
     therapeuticUses?: string[];
 
@@ -137,13 +145,9 @@ export class UpdateStorageLocationDto {
 // ── Stocked items and packs (PRD 15 §3.2, §4) ────────────────────────────────
 
 export class StockItemDto {
-    @ApiProperty({ required: false, description: 'Required for PHARMACY items; a seeded medicine or one of the hospital\'s own' })
+    @ApiProperty({ required: false, description: 'Required for PHARMACY items; a seeded medicine or one of the hospital\'s own. Its strength is the product\'s' })
     @IsUUID() @IsOptional()
     medicineId?: string;
-
-    @ApiProperty({ required: false, example: '500 mg', description: 'The product\'s strength, display text: "500 mg", "250 mg/5 ml"' })
-    @IsString() @MinLength(1) @IsOptional()
-    strength?: string;
 
     @ApiProperty({ required: false, example: 'Emzor Paracetamol' }) @IsString() @IsOptional() brandName?: string;
     @ApiProperty({ required: false }) @IsUUID() @IsOptional() manufacturerId?: string;

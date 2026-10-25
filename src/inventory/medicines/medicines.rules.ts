@@ -18,13 +18,17 @@ export function visibleMedicines(organizationId: string, source?: MedicineSource
 export const medicineSource = (organizationId: string | null): MedicineSource => (organizationId ? 'USER_ADDED' : 'SYSTEM');
 
 /**
- * A medicine with the same identity (generic name in any case, form, route), for Prisma `where`. The
- * Medicine_identity index catches a hospital repeating its own medicine; this finds a seeded one, which
- * the index can't, since a hospital's row and a seeded row have different owners.
+ * A medicine with the same identity (generic name and strength in any case, form, route), for Prisma
+ * `where`. The Medicine_identity index catches a hospital repeating its own medicine; this finds a seeded
+ * one, which the index can't, since a hospital's row and a seeded row have different owners.
  */
-export function sameMedicine<F extends string, R extends string>(medicine: { genericName: string; dosageForm: F; route: R }) {
+export function sameMedicine<F extends string, R extends string>(
+    medicine: { genericName: string; strength?: string | null; dosageForm: F; route: R },
+) {
+    const strength = medicine.strength?.trim();
     return {
         genericName: { equals: medicine.genericName.trim(), mode: 'insensitive' as const },
+        strength:    strength ? { equals: strength, mode: 'insensitive' as const } : null,
         dosageForm:  medicine.dosageForm,
         route:       medicine.route,
     };

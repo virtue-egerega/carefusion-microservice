@@ -21,7 +21,7 @@ const listQuery = (search?: string, status?: CatalogStatus, limit = 20, offset =
 
 /** Suppliers and manufacturers (PRD 15 §5): the hospital's own lists, picked from or added to while working. */
 @ApiTags('inventory')
-@Controller('inventory')
+@Controller('pharmacy')
 export class SuppliersController {
     constructor(
         private readonly suppliersService: SuppliersService,
@@ -31,7 +31,7 @@ export class SuppliersController {
     // ── suppliers ────────────────────────────────────────────────────────────
 
     @ApiOperation({ summary: 'Add a supplier', description: 'Returns `{ id, message }`. 409 if the name is taken.' })
-    @Authorize('inventory.supplier.manage')
+    @Authorize('pharmacy.supplier.manage')
     @Post('suppliers')
     createSupplier(@Body() dto: CreateSupplierDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
         return this.suppliersService.create(dto, orgId, user.sub);
@@ -40,7 +40,7 @@ export class SuppliersController {
     @ApiOperation({ summary: 'Suppliers by name, paginated', description: '`count` is the total matching the filters; `docs` is the page.' })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('suppliers')
     findSuppliers(
         @OrganizationId() orgId: string,
@@ -53,14 +53,14 @@ export class SuppliersController {
     }
 
     @ApiOperation({ summary: 'One supplier', description: '`createdBy` / `updatedBy` are the users, or null.' })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('suppliers/:id')
     findSupplier(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
         return this.suppliersService.findOne(id, orgId);
     }
 
     @ApiOperation({ summary: 'Edit or deactivate a supplier' })
-    @Authorize('inventory.supplier.manage')
+    @Authorize('pharmacy.supplier.manage')
     @Patch('suppliers/:id')
     updateSupplier(
         @Param('id', ParseUUIDPipe) id: string,
@@ -74,7 +74,7 @@ export class SuppliersController {
     // ── manufacturers ────────────────────────────────────────────────────────
 
     @ApiOperation({ summary: 'Add a manufacturer', description: 'Returns `{ id, message }`. 409 if the name is taken.' })
-    @Authorize('inventory.supplier.manage')
+    @Authorize('pharmacy.supplier.manage')
     @Post('manufacturers')
     createManufacturer(@Body() dto: CreateManufacturerDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
         return this.manufacturersService.create(dto, orgId, user.sub);
@@ -86,7 +86,7 @@ export class SuppliersController {
     })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('manufacturers')
     findManufacturers(
         @OrganizationId() orgId: string,
@@ -99,14 +99,14 @@ export class SuppliersController {
     }
 
     @ApiOperation({ summary: 'One manufacturer with its product count' })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('manufacturers/:id')
     findManufacturer(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
         return this.manufacturersService.findOne(id, orgId);
     }
 
     @ApiOperation({ summary: 'Edit or deactivate a manufacturer' })
-    @Authorize('inventory.supplier.manage')
+    @Authorize('pharmacy.supplier.manage')
     @Patch('manufacturers/:id')
     updateManufacturer(
         @Param('id', ParseUUIDPipe) id: string,

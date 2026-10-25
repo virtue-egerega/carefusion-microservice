@@ -5,7 +5,7 @@ import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys }
 import { PERMISSION_CATALOG, SYSTEM_DUTY_PROFILES } from '../src/access-control/permissions.catalog';
 import { AccessControlService } from '../src/access-control/access-control.service';
 import { parseIcd10Chapters, parseIcd10Codes, parseIcd10Groups } from '../src/consultations/rules/icd10-file';
-import { parseMedicines, useName } from '../src/inventory/medicines/medicines-file';
+import { medicineKey, parseMedicines, useName } from '../src/inventory/medicines/medicines-file';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -144,12 +144,14 @@ async function seedMedicines() {
     );
 
     // seeded medicines already there, matched the way the Medicine_identity index matches them
-    const key = (m: { genericName: string; dosageForm: string; route: string }) => `${m.genericName.toLowerCase()}|${m.dosageForm}|${m.route}`;
     const existing = new Set(
-        (await prisma.medicine.findMany({ where: { organizationId: null }, select: { genericName: true, dosageForm: true, route: true } })).map(key),
+        (await prisma.medicine.findMany({
+            where:  { organizationId: null },
+            select: { genericName: true, strength: true, dosageForm: true, route: true },
+        })).map(medicineKey),
     );
     // ids made here, so each medicine's use links go in with it
-    const added = medicines.filter(m => !existing.has(key(m))).map(({ therapeuticUses, ...m }) => ({
+    const added = medicines.filter(m => !existing.has(medicineKey(m))).map(({ therapeuticUses, ...m }) => ({
         medicine: {
             ...m,
             id:            randomUUID(),

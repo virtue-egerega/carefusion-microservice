@@ -16,28 +16,28 @@ describe('SYSTEM_DUTY_PROFILES', () => {
     describe('pharmacy (PRD 15 §17)', () => {
         it('lets a technician record a receipt, but not post it or release quarantine', () => {
             const { permissions } = profile('Pharmacy Technician');
-            expect(permissions).toEqual(expect.arrayContaining(['inventory.view', 'inventory.receipt.create', 'inventory.status.change']));
-            expect(permissions).not.toContain('inventory.receipt.post');
-            expect(permissions).not.toContain('inventory.status.release');
+            expect(permissions).toEqual(expect.arrayContaining(['pharmacy.stock.view', 'pharmacy.receipt.create', 'pharmacy.stock.status']));
+            expect(permissions).not.toContain('pharmacy.receipt.post');
+            expect(permissions).not.toContain('pharmacy.stock.release');
         });
 
         it("gives a pharmacist everything a technician has, plus posting and release", () => {
             const { permissions } = profile('Pharmacist');
             expect(permissions).toEqual(expect.arrayContaining([
-                ...profile('Pharmacy Technician').permissions, 'inventory.receipt.post', 'inventory.status.release', 'inventory.batch.quality',
+                ...profile('Pharmacy Technician').permissions, 'pharmacy.receipt.post', 'pharmacy.stock.release', 'pharmacy.batch.quality',
             ]));
         });
 
-        it('gives the pharmacy manager every inventory permission and cost figures', () => {
+        it('gives the pharmacy manager every pharmacy permission and cost figures', () => {
             const { permissions } = profile('Pharmacy Manager');
-            const inventory = [...KEYS].filter(key => key.startsWith('inventory.'));
-            expect(permissions).toEqual(expect.arrayContaining([...inventory, 'billable.cost.view']));
+            const pharmacy = [...KEYS].filter(key => key.startsWith('pharmacy.'));
+            expect(permissions).toEqual(expect.arrayContaining([...pharmacy, 'billable.cost.view']));
         });
 
         it('lets the hospital administrator see stock but not change it', () => {
             const { permissions } = profile('Hospital Administrator');
-            expect(permissions).toContain('inventory.view');
-            expect(permissions.filter(key => key.startsWith('inventory.') && key !== 'inventory.view')).toEqual([]);
+            expect(permissions).toContain('pharmacy.stock.view');
+            expect(permissions.filter(key => key.startsWith('pharmacy.') && key !== 'pharmacy.stock.view')).toEqual([]);
         });
     });
 });

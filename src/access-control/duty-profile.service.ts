@@ -103,7 +103,17 @@ export class DutyProfileService {
     }
 
     async remove(id: string, deletedBy: string) {
-        await this.assertExists(id);
+        const profile = await this.databaseService.client.dutyProfile.findUnique({
+            where:  { id, deletedAt: null },
+            select: { _count: { select: { assignments: true } } },
+        });
+        if (!profile) throw new NotFoundException('Duty profile not found');
+
+        // Never assigned: no history to keep, so remove it outright (its links cascade) and free the name
+        if (profile._count.assignments === 0) {
+            return this.databaseService.client.dutyProfile.delete({ where: { id } });
+        }
+
         const removed = await this.databaseService.client.dutyProfile.update({
             where: { id },
             data: { deletedAt: new Date(), deletedBy },

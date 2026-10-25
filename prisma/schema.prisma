@@ -989,12 +989,13 @@ model PayerDiscount {
 // Stock is held per location + batch + status (StockBalance). StockMovement is append-only and an insert trigger is
 // the only writer of StockBalance; triggers, partial indexes and CHECKs are appended to the migration SQL (15 §9.2).
 
-// The medicine itself, as staff look for it: generic name, one dosage form, one route (15 §3.1). Strength is the
-// product's. Seeded by CareFusion (organizationId null) or added by a hospital, shown as USER_ADDED.
+// The medicine itself, as staff look for it: generic name, strength, one dosage form, one route (15 §3.1).
+// Seeded by CareFusion (organizationId null) or added by a hospital, shown as USER_ADDED.
 model Medicine {
   id              String                   @id @default(uuid())
   organizationId  String?                  // null = seeded; set = added by that hospital
   genericName     String                   // "Paracetamol", "Artemether + Lumefantrine"
+  strength        String?                  // "500 mg", "250 mg/5 ml"; display text, part of identity
   dosageForm      DosageForm
   route           MedicineRoute
   ingredients     String[]                 @default([])
@@ -1003,13 +1004,12 @@ model Medicine {
   atcCode         String?                  // the medicine's own WHO ATC code, kept as given
   legalCategory   LegalCategory            @default(POM)
   controlled      Boolean?                 // null = the source doesn't say
-  strengths       String[]                 @default([]) // strengths the source lists; a reference, not identity
-  presentations   String[]                 @default([]) // "Vial", "Ampoule"
-  nhisCodes       String[]                 @default([]) // NHIA drug list codes
+  presentation    String?                  // "Vial", "Ampoule"
+  nhisCode        String?                  // NHIA drug list code: one per strength line
   description     String?
   sourceSystem    String?                  // "NHIA_MEDICINES_LIST"
   sourceUrl       String?
-  searchText      String                   @default("") // lower(name + aliases + ingredients), set by a trigger
+  searchText      String                   @default("") // lower(name + strength + aliases + ingredients), set by a trigger
   status          CatalogStatus            @default(ACTIVE)
   createdAt       DateTime                 @default(now())
   createdBy       String?                  // null for seeded rows
@@ -1049,8 +1049,7 @@ model MedicineTherapeuticUse {
 model StockItem {
   itemId              String           @id
   organizationId      String
-  medicineId          String?          // required for PHARMACY-kind items
-  strength            String?          // "500 mg", "250 mg/5 ml": the product's, display text
+  medicineId          String?          // required for PHARMACY-kind items; its strength is the product's
   brandName           String?          // "Emzor Paracetamol"
   manufacturerId      String?          // the maker identifies the product, not the batch
   registrationNo      String?          // NAFDAC registration number
@@ -2517,11 +2516,16 @@ enum MedicineBodySystem {
   NUTRITION_AND_BLOOD
   MUSCULOSKELETAL
   EYE
+  EAR
   EAR_NOSE_OROPHARYNX
   SKIN
   VACCINES_IMMUNOLOGICAL
   ANAESTHESIA
   POISONING_ANTIDOTES
+  RENAL
+  AUTONOMIC_NERVOUS_SYSTEM // atropine and the like: not CNS
+  IMMUNESYSTEM
+  DIGESTIVE_SYSTEM
 }
 
 enum LegalCategory {

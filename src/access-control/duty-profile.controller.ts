@@ -51,7 +51,7 @@ export class DutyProfileController {
         return this.dutyProfileService.update(id, dto);
     }
 
-    @ApiOperation({ summary: 'Soft-delete a duty profile' })
+    @ApiOperation({ summary: 'Delete a duty profile: removed outright if never assigned (its name is freed), otherwise soft-deleted' })
     @Delete(':id')
     remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
         return this.dutyProfileService.remove(id, user.sub);

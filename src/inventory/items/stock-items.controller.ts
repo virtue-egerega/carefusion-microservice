@@ -11,7 +11,7 @@ import { $Enums } from '../../../generated/prisma/client';
 import { StockItemsService } from './stock-items.service';
 
 @ApiTags('inventory')
-@Controller('inventory')
+@Controller('pharmacy')
 export class StockItemsController {
     constructor(private readonly stockItemsService: StockItemsService) {}
 
@@ -20,7 +20,7 @@ export class StockItemsController {
         description: 'A PHARMACY item must name its medicine (a seeded medicine or the hospital\'s own); other kinds can\'t. ' +
         'Fields left out keep their value.',
     })
-    @Authorize('inventory.item.manage')
+    @Authorize('pharmacy.item.manage')
     @Put('items/:itemId')
     upsert(
         @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -43,7 +43,7 @@ export class StockItemsController {
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name, code, brand, generic name, alias or ingredient, any case' })
     @ApiQuery({ name: 'branchId', required: false })
     @ApiQuery({ name: 'locationId', required: false })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('items')
     findAll(
         @OrganizationId() orgId: string,
@@ -71,7 +71,7 @@ export class StockItemsController {
     }
 
     @ApiOperation({ summary: 'A stocked item with its medicine, maker, packs and units held per status' })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('items/:itemId')
     findOne(@Param('itemId', ParseUUIDPipe) itemId: string, @OrganizationId() orgId: string) {
         return this.stockItemsService.findOne(itemId, orgId);
@@ -81,7 +81,7 @@ export class StockItemsController {
         summary: 'Add a pack: how the item is bought or handled, e.g. "Box of 100" (PRD 15 §4)',
         description: "Its size can't be edited later. A new default replaces the current one. Returns `{ id, message }`.",
     })
-    @Authorize('inventory.item.manage')
+    @Authorize('pharmacy.item.manage')
     @Post('items/:itemId/packs')
     createPack(
         @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -93,7 +93,7 @@ export class StockItemsController {
     }
 
     @ApiOperation({ summary: "An item's packs: active first, then by size" })
-    @Authorize('inventory.view')
+    @Authorize('pharmacy.stock.view')
     @Get('items/:itemId/packs')
     findPacks(@Param('itemId', ParseUUIDPipe) itemId: string, @OrganizationId() orgId: string) {
         return this.stockItemsService.findPacks(itemId, orgId);
@@ -103,7 +103,7 @@ export class StockItemsController {
         summary: 'Rename, re-barcode, (de)activate a pack or make it the default',
         description: "The size never changes: a new size is a new pack. Deactivating the default pack clears the default.",
     })
-    @Authorize('inventory.item.manage')
+    @Authorize('pharmacy.item.manage')
     @Patch('packs/:id')
     updatePack(
         @Param('id', ParseUUIDPipe) id: string,
