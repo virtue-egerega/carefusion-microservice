@@ -62,7 +62,7 @@ model Organization {
   billableItems          BillableItem[]
   clinicBillableItems    ClinicBillableItem[]
   consultations          Consultation[]
-  drugs                  Drug[]
+  medicines              Medicine[]
   suppliers              Supplier[]
   manufacturers          Manufacturer[]
   storageLocations       StorageLocation[]
@@ -989,54 +989,68 @@ model PayerDiscount {
 // Stock is held per location + batch + status (StockBalance). StockMovement is append-only and an insert trigger is
 // the only writer of StockBalance; triggers, partial indexes and CHECKs are appended to the migration SQL (15 §9.2).
 
-// The drug itself, the same in every hospital: seeded by CareFusion (organizationId null) or added by a hospital.
-model Drug {
-  id               String        @id @default(uuid())
-  organizationId   String?       // null = system row; set = added by that hospital
-  genericName      String        // "Paracetamol"
-  strength         String?       // "500 mg", "250 mg/5 ml"
-  dosageForm       DosageForm
-  route            DrugRoute
-  prescriptionOnly Boolean       @default(true)
-  controlled       Boolean       @default(false)
-  status           CatalogStatus @default(ACTIVE)
-  createdAt        DateTime      @default(now())
-  createdBy        String?       // null for seeded rows
-  updatedAt        DateTime      @updatedAt
-  updatedBy        String?
+// The medicine itself, as staff look for it: generic name, one dosage form, one route (15 §3.1). Strength is the
+// product's. Seeded by CareFusion (organizationId null) or added by a hospital, shown as USER_ADDED.
+model Medicine {
+  id              String                   @id @default(uuid())
+  organizationId  String?                  // null = seeded; set = added by that hospital
+  genericName     String                   // "Paracetamol", "Artemether + Lumefantrine"
+  dosageForm      DosageForm
+  route           MedicineRoute
+  ingredients     String[]                 @default([])
+  aliases         String[]                 @default([]) // other names staff search by: "Acetaminophen", "PCM"
+  bodySystems     MedicineBodySystem[]     @default([])
+  atcCode         String?                  // the medicine's own WHO ATC code, kept as given
+  legalCategory   LegalCategory            @default(POM)
+  controlled      Boolean?                 // null = the source doesn't say
+  strengths       String[]                 @default([]) // strengths the source lists; a reference, not identity
+  presentations   String[]                 @default([]) // "Vial", "Ampoule"
+  nhisCodes       String[]                 @default([]) // NHIA drug list codes
+  description     String?
+  sourceSystem    String?                  // "NHIA_MEDICINES_LIST"
+  sourceUrl       String?
+  searchText      String                   @default("") // lower(name + aliases + ingredients), set by a trigger
+  status          CatalogStatus            @default(ACTIVE)
+  createdAt       DateTime                 @default(now())
+  createdBy       String?                  // null for seeded rows
+  updatedAt       DateTime                 @updatedAt
+  updatedBy       String?
 
-  organization     Organization? @relation(fields: [organizationId], references: [id])
-  stockItems       StockItem[]
+  organization    Organization?            @relation(fields: [organizationId], references: [id])
+  therapeuticUses MedicineTherapeuticUse[]
+  stockItems      StockItem[]
 
-  @@index([genericName])
   @@index([organizationId])
 }
 
-// What a medicine is used for, as staff ask for it ("Antacids", "Antiemetics"). System reference data seeded from
-// prisma/data/medicines/therapeutic-uses.json, keyed by ATC code. The parent group is a label shown with the use and
-// searched on, not a row: groups under one parent share its code as a prefix (A02A, A02B → A02).
+// What a medicine is used for, as staff ask for it: "Pain", "General anaesthesia" (15 §3.1). Built from the
+// medicines data: the seeder creates a use the first time a medicine names its code.
 model TherapeuticUse {
-  id           String        @id @default(uuid())
-  atcCode      String?       @unique // "A02A"; null only for a use with no ATC group
-  atcLevel     Int?          // 1–5
-  name         String        // ATC names repeat across groups, so atcCode is the key
-  parentName   String?       // "Drugs for Acid Related Disorders"
-  description  String?
-  aliases      String[]      @default([])
-  sourceSystem String?       // "NAFDAC_GREENBOOK"
-  sourceUrl    String?
-  status       CatalogStatus @default(ACTIVE)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id        String                   @id @default(uuid())
+  code      String                   @unique // "GENERAL_ANAESTHESIA"
+  name      String                   // "General anaesthesia"
+  createdAt DateTime                 @default(now())
 
-  @@index([name])
+  medicines MedicineTherapeuticUse[]
 }
 
-// A billable the hospital holds in stock (1:1): "Emzor Paracetamol 500mg". PHARMACY-kind items must name their drug.
+model MedicineTherapeuticUse {
+  medicineId String
+  useId      String
+
+  medicine   Medicine       @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  use        TherapeuticUse @relation(fields: [useId], references: [id])
+
+  @@id([medicineId, useId])
+  @@index([useId])
+}
+
+// A billable the hospital holds in stock (1:1): "Emzor Paracetamol 500mg". PHARMACY-kind items must name their medicine.
 model StockItem {
   itemId              String           @id
   organizationId      String
-  drugId              String?          // required for PHARMACY-kind items
+  medicineId          String?          // required for PHARMACY-kind items
+  strength            String?          // "500 mg", "250 mg/5 ml": the product's, display text
   brandName           String?          // "Emzor Paracetamol"
   manufacturerId      String?          // the maker identifies the product, not the batch
   registrationNo      String?          // NAFDAC registration number
@@ -1049,7 +1063,7 @@ model StockItem {
   updatedBy           String?
 
   item                BillableItem     @relation(fields: [itemId, organizationId], references: [id, organizationId])
-  drug                Drug?            @relation(fields: [drugId], references: [id])
+  medicine            Medicine?        @relation(fields: [medicineId], references: [id])
   manufacturer        Manufacturer?    @relation(fields: [manufacturerId], references: [id])
   packs               ItemPack[]
   batches             StockBatch[]
@@ -1057,7 +1071,7 @@ model StockItem {
 
   @@unique([itemId, organizationId]) // target of StockBatch's composite FK
   @@index([organizationId])
-  @@index([drugId])
+  @@index([medicineId])
   @@index([manufacturerId])
 }
 
@@ -2397,40 +2411,123 @@ enum ConsultationOutcome {
 
 // ------------ Inventory (15) ------------
 
+// One per medicine: solution, infusion and solution for infusion are three different forms (15 §3.1)
 enum DosageForm {
   TABLET
+  FILM_COATED_TABLET
+  CHEWABLE_TABLET
+  DISPERSIBLE_TABLET
+  EFFERVESCENT_TABLET
+  ORODISPERSIBLE_TABLET
+  SUBLINGUAL_TABLET
+  GASTRO_RESISTANT_TABLET
+  MODIFIED_RELEASE_TABLET
   CAPSULE
-  SYRUP
-  SUSPENSION
+  GASTRO_RESISTANT_CAPSULE
+  MODIFIED_RELEASE_CAPSULE
+  GRANULES
+  POWDER
+  LOZENGE
   SOLUTION
+  ORAL_SOLUTION
+  SUSPENSION
+  ORAL_SUSPENSION
+  SYRUP
+  ELIXIR
+  EMULSION
+  ORAL_DROPS
+  MOUTHWASH
+  POWDER_FOR_ORAL_SOLUTION
+  POWDER_FOR_ORAL_SUSPENSION
   INJECTION
+  SOLUTION_FOR_INJECTION
+  SUSPENSION_FOR_INJECTION
+  EMULSION_FOR_INJECTION
+  POWDER_FOR_INJECTION
+  POWDER_FOR_SOLUTION_FOR_INJECTION
   INFUSION
+  SOLUTION_FOR_INFUSION
+  EMULSION_FOR_INFUSION
+  POWDER_FOR_SOLUTION_FOR_INFUSION
+  CONCENTRATE_FOR_SOLUTION_FOR_INFUSION
   CREAM
   OINTMENT
   GEL
-  DROPS
-  INHALER
+  LOTION
+  PASTE
+  DUSTING_POWDER
+  SHAMPOO
+  CUTANEOUS_SPRAY
+  TRANSDERMAL_PATCH
+  EYE_DROPS
+  EYE_OINTMENT
+  EAR_DROPS
+  NASAL_DROPS
+  NASAL_SPRAY
+  PRESSURISED_INHALATION
+  INHALATION_POWDER
+  NEBULISER_SOLUTION
+  INHALATION_LIQUID
+  MEDICINAL_GAS
   SUPPOSITORY
+  ENEMA
   PESSARY
-  POWDER
-  PATCH
+  VAGINAL_CREAM
+  VAGINAL_GEL
+  IMPLANT
   OTHER
 }
 
-enum DrugRoute {
+// The specific routes, plus WHO ATC/DDD's coarser ones for medicines given more than one way (PARENTERAL)
+enum MedicineRoute {
   ORAL
-  IV
-  IM
-  SC
+  SUBLINGUAL
+  BUCCAL
+  OROMUCOSAL
+  PARENTERAL
+  INTRAVENOUS
+  INTRAMUSCULAR
+  SUBCUTANEOUS
+  INTRADERMAL
+  INTRATHECAL
+  EPIDURAL
   TOPICAL
+  TRANSDERMAL
   INHALATION
-  RECTAL
-  VAGINAL
+  NASAL
   OPHTHALMIC
   OTIC
-  NASAL
-  SUBLINGUAL
+  RECTAL
+  VAGINAL
+  INSTILLATION
+  IMPLANT
   OTHER
+}
+
+// The BNF chapters; a medicine's body systems, not the clinical review of systems (BodySystem)
+enum MedicineBodySystem {
+  GASTROINTESTINAL
+  CARDIOVASCULAR
+  RESPIRATORY
+  CENTRAL_NERVOUS_SYSTEM
+  INFECTIONS
+  ENDOCRINE
+  OBSTETRICS_GYNAECOLOGY_URINARY
+  MALIGNANT_DISEASE_IMMUNOSUPPRESSION
+  NUTRITION_AND_BLOOD
+  MUSCULOSKELETAL
+  EYE
+  EAR_NOSE_OROPHARYNX
+  SKIN
+  VACCINES_IMMUNOLOGICAL
+  ANAESTHESIA
+  POISONING_ANTIDOTES
+}
+
+enum LegalCategory {
+  POM // prescription only
+  P   // pharmacy
+  OTC // over the counter
 }
 
 enum StorageCondition {

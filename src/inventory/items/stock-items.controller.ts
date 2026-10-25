@@ -17,7 +17,7 @@ export class StockItemsController {
 
     @ApiOperation({
         summary: 'Make a billable item stocked, or update its stock settings (PRD 15 §3.2)',
-        description: 'A PHARMACY item must name its drug (a system drug or the hospital\'s own); other kinds can\'t. ' +
+        description: 'A PHARMACY item must name its medicine (a seeded medicine or the hospital\'s own); other kinds can\'t. ' +
         'Fields left out keep their value.',
     })
     @Authorize('inventory.item.manage')
@@ -38,9 +38,9 @@ export class StockItemsController {
     })
     @ApiQuery({ name: 'categoryId', required: false })
     @ApiQuery({ name: 'kind', enum: ServiceCategory, required: false })
-    @ApiQuery({ name: 'drugId', required: false, description: 'Every product of this drug, whatever the brand' })
+    @ApiQuery({ name: 'medicineId', required: false, description: 'Every product of this medicine, whatever the brand or strength' })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false, description: "The billable item's status" })
-    @ApiQuery({ name: 'search', required: false, description: 'Part of the name, code, brand or generic name, any case' })
+    @ApiQuery({ name: 'search', required: false, description: 'Part of the name, code, brand, generic name, alias or ingredient, any case' })
     @ApiQuery({ name: 'branchId', required: false })
     @ApiQuery({ name: 'locationId', required: false })
     @Authorize('inventory.view')
@@ -49,7 +49,7 @@ export class StockItemsController {
         @OrganizationId() orgId: string,
         @Query('categoryId', new ParseUUIDPipe({ optional: true })) categoryId?: string,
         @Query('kind', new ParseEnumPipe(ServiceCategory, { optional: true })) kind?: ServiceCategory,
-        @Query('drugId', new ParseUUIDPipe({ optional: true })) drugId?: string,
+        @Query('medicineId', new ParseUUIDPipe({ optional: true })) medicineId?: string,
         @Query('status', new ParseEnumPipe(CatalogStatus, { optional: true })) status?: CatalogStatus,
         @Query('search') search?: string,
         @Query('branchId', new ParseUUIDPipe({ optional: true })) branchId?: string,
@@ -60,7 +60,7 @@ export class StockItemsController {
         return this.stockItemsService.findAll(orgId, {
             categoryId,
             kind:   kind as $Enums.ServiceCategory | undefined,
-            drugId,
+            medicineId,
             status: status as $Enums.CatalogStatus | undefined,
             search: search?.trim() || undefined,
             branchId,
@@ -70,7 +70,7 @@ export class StockItemsController {
         });
     }
 
-    @ApiOperation({ summary: 'A stocked item with its drug, maker, packs and units held per status' })
+    @ApiOperation({ summary: 'A stocked item with its medicine, maker, packs and units held per status' })
     @Authorize('inventory.view')
     @Get('items/:itemId')
     findOne(@Param('itemId', ParseUUIDPipe) itemId: string, @OrganizationId() orgId: string) {

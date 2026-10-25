@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from './departments.catalog';
+import { pickerDepartmentWhere, pickerQueueWhere } from './queues.rules';
+import { GROUP_PAGE_MAX, groupPage } from '../access-control/permissions.rules';
 
 export type UpdateDepartmentDto = { name?: string; isActive?: boolean; updatedBy?: string };
 export type UpdateQueueDto     = { name?: string; isActive?: boolean; updatedBy?: string };
@@ -85,6 +87,32 @@ export class DepartmentsService {
             where: { departmentId, deletedAt: null, ...(isActive !== undefined && { isActive }) },
             orderBy: { name: 'asc' },
         });
+    }
+
+    // Duty-profile queue picker, paged by department: limit/offset/count all count departments
+    async findQueuePicker(limit = GROUP_PAGE_MAX, offset = 0, search?: string, departmentId?: string) {
+        const page = groupPage(limit, offset);
+        const where = pickerDepartmentWhere(search, departmentId);
+        const [count, docs] = await this.databaseService.client.$transaction([
+            this.databaseService.client.department.count({ where }),
+            this.databaseService.client.department.findMany({
+                where,
+                orderBy: { name: 'asc' },
+                take:    page.limit,
+                skip:    page.offset,
+                select: {
+                    id:        true,
+                    name:      true,
+                    systemKey: true,
+                    queues: {
+                        where:   pickerQueueWhere(search),
+                        orderBy: { name: 'asc' },
+                        select:  { id: true, name: true, systemKey: true },
+                    },
+                },
+            }),
+        ]);
+        return { count, docs };
     }
 
     async updateQueue(queueId: string, dto: UpdateQueueDto) {

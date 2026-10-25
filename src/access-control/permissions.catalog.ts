@@ -87,9 +87,9 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'billable.discount.cancel',  name: 'Withdraw Payer Discount',   description: "Withdraw a payer discount that hasn't taken effect" },
 
     // Inventory: drugs & consumables (PRD 15 §17) — one key per job; cost figures still need billable.cost.view
-    { key: 'inventory.view',            name: 'View Inventory',              description: 'Drugs, stocked items, packs, locations, suppliers, manufacturers, batches, stock and receipts' },
-    { key: 'inventory.drug.manage',     name: 'Manage Hospital Drugs',       description: "Add or edit the hospital's own drugs (never system drugs)" },
-    { key: 'inventory.item.manage',     name: 'Manage Stock Items',          description: 'Stock settings, drug link, brand and maker, and packs' },
+    { key: 'inventory.view',            name: 'View Inventory',              description: 'Medicines, stocked items, packs, locations, suppliers, manufacturers, batches, stock and receipts' },
+    { key: 'inventory.medicine.manage', name: 'Manage Hospital Medicines',   description: "Add or edit the hospital's own medicines (never seeded ones)" },
+    { key: 'inventory.item.manage',     name: 'Manage Stock Items',          description: 'Stock settings, medicine link, strength, brand and maker, and packs' },
     { key: 'inventory.location.manage', name: 'Manage Storage Locations',    description: 'Create, edit and deactivate storage locations' },
     { key: 'inventory.supplier.manage', name: 'Manage Suppliers & Manufacturers', description: 'Create, edit and deactivate suppliers and manufacturers' },
     { key: 'inventory.receipt.create',  name: 'Record Goods Receipt',        description: 'Create, edit and cancel draft receipts, including opening stock' },
@@ -120,6 +120,8 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
     'billing.create':  ['billing.charge.create'],
     // a diagnosis is only recorded in a consultation (14 §8)
     'diagnosis.create': ['consultation.create', 'consultation.view'],
+    // drugs became medicines (15 §3.1)
+    'inventory.drug.manage': ['inventory.medicine.manage'],
     // every staff member sends the patient on; the duty profile's send list is the control (11 §5.7)
     'queue.send':      [],
     // "receive payments" and "approve" must not share a key (PRD 10 §8); approval is granted separately
@@ -143,7 +145,7 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
 
 export type SystemDutyProfile = {
     name: string;
-    role: 'SUPERADMIN' | 'RECEPTIONIST' | 'ACCOUNTANT' | 'MANAGER';
+    role: 'SUPERADMIN' | 'RECEPTIONIST' | 'ACCOUNTANT' | 'MANAGER' | 'PHARMACIST' | 'PHARMACY_TECHNICIAN';
     departmentKey: string;
     queueKeys: string[];
     sendQueueKeys?: string[];   // queues the profile may put patients on (11 §5.7)
@@ -165,6 +167,20 @@ const CASHIER_PERMISSIONS = [
     'billable.view',
 ];
 
+// Pharmacy stock (PRD 15 §17): a technician records receipts, a pharmacist posts them into stock and
+// releases quarantine, so posting and releasing are always a second person's check
+const PHARMACY_TECHNICIAN_PERMISSIONS = [
+    'inventory.view', 'inventory.receipt.create', 'inventory.status.change', 'billable.view',
+];
+
+const PHARMACIST_PERMISSIONS = [
+    ...PHARMACY_TECHNICIAN_PERMISSIONS,
+    'inventory.receipt.post', 'inventory.status.release', 'inventory.batch.quality',
+    'inventory.medicine.manage', 'inventory.item.manage',
+];
+
+const INVENTORY_PERMISSIONS = PERMISSION_CATALOG.map(p => p.key).filter(key => key.startsWith('inventory.'));
+
 // Duty profiles seeded for every organisation. Only Hospital Administrator is assigned
 // automatically (to the onboarding admin). Tenants may edit them afterwards; approval
 // limits are deliberately not seeded — the tenant sets them (PRD 10 §10).
@@ -181,6 +197,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'appointment.create', 'appointment.manage',
             'billing.view', 'finance.report.view',
             'billable.view',
+            'inventory.view',
         ],
     },
     {
@@ -235,5 +252,28 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'billing.view', 'payer.manage', 'finance.request.approve', 'finance.policy.manage', 'finance.report.view',
             ...BILLABLE_PERMISSIONS,
         ],
+    },
+    // Pharmacy queues belong to Dispensing; stock work has none yet
+    {
+        name: 'Pharmacy Technician',
+        role: 'PHARMACY_TECHNICIAN',
+        departmentKey: 'PHARMACY',
+        queueKeys: [],
+        permissions: PHARMACY_TECHNICIAN_PERMISSIONS,
+    },
+    {
+        name: 'Pharmacist',
+        role: 'PHARMACIST',
+        departmentKey: 'PHARMACY',
+        queueKeys: [],
+        permissions: PHARMACIST_PERMISSIONS,
+    },
+    {
+        name: 'Pharmacy Manager',
+        role: 'MANAGER',
+        departmentKey: 'PHARMACY',
+        queueKeys: [],
+        // cost figures still need billable.cost.view (15 §17)
+        permissions: [...INVENTORY_PERMISSIONS, 'billable.view', 'billable.cost.view'],
     },
 ];

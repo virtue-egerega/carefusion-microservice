@@ -6,21 +6,21 @@ type Linked = { status: string } | null | undefined;
 
 export type StockItemCheck = {
     kind:          string;        // the item's category kind (ServiceCategory)
-    drugId:        string | null; // the drug the item will have after this change
-    drug?:         Linked;        // undefined: not being set; null: not found (or not visible)
+    medicineId:    string | null; // the medicine the item will have after this change
+    medicine?:     Linked;        // undefined: not being set; null: not found (or not visible)
     manufacturer?: Linked;        // undefined: not being set; null: not found in the organisation
 };
 
 /**
  * Why stocking an item (or changing its stock settings) is refused, or null (§3.3). A PHARMACY item
- * must name its drug, other kinds can't, and a drug or manufacturer being set must exist and be active.
+ * must name its medicine, other kinds can't, and a medicine or manufacturer being set must exist and be active.
  */
-export function stockItemRefusal({ kind, drugId, drug, manufacturer }: StockItemCheck): Refusal | null {
-    if (kind === 'PHARMACY' && !drugId) return { reason: 'A PHARMACY item must name its drug' };
-    if (kind !== 'PHARMACY' && drugId) return { reason: `Only PHARMACY items name a drug; this item is ${kind}` };
+export function stockItemRefusal({ kind, medicineId, medicine, manufacturer }: StockItemCheck): Refusal | null {
+    if (kind === 'PHARMACY' && !medicineId) return { reason: 'A PHARMACY item must name its medicine' };
+    if (kind !== 'PHARMACY' && medicineId) return { reason: `Only PHARMACY items name a medicine; this item is ${kind}` };
 
-    if (drug === null) return { reason: 'Drug not found', notFound: true };
-    if (drug && drug.status !== 'ACTIVE') return { reason: 'That drug is inactive' };
+    if (medicine === null) return { reason: 'Medicine not found', notFound: true };
+    if (medicine && medicine.status !== 'ACTIVE') return { reason: 'That medicine is inactive' };
 
     if (manufacturer === null) return { reason: 'Manufacturer not found', notFound: true };
     if (manufacturer && manufacturer.status !== 'ACTIVE') return { reason: 'That manufacturer is inactive' };

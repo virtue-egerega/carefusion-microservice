@@ -4,56 +4,56 @@ const ACTIVE = { status: 'ACTIVE' };
 const INACTIVE = { status: 'INACTIVE' };
 
 describe('stockItemRefusal', () => {
-    describe('drug link', () => {
-        it('accepts a PHARMACY item with its drug', () => {
-            expect(stockItemRefusal({ kind: 'PHARMACY', drugId: 'drug-1', drug: ACTIVE })).toBeNull();
+    describe('medicine link', () => {
+        it('accepts a PHARMACY item with its medicine', () => {
+            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: 'medicine-1', medicine: ACTIVE })).toBeNull();
         });
 
-        it('requires a PHARMACY item to name its drug', () => {
-            expect(stockItemRefusal({ kind: 'PHARMACY', drugId: null })?.reason).toBe('A PHARMACY item must name its drug');
+        it('requires a PHARMACY item to name its medicine', () => {
+            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: null })?.reason).toBe('A PHARMACY item must name its medicine');
         });
 
-        it('keeps the drug already linked when the change leaves it out', () => {
-            expect(stockItemRefusal({ kind: 'PHARMACY', drugId: 'drug-1' })).toBeNull();
+        it('keeps the medicine already linked when the change leaves it out', () => {
+            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: 'medicine-1' })).toBeNull();
         });
 
-        it('refuses a drug on any other kind', () => {
-            expect(stockItemRefusal({ kind: 'CONSUMABLE', drugId: 'drug-1', drug: ACTIVE })?.reason)
-                .toMatch(/Only PHARMACY items name a drug; this item is CONSUMABLE/);
+        it('refuses a medicine on any other kind', () => {
+            expect(stockItemRefusal({ kind: 'CONSUMABLE', medicineId: 'medicine-1', medicine: ACTIVE })?.reason)
+                .toMatch(/Only PHARMACY items name a medicine; this item is CONSUMABLE/);
         });
 
-        it('accepts a consumable without a drug', () => {
-            expect(stockItemRefusal({ kind: 'CONSUMABLE', drugId: null })).toBeNull();
+        it('accepts a consumable without a medicine', () => {
+            expect(stockItemRefusal({ kind: 'CONSUMABLE', medicineId: null })).toBeNull();
         });
 
-        it('reports a drug that is missing or not visible as not found', () => {
-            expect(stockItemRefusal({ kind: 'PHARMACY', drugId: 'drug-x', drug: null })).toEqual({ reason: 'Drug not found', notFound: true });
+        it('reports a medicine that is missing or not visible as not found', () => {
+            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: 'medicine-x', medicine: null })).toEqual({ reason: 'Medicine not found', notFound: true });
         });
 
-        it('refuses an inactive drug', () => {
-            expect(stockItemRefusal({ kind: 'PHARMACY', drugId: 'drug-1', drug: INACTIVE })?.reason).toBe('That drug is inactive');
+        it('refuses an inactive medicine', () => {
+            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: 'medicine-1', medicine: INACTIVE })?.reason).toBe('That medicine is inactive');
         });
     });
 
     describe('manufacturer', () => {
         it('accepts an active manufacturer', () => {
-            expect(stockItemRefusal({ kind: 'CONSUMABLE', drugId: null, manufacturer: ACTIVE })).toBeNull();
+            expect(stockItemRefusal({ kind: 'CONSUMABLE', medicineId: null, manufacturer: ACTIVE })).toBeNull();
         });
 
         it('reports a missing manufacturer as not found', () => {
-            expect(stockItemRefusal({ kind: 'CONSUMABLE', drugId: null, manufacturer: null }))
+            expect(stockItemRefusal({ kind: 'CONSUMABLE', medicineId: null, manufacturer: null }))
                 .toEqual({ reason: 'Manufacturer not found', notFound: true });
         });
 
         it('refuses an inactive manufacturer', () => {
-            expect(stockItemRefusal({ kind: 'CONSUMABLE', drugId: null, manufacturer: INACTIVE })?.reason)
+            expect(stockItemRefusal({ kind: 'CONSUMABLE', medicineId: null, manufacturer: INACTIVE })?.reason)
                 .toBe('That manufacturer is inactive');
         });
     });
 
-    it('checks the drug rule before the manufacturer', () => {
-        expect(stockItemRefusal({ kind: 'PHARMACY', drugId: null, manufacturer: null })?.reason)
-            .toBe('A PHARMACY item must name its drug');
+    it('checks the medicine rule before the manufacturer', () => {
+        expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: null, manufacturer: null })?.reason)
+            .toBe('A PHARMACY item must name its medicine');
     });
 });
 

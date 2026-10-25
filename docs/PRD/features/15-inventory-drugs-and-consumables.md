@@ -18,10 +18,10 @@ Dispensing PRD, which takes stock out through the issue contract in §12 and pos
 `13` describes. Inventory never posts a charge.
 
 **Terminology.**
-- *Drug*: the medicine itself, the same in every hospital: "Paracetamol 500 mg tablet, oral".
+- *Medicine*: the medicine itself, the same in every hospital: "Paracetamol, tablet, oral".
   System reference data, seeded by CareFusion (§3.1).
 - *Item* (or *product*): a `BillableItem` (`12` §4), the hospital's own product: "Emzor
-  Paracetamol 500mg". Stock is always held against an item; a drug item names its drug.
+  Paracetamol 500mg". Stock is always held against an item; a drug item names its medicine.
 - *Base unit*: the item's `unit` ("capsule", "vial", "pair"), the smallest quantity it's ever
   supplied in. All stock quantities are whole numbers of it.
 - *Pack*: a way the item is bought or handled ("Box of 100") with a fixed number of base units.
@@ -39,7 +39,7 @@ confirmation (§24).
 | # | Decision | § |
 |---|---|---|
 | D1 | **One inventory system for every stocked billable.** Stock tracking is a 1:1 extension of `BillableItem` (`StockItem`), opt-in per item, for any category kind. | 3 |
-| D1a | **Drugs are system reference data.** `Drug` (generic name, strength, form, route) is seeded by CareFusion; a hospital may add a drug that's missing, visible only to itself. A hospital's product (brand, maker, NAFDAC number) is its `StockItem`, which names its drug; `PHARMACY`-kind items must. Prescribing and dispensing will work against the drug, so any product of it can be supplied. | 3 |
+| D1a | **Medicines are system reference data.** `Medicine` (generic name, one dosage form, one route; aliases, ingredients, therapeutic uses, body systems) is seeded by CareFusion; a hospital may add one that's missing, marked `USER_ADDED` and visible only to itself. Strength, brand, maker and NAFDAC number belong to the hospital's product, its `StockItem`, which names its medicine; `PHARMACY`-kind items must. Therapeutic uses are a short list built from the medicines data, for finding medicines, not an ATC tree. *(2026-10-24)* | 3 |
 | D2 | **Quantities are whole base units.** Packs are explicit per-item conversions (`ItemPack`). Nothing assumes an item can be split: if it's supplied loose, its base unit is the loose unit. | 4 |
 | D3 | **Supplier and manufacturer are separate.** A supplier sells to the hospital; the manufacturer belongs to the product (Emzor Paracetamol and M&B Paracetamol are two products, two prices). | 3, 5 |
 | D4 | **A batch is identified by product + batch number**, and can arrive in several deliveries. Expiry belongs to the batch; a later delivery that disagrees is rejected. | 6 |
@@ -69,89 +69,96 @@ hospital can't:
 
 ## 3. Stocked Items
 
-### 3.1 `Drug` (system reference data)
+### 3.1 `Medicine` (system reference data)
 
-The medicine itself. Paracetamol 500 mg tablet is the same drug in Lagos and in Ohio, so drugs are
-defined once by CareFusion and seeded, like clinics and queues (`04`).
+The medicine itself, as staff look for it: generic name, one dosage form, one route. Paracetamol
+tablet and paracetamol suspension are two medicines; Paracetamol 500 mg and 1 g tablets are one
+medicine with two products, because strength belongs to the product (§3.2). Medicines are the same
+in every hospital, so CareFusion seeds them, like clinics and queues (`04`).
+
+The goal is **finding medicines**, not teaching pharmacology: search by name, alias or ingredient,
+filter by therapeutic use, form, route and body system.
 
 ```prisma
-model Drug {
-  id               String        @id @default(uuid())
-  organizationId   String?       // null = system row; set = added by that hospital
-  genericName      String        // "Paracetamol"
-  strength         String?       // "500 mg", "250 mg/5 ml"
-  dosageForm       DosageForm
-  route            DrugRoute
-  prescriptionOnly Boolean       @default(true)
-  controlled       Boolean       @default(false)
-  status           CatalogStatus @default(ACTIVE)
-  createdAt        DateTime      @default(now())
-  createdBy        String?       // null for seeded rows
-  updatedAt        DateTime      @updatedAt
-  updatedBy        String?
+model Medicine {
+  id             String           @id @default(uuid())
+  organizationId String?          // null = seeded by CareFusion; set = added by that hospital (USER_ADDED)
+  genericName    String           // "Paracetamol", "Artemether + Lumefantrine"
+  dosageForm     DosageForm
+  route          MedicineRoute
+  ingredients    String[]         @default([])
+  aliases        String[]         @default([]) // other names staff search by: "Acetaminophen", "PCM"
+  bodySystems    MedicineBodySystem[] @default([])
+  atcCode        String?          // the medicine's own WHO ATC code, kept as given
+  legalCategory  LegalCategory    @default(POM)
+  controlled     Boolean?         // null = the source doesn't say
+  strengths      String[]         @default([]) // strengths the source lists; a reference, not identity
+  presentations  String[]         @default([]) // "Vial", "Ampoule"
+  nhisCodes      String[]         @default([]) // NHIA drug list codes
+  description    String?
+  sourceSystem   String?          // "NHIA_MEDICINES_LIST"
+  sourceUrl      String?
+  searchText     String           @default("") // name + aliases + ingredients, kept by a trigger
+  status         CatalogStatus    @default(ACTIVE)
+  createdAt      DateTime         @default(now())
+  createdBy      String?          // null for seeded rows
+  updatedAt      DateTime         @updatedAt
+  updatedBy      String?
 
-  organization     Organization? @relation(fields: [organizationId], references: [id])
-  stockItems       StockItem[]
-
-  @@index([genericName])
-  @@index([organizationId])
+  organization    Organization?            @relation(fields: [organizationId], references: [id])
+  therapeuticUses MedicineTherapeuticUse[]
+  stockItems      StockItem[]
 }
 
-enum DosageForm {
-  TABLET
-  CAPSULE
-  SYRUP
-  SUSPENSION
-  SOLUTION
-  INJECTION
-  INFUSION
-  CREAM
-  OINTMENT
-  GEL
-  DROPS
-  INHALER
-  SUPPOSITORY
-  PESSARY
-  POWDER
-  PATCH
-  OTHER
+// What a medicine is used for, as staff ask for it: "Pain", "General anaesthesia". Built from the
+// medicines data: the seeder creates a use the first time a medicine names its code.
+model TherapeuticUse {
+  id        String   @id @default(uuid())
+  code      String   @unique // "GENERAL_ANAESTHESIA"
+  name      String           // "General anaesthesia"
+  medicines MedicineTherapeuticUse[]
 }
 
-enum DrugRoute {
-  ORAL
-  IV
-  IM
-  SC
-  TOPICAL
-  INHALATION
-  RECTAL
-  VAGINAL
-  OPHTHALMIC
-  OTIC
-  NASAL
-  SUBLINGUAL
-  OTHER
+model MedicineTherapeuticUse {
+  medicineId String
+  useId      String
+  medicine   Medicine       @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  use        TherapeuticUse @relation(fields: [useId], references: [id])
+
+  @@id([medicineId, useId])
+  @@index([useId])
 }
+
+enum LegalCategory { POM P OTC }   // prescription only, pharmacy, over the counter
 ```
+
+`DosageForm` (63 values, e.g. `TABLET`, `FILM_COATED_TABLET`, `ORAL_SUSPENSION`, `SOLUTION`,
+`INFUSION`, `SOLUTION_FOR_INFUSION`, `INHALATION_LIQUID`, `MEDICINAL_GAS`), `MedicineRoute` (22, the
+specific routes plus WHO's coarser `PARENTERAL`, `OROMUCOSAL`, `INSTILLATION`, `IMPLANT`) and
+`MedicineBodySystem` (16, the BNF chapters; separate from the consultation `BodySystem`) are listed in `prisma/schema.prisma`. Solution, infusion and
+solution for infusion are three different forms.
 
 ```sql
--- one row per drug per owner; system rows share the null owner
-CREATE UNIQUE INDEX drug_identity ON "Drug" ("organizationId", lower("genericName"), "strength", "dosageForm", "route")
+-- one medicine per owner; seeded rows share the null owner
+CREATE UNIQUE INDEX "Medicine_identity" ON "Medicine" ("organizationId", lower("genericName"), "dosageForm", "route")
   NULLS NOT DISTINCT;
+-- searchText = lower(name + aliases + ingredients), set on every insert and update; trigram-indexed
+CREATE INDEX "Medicine_search_trgm" ON "Medicine" USING gin ("searchText" gin_trgm_ops);
 ```
 
-- **Seeded** from the Nigerian Essential Medicines List (`prisma/seed.ts`), with `organizationId`
-  null. Hospitals can't edit or deactivate system rows.
-- **A hospital can add a drug that's missing** (`inventory.drug.manage`). It's visible only to that
-  hospital. Drug lists show system rows plus the caller's own.
-- **The drug level is what clinical work will use.** A doctor prescribes "Paracetamol 500 mg
-  tablet"; dispensing offers every product in stock with that `drugId`. Allergy checks and drug-use
-  reports key off it too, so they read the same in every hospital.
-- **`strength` is display text.** Dose-calculation fields (numeric strength, per-kg dosing) belong to
-  the prescribing PRD, which knows what it needs. Combination products ("Amoxicillin + Clavulanic
-  acid 625 mg") are one drug row with the combined generic name; ingredient-level modelling waits for
-  the allergies design.
-- `prescriptionOnly` and `controlled` are seeded with the Nigerian classification.
+- **Seeded** from `prisma/data/medicines/medicines-*.json` (`prisma/seed.ts`), `organizationId`
+  null. Hospitals can't edit or deactivate seeded rows. The seeder is insert-only: re-running adds
+  medicines that aren't there yet and leaves existing ones alone.
+- **Entries for the same medicine are one row.** The NHIA list has a line per strength; entries with
+  the same name (any case), form and route combine their strengths, NHIS codes, aliases and uses.
+  Single values (ATC code, legal category) must agree.
+- **A hospital can add a medicine that's missing** (`inventory.medicine.manage`). It's shown as
+  `USER_ADDED` and visible only to that hospital. It's refused (409) if it matches a seeded medicine
+  or one of the hospital's own. It picks therapeutic uses from the list; it can't invent new ones.
+- **Prescribing and dispensing will work against the medicine.** A doctor prescribes paracetamol
+  tablet, oral; dispensing offers every product in stock that names it, at whatever strength fits.
+- **`controlled` can be unknown.** The NHIA list doesn't say, and guessing `false` would be wrong
+  for ketamine, so it stays null until set.
 
 ### 3.2 `StockItem` (the hospital's product)
 
@@ -162,7 +169,8 @@ because Emzor Paracetamol and M&B Paracetamol are two products with two prices a
 model StockItem {
   itemId              String           @id
   organizationId      String
-  drugId              String?          // required for PHARMACY-kind items
+  medicineId          String?          // required for PHARMACY-kind items
+  strength            String?          // "500 mg", "250 mg/5 ml": the product's, display text
   brandName           String?          // "Emzor Paracetamol"
   manufacturerId      String?          // the maker identifies the product, not the batch (§5)
   registrationNo      String?          // NAFDAC registration number
@@ -175,7 +183,7 @@ model StockItem {
   updatedBy           String?
 
   item                BillableItem     @relation(fields: [itemId, organizationId], references: [id, organizationId])
-  drug                Drug?            @relation(fields: [drugId], references: [id])
+  medicine            Medicine?        @relation(fields: [medicineId], references: [id])
   manufacturer        Manufacturer?    @relation(fields: [manufacturerId], references: [id])
   packs               ItemPack[]
   batches             StockBatch[]
@@ -183,7 +191,7 @@ model StockItem {
 
   @@unique([itemId, organizationId]) // target of StockBatch's composite FK
   @@index([organizationId])
-  @@index([drugId])
+  @@index([medicineId])
   @@index([manufacturerId])
 }
 
@@ -198,12 +206,14 @@ enum StorageCondition {
 ### 3.3 Rules
 
 - **Opt-in, any kind.** Any item can be stocked; in practice `PHARMACY` and `CONSUMABLE`. A
-  `PHARMACY`-kind stocked item **must** name a drug; other kinds can't. Moving an item between
+  `PHARMACY`-kind stocked item **must** name a medicine; other kinds can't. Moving an item between
   categories is same-kind only (`12` §4.2), so this can't drift.
-- **The drug must be a system row or the caller's own.** The service checks this; a foreign key can't,
-  since system rows have no organisation.
+- **The medicine must be a seeded one or the caller's own.** The service checks this; a foreign key
+  can't, since seeded rows have no organisation.
+- **Strength is the product's.** Emzor Paracetamol 500 mg and Emzor Paracetamol 1 g are two items
+  naming one medicine; the medicine's `strengths` only suggest values.
 - **Name and code stay on the item.** `BillableItem.name` is what staff search and what charges
-  snapshot ("Emzor Paracetamol 500mg Tablet"); the drug supplies the structured parts.
+  snapshot ("Emzor Paracetamol 500mg Tablet"); the medicine supplies the structured parts.
 - **The manufacturer is picked from the hospital's list** (§5), or created on the spot, like a
   supplier. It must be the caller's own and active.
 - **Can't be un-stocked** once it has a movement. Deactivate the item instead (`12` §4.2).
@@ -471,7 +481,7 @@ hold:
 filter the caller asks for. Stock screens show `onHand`, `eligible`, `quarantine`, `damaged`,
 `expired` and `onHold/recalled` side by side (and `inTransit` from slice 2).
 
-**By drug.** Summing over every `StockItem` with the same `drugId` answers "how much paracetamol
+**By medicine.** Summing over every `StockItem` with the same `medicineId` answers "how much paracetamol
 500 mg do we have", whatever the brand.
 
 ### 8.3 Status changes
@@ -1074,8 +1084,8 @@ model StockLevel {
 | Key | Name | Grants |
 |---|---|---|
 | `inventory.view` | View Inventory | Stocked items, packs, locations, suppliers, manufacturers, drugs, batches, balances, movements, receipts, transfers, adjustments, counts, expiry and low-stock views |
-| `inventory.drug.manage` | Manage Hospital Drugs | Add or edit the hospital's own drugs (never system rows) |
-| `inventory.item.manage` | Manage Stock Items | Stock settings, drug link, brand and maker, packs, reorder levels |
+| `inventory.medicine.manage` | Manage Hospital Medicines | Add or edit the hospital's own medicines (never seeded ones) |
+| `inventory.item.manage` | Manage Stock Items | Stock settings, medicine link, strength, brand and maker, packs, reorder levels |
 | `inventory.location.manage` | Manage Storage Locations | Create, edit, deactivate locations |
 | `inventory.supplier.manage` | Manage Suppliers & Manufacturers | Suppliers and manufacturers |
 | `inventory.receipt.create` | Record Goods Receipt | Create, edit and cancel draft receipts (incl. opening stock) |
@@ -1094,15 +1104,20 @@ model StockLevel {
 costs, batch costs and values. The exception is a receipt's own lines, which holders of
 `inventory.receipt.*` see because they enter them.
 
-**Suggested duty profiles** (seeded, tenant-editable):
+**Seeded duty profiles** (slice 1, Pharmacy department, no queues; tenant-editable, and the seeder
+adds back a missing system permission, so tenants extend them rather than trim them):
 
-| Profile | Gains |
-|---|---|
-| Chief Pharmacist / Store Manager | every `inventory.*` key, `billable.view`, `billable.cost.view` |
-| Pharmacist | `inventory.view`, receipts, status, transfers, `adjustment.request`, `count.manage` |
-| Pharmacy Technician / Store Officer | `inventory.view`, `receipt.create`, `transfer.*`, `count.manage` |
-| Ward Nurse in charge | `inventory.view`, `transfer.receive`, `adjustment.request` |
-| Internal Auditor | `inventory.view`, `inventory.count.approve`, `billable.cost.view` |
+| Profile | Role | Gains |
+|---|---|---|
+| Pharmacy Technician | `PHARMACY_TECHNICIAN` | `inventory.view`, `receipt.create`, `status.change`, `billable.view` |
+| Pharmacist | `PHARMACIST` | the technician's, plus `receipt.post`, `status.release`, `batch.quality`, `medicine.manage`, `item.manage` |
+| Pharmacy Manager | `MANAGER` | every `inventory.*` key, `billable.view`, `billable.cost.view` |
+| Hospital Administrator | `SUPERADMIN` | gains `inventory.view` |
+
+A technician records a receipt and a pharmacist posts it, so posting (which moves cost prices) and
+releasing quarantine are always a second person's check. Slice 2 adds its keys to these profiles, and
+may add a ward profile (`inventory.view`, `transfer.receive`, `adjustment.request`) and an internal
+auditor (`inventory.view`, `count.approve`, `billable.cost.view`).
 
 ## 18. APIs
 
@@ -1111,11 +1126,12 @@ actor from the token; lists return `{ count, docs }` with `limit` (20) / `offset
 
 | Endpoint | Method | Permission | Purpose |
 |---|---|---|---|
-| `/drugs` | GET | `inventory.view` | `{ count, docs }`: system drugs plus the caller's own; filter `search` (generic name), `dosageForm`, `route`, `status`, `source` (`SYSTEM` / `HOSPITAL`) |
-| `/drugs` | POST | `inventory.drug.manage` | Add a hospital drug: `genericName`, `strength?`, `dosageForm`, `route`, `prescriptionOnly`, `controlled`; 409 if it matches a system or own drug |
-| `/drugs/:id` | GET / PATCH | `inventory.view` / `inventory.drug.manage` | Detail with the hospital's products and stock totals / edit own drug (system rows: 403) |
-| `/items` | GET | `inventory.view` | Stocked items with category, drug, brand, stock totals (§8.2) for `locationId?` / `branchId?`; filter `kind`, `categoryId`, `drugId`, `search` (code, name, brand, generic name), `lowStock`, `status` |
-| `/items/:itemId` | PUT | `inventory.item.manage` | Make an item stocked / update settings: `batchTracked`, `quarantineOnReceipt`, `storageCondition`, `drugId` (required for `PHARMACY` items), `brandName?`, `manufacturerId?`, `registrationNo?` |
+| `/medicines` | GET | `inventory.view` | `{ count, docs }`: seeded medicines plus the caller's own, each with `source` (`SYSTEM` / `USER_ADDED`) and its uses; filter `search` (name, alias, ingredient; partial), `therapeuticUse` (code), `dosageForm`, `route`, `bodySystem`, `legalCategory`, `status`, `source` |
+| `/therapeutic-uses` | GET | `inventory.view` | `{ count, docs }`: every use with its medicine count, for the filter and the add-medicine form |
+| `/medicines` | POST | `inventory.medicine.manage` | Add a hospital medicine: `genericName`, `dosageForm`, `route`, `ingredients?`, `aliases?`, `therapeuticUses?` (codes), `bodySystems?`, `legalCategory?`, `controlled?`, `description?`; 409 if it matches a seeded or own medicine |
+| `/medicines/:id` | GET / PATCH | `inventory.view` / `inventory.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
+| `/items` | GET | `inventory.view` | Stocked items with category, medicine, strength, brand, stock totals (§8.2) for `locationId?` / `branchId?`; filter `kind`, `categoryId`, `medicineId`, `search` (code, name, brand, generic name), `lowStock`, `status` |
+| `/items/:itemId` | PUT | `inventory.item.manage` | Make an item stocked / update settings: `batchTracked`, `quarantineOnReceipt`, `storageCondition`, `medicineId` (required for `PHARMACY` items), `strength?`, `brandName?`, `manufacturerId?`, `registrationNo?` |
 | `/items/:itemId` | GET | `inventory.view` | Settings, drug, packs, levels, totals |
 | `/items/:itemId/stock` | GET | `inventory.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) value |
 | `/items/:itemId/packs` | POST / GET | `inventory.item.manage` / `inventory.view` | Add pack (`name`, `unitsPerPack`, `barcode?`, `isDefault?`) / list |
@@ -1161,12 +1177,12 @@ will import Inventory; nothing imports in the other direction. DTOs in
 
 | Current | Becomes |
 |---|---|
-| — | `Drug` (system, seeded), `StockItem`, `ItemPack`, `Supplier`, `Manufacturer`, `StockBatch`, `StorageLocation`, `StockBalance`, `StockTransaction`, `StockMovement`, `GoodsReceipt`, `GoodsReceiptItem` (slice 1); `StockTransfer(Line)`, `StockAdjustment(Line)`, `StockCount(Line)`, `StockLevel` (slice 2); enums as above |
+| — | `Medicine`, `TherapeuticUse`, `MedicineTherapeuticUse` (seeded), `StockItem`, `ItemPack`, `Supplier`, `Manufacturer`, `StockBatch`, `StorageLocation`, `StockBalance`, `StockTransaction`, `StockMovement`, `GoodsReceipt`, `GoodsReceiptItem` (slice 1); `StockTransfer(Line)`, `StockAdjustment(Line)`, `StockCount(Line)`, `StockLevel` (slice 2); enums as above |
 | `BillableItem` | Gains `stockItem` relation. **`unit` can't change once the item has a movement** (rule added to `PATCH /billables/items/:id`) |
 | `ItemCost` | Gains `receiptItems` relation (`GoodsReceiptItem.itemCostId`). No new columns |
-| `Organization` | Gains `nearExpiryDays Int @default(90)` and relations `drugs`, `suppliers`, `manufacturers`, `storageLocations`, `goodsReceipts` |
+| `Organization` | Gains `nearExpiryDays Int @default(90)` and relations `medicines`, `suppliers`, `manufacturers`, `storageLocations`, `goodsReceipts` |
 | `Branch` | Gains `storageLocations`, `goodsReceipts`, `stockTransactions` relations |
-| `prisma/seed.ts` | Seeds system `Drug` rows from the Nigerian Essential Medicines List (`organizationId` null, `createdBy` null) |
+| `prisma/seed.ts` | Seeds medicines and their therapeutic uses from `prisma/data/medicines/medicines-*.json`, insert-only (`organizationId` null, `createdBy` null) |
 | `SequenceCounter` | New scopes `grn:<orgId>`, `trf:<orgId>`, `adj:<orgId>`, `cnt:<orgId>` |
 | `permissions.catalog.ts` | §17 keys; seeded profiles as in §17 |
 | Migration | Prisma tables + appended SQL from §3.1, §4, §6, §8.1, §9.2, §10.1, and, in slice 2, §13, §14.1, §15 |

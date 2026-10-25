@@ -1,12 +1,13 @@
 import 'dotenv/config';
-import { PrismaClient } from '../generated/prisma/client';
+import { $Enums, PrismaClient } from '../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys } from '../src/departments/departments.catalog';
 import { PERMISSION_CATALOG, SYSTEM_DUTY_PROFILES } from '../src/access-control/permissions.catalog';
 import { AccessControlService } from '../src/access-control/access-control.service';
 import { parseIcd10Chapters, parseIcd10Codes, parseIcd10Groups } from '../src/consultations/rules/icd10-file';
-import { parseTherapeuticUses } from '../src/inventory/medicines/therapeutic-uses-file';
-import { readFileSync } from 'node:fs';
+import { parseMedicines, useName } from '../src/inventory/medicines/medicines-file';
+import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
@@ -112,20 +113,64 @@ async function seedDiagnosisCodes() {
     console.log(`✓ ICD-10: ${chapters.length} chapters, ${groups.length} groups, ${codes.length} codes (${added.length} added, ${changed.length} updated, ${retired} retired)`);
 }
 
-// ATC therapeutic groups, shared by every hospital (15 §3). Insert-only: re-running adds the groups that
-// aren't there yet and leaves existing rows as they are, so it is safe to run any number of times.
-async function seedTherapeuticUses() {
-    const uses = parseTherapeuticUses(JSON.parse(readFileSync(join(__dirname, 'data', 'medicines', 'therapeutic-uses.json'), 'utf8')));
-
-    const existing = new Set(
-        (await prisma.therapeuticUse.findMany({ where: { atcCode: { not: null } }, select: { atcCode: true } })).map(u => u.atcCode),
+// Medicines and their therapeutic uses, shared by every hospital (15 §3.1), from every
+// prisma/data/medicines/medicines-*.json. Insert-only: re-running adds the medicines and uses that aren't
+// there yet and leaves existing rows as they are, so it is safe to run any number of times.
+async function seedMedicines() {
+    const dir   = join(__dirname, 'data', 'medicines');
+    const names = existsSync(dir) ? readdirSync(dir).filter(name => /^medicines-.+\.json$/.test(name)).sort() : [];
+    if (!names.length) {
+        console.log('· No medicine files yet (prisma/data/medicines/medicines-*.json)');
+        return;
+    }
+    const medicines = parseMedicines(
+        names.map(name => ({ name, json: JSON.parse(readFileSync(join(dir, name), 'utf8')) })),
+        {
+            dosageForms:     Object.values($Enums.DosageForm),
+            routes:          Object.values($Enums.MedicineRoute),
+            bodySystems:     Object.values($Enums.MedicineBodySystem),
+            legalCategories: Object.values($Enums.LegalCategory),
+        },
     );
-    const added = uses.filter(u => !existing.has(u.atcCode));
+
+    // a use code seen for the first time becomes a use
+    const codes = [...new Set(medicines.flatMap(m => m.therapeuticUses))];
+    const { count: usesAdded } = await prisma.therapeuticUse.createMany({
+        data:           codes.map(code => ({ code, name: useName(code) })),
+        skipDuplicates: true,
+    });
+    const useIds = new Map(
+        (await prisma.therapeuticUse.findMany({ where: { code: { in: codes } }, select: { id: true, code: true } })).map(u => [u.code, u.id]),
+    );
+
+    // seeded medicines already there, matched the way the Medicine_identity index matches them
+    const key = (m: { genericName: string; dosageForm: string; route: string }) => `${m.genericName.toLowerCase()}|${m.dosageForm}|${m.route}`;
+    const existing = new Set(
+        (await prisma.medicine.findMany({ where: { organizationId: null }, select: { genericName: true, dosageForm: true, route: true } })).map(key),
+    );
+    // ids made here, so each medicine's use links go in with it
+    const added = medicines.filter(m => !existing.has(key(m))).map(({ therapeuticUses, ...m }) => ({
+        medicine: {
+            ...m,
+            id:            randomUUID(),
+            dosageForm:    m.dosageForm as $Enums.DosageForm,
+            route:         m.route as $Enums.MedicineRoute,
+            bodySystems:   m.bodySystems as $Enums.MedicineBodySystem[],
+            legalCategory: m.legalCategory as $Enums.LegalCategory,
+        },
+        uses: therapeuticUses,
+    }));
 
     for (let i = 0; i < added.length; i += 1000) {
-        await prisma.therapeuticUse.createMany({ data: added.slice(i, i + 1000), skipDuplicates: true });
+        const chunk = added.slice(i, i + 1000);
+        await prisma.$transaction([
+            prisma.medicine.createMany({ data: chunk.map(a => a.medicine) }),
+            prisma.medicineTherapeuticUse.createMany({
+                data: chunk.flatMap(a => a.uses.map(code => ({ medicineId: a.medicine.id, useId: useIds.get(code)! }))),
+            }),
+        ]);
     }
-    console.log(`✓ ${uses.length} therapeutic uses (${added.length} added, ${uses.length - added.length} already there)`);
+    console.log(`✓ ${medicines.length} medicines from ${names.length} file(s) (${added.length} added, ${medicines.length - added.length} already there); ${codes.length} therapeutic uses (${usesAdded} added)`);
 }
 
 async function main() {
@@ -133,7 +178,7 @@ async function main() {
     await seedDepartments();
     await seedAccessControl();
     await seedDiagnosisCodes();
-    await seedTherapeuticUses();
+    await seedMedicines();
     console.log('Done.');
 }
 

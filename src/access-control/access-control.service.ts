@@ -1,31 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PERMISSION_CATALOG, RETIRED_PERMISSIONS, SYSTEM_DUTY_PROFILES } from './permissions.catalog';
+import { GROUP_PAGE_MAX, pagePermissionGroups } from './permissions.rules';
 
 @Injectable()
 export class AccessControlService {
 
-    getPermissionsGrouped(limit = 50, offset = 0, search?: string) {
-        const term = search?.toLowerCase();
-        const filtered = term
-            ? PERMISSION_CATALOG.filter(
-                  p =>
-                      p.key.includes(term) ||
-                      p.name.toLowerCase().includes(term) ||
-                      p.description.toLowerCase().includes(term),
-              )
-            : PERMISSION_CATALOG;
-
-        const count = filtered.length;
-        const page = filtered.slice(offset, offset + limit);
-
-        const groups: Record<string, { key: string; name: string; description: string }[]> = {};
-        for (const perm of page) {
-            const group = perm.key.split('.')[0];
-            if (!groups[group]) groups[group] = [];
-            groups[group].push({ key: perm.key, name: perm.name, description: perm.description });
-        }
-
-        return { count, docs: groups };
+    // Paged by group, not by permission: limit/offset/count all count groups
+    getPermissionsGrouped(limit = GROUP_PAGE_MAX, offset = 0, search?: string, group?: string) {
+        return pagePermissionGroups(PERMISSION_CATALOG, { limit, offset, search, group });
     }
 
     // Seeds permissions + system duty profiles. No user dependency — safe to run anytime.

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { DrugsController } from './drugs/drugs.controller';
-import { DrugsService } from './drugs/drugs.service';
+import { MedicinesController } from './medicines/medicines.controller';
+import { MedicinesService } from './medicines/medicines.service';
 import { StockItemsController } from './items/stock-items.controller';
 import { StockItemsService } from './items/stock-items.service';
 import { LocationsController } from './locations/locations.controller';
@@ -14,7 +14,7 @@ import { ManufacturersService } from './suppliers/manufacturers.service';
  * out; it never charges, and nothing it imports depends on it.
  */
 @Module({
-    controllers: [DrugsController, StockItemsController, LocationsController, SuppliersController],
-    providers:   [DrugsService, StockItemsService, LocationsService, SuppliersService, ManufacturersService],
+    controllers: [MedicinesController, StockItemsController, LocationsController, SuppliersController],
+    providers:   [MedicinesService, StockItemsService, LocationsService, SuppliersService, ManufacturersService],
 })
 export class InventoryModule {}
