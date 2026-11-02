@@ -3,11 +3,12 @@ import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums } from '../../../generated/prisma/client';
 import { CreateMedicineDto, UpdateMedicineDto } from '@shared/contracts/inventory';
+import { medicineKey } from './medicines-file';
 import {
-    MedicineSource, medicineSource, medicineUpdateRefusal, sameMedicine, unknownUses, visibleMedicines,
+    MedicineSource, medicineSource, medicineUpdateRefusal, mergeRefusal, sameMedicine, unknownUses, visibleMedicines,
 } from './medicines.rules';
 
-const CONFLICT = 'This medicine already exists (same generic name, dosage form and route)';
+const CONFLICT = 'This medicine already exists (same generic name, strength, dosage form and route)';
 
 export type MedicinesQuery = {
     search?:         string;
@@ -27,14 +28,22 @@ const withUses = {
     include: { therapeuticUses: { select: { use: { select: { code: true, name: true } } } } },
 } as const;
 
-type MedicineWithUses = { organizationId: string | null; therapeuticUses: { use: { code: string; name: string } }[] };
+type Identity = { genericName: string; strength: string | null; dosageForm: string; route: string };
+type MedicineWithUses = Identity & { organizationId: string | null; therapeuticUses: { use: { code: string; name: string } }[] };
 
-/** A medicine as the API returns it: `source` says where it came from, and its uses are flat. */
-const toDoc = <T extends MedicineWithUses>({ therapeuticUses, ...medicine }: T) => ({
-    ...medicine,
-    source:          medicineSource(medicine.organizationId),
-    therapeuticUses: therapeuticUses.map(({ use }) => use),
-});
+/**
+ * A medicine as the API returns it: `source` says where it came from, its uses are flat, and a hospital's
+ * own medicine that CareFusion now seeds names that seeded medicine (`seededMatch`), so it can be merged.
+ */
+const toDoc = <T extends MedicineWithUses>({ therapeuticUses, ...medicine }: T, seeded: Map<string, string>) => {
+    const match = medicine.organizationId ? seeded.get(medicineKey(medicine)) : undefined;
+    return {
+        ...medicine,
+        source:          medicineSource(medicine.organizationId),
+        therapeuticUses: therapeuticUses.map(({ use }) => use),
+        seededMatch:     match ? { id: match } : null,
+    };
+};
 
 /**
  * The medicine list (PRD 15 §3.1): rows seeded by CareFusion, plus medicines a hospital added itself
@@ -114,7 +123,8 @@ export class MedicinesService {
                 orderBy: [{ genericName: 'asc' }, { strength: 'asc' }, { dosageForm: 'asc' }, { route: 'asc' }],
             }),
         ]);
-        return { count, docs: medicines.map(toDoc) };
+        const seeded = await this.seededMatches(medicines);
+        return { count, docs: medicines.map(medicine => toDoc(medicine, seeded)) };
     }
 
     /**
@@ -174,7 +184,7 @@ export class MedicinesService {
 
         const { stockItems, ...rest } = medicine;
         return {
-            ...toDoc(rest),
+            ...toDoc(rest, await this.seededMatches([rest])),
             products: stockItems.map(({ item, ...product }) => ({ ...item, ...product })),
         };
     }
@@ -240,6 +250,41 @@ export class MedicinesService {
         return { message: 'Medicine updated' };
     }
 
+    /**
+     * Merges one of the hospital's own medicines into the seeded medicine CareFusion now lists (§3.1): its
+     * products move to the seeded one and it becomes INACTIVE, together. Returns the seeded medicine's id.
+     */
+    async merge(medicineId: string, organizationId: string, updatedBy: string) {
+        const client = this.databaseService.client;
+        const found = await client.medicine.findFirst({
+            where:  { id: medicineId, ...visibleMedicines(organizationId) },
+            select: { organizationId: true, status: true, genericName: true, strength: true, dosageForm: true, route: true },
+        });
+        const seededId = found?.organizationId ? (await this.seededMatches([found])).get(medicineKey(found)) : undefined;
+
+        const refusal = mergeRefusal(found, organizationId, seededId ? { id: seededId } : null);
+        if (refusal) {
+            if (refusal.forbidden) throw new ForbiddenException(refusal.reason);
+            throw refusal.reason === 'Medicine not found' ? new NotFoundException(refusal.reason) : new BadRequestException(refusal.reason);
+        }
+
+        const moved = await this.databaseService.transaction(async () => {
+            const tx = this.databaseService.client;
+            // conditional, so two merges at once can't both run
+            const { count } = await tx.medicine.updateMany({
+                where: { id: medicineId, organizationId, status: 'ACTIVE' },
+                data:  { status: 'INACTIVE', updatedBy },
+            });
+            if (!count) throw new BadRequestException('This medicine is inactive; it may already have been merged');
+            const products = await tx.stockItem.updateMany({
+                where: { medicineId, organizationId },
+                data:  { medicineId: seededId, updatedBy },
+            });
+            return products.count;
+        });
+        return { id: seededId!, message: `Merged into the seeded medicine; ${moved} product(s) moved` };
+    }
+
     /** Every therapeutic use by name, for the filter and the add-medicine form. A short list, so not paginated. */
     async findUses(search?: string) {
         const docs = await this.databaseService.client.therapeuticUse.findMany({
@@ -248,6 +293,25 @@ export class MedicinesService {
             orderBy: { name: 'asc' },
         });
         return { count: docs.length, docs };
+    }
+
+    /**
+     * For a hospital's own medicines, the seeded medicine with the same identity, by medicineKey. One query
+     * for the whole page, and none when the page has only seeded medicines.
+     */
+    private async seededMatches(medicines: (Identity & { organizationId: string | null })[]) {
+        const own = medicines.filter(m => m.organizationId);
+        if (!own.length) return new Map<string, string>();
+
+        const seeded = await this.databaseService.client.medicine.findMany({
+            where:  {
+                organizationId: null,
+                status:         'ACTIVE',
+                OR:             own.map(m => sameMedicine(m as Identity & { dosageForm: $Enums.DosageForm; route: $Enums.MedicineRoute })),
+            },
+            select: { id: true, genericName: true, strength: true, dosageForm: true, route: true },
+        });
+        return new Map(seeded.map(m => [medicineKey(m), m.id]));
     }
 
     private assertUsesExist(codes: string[], found: { code: string }[]) {

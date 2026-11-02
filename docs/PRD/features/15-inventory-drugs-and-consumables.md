@@ -2,9 +2,9 @@
 
 Status: Draft · Last updated: 2026-10-23
 Depends on: `02-hospital-onboarding.md` (`Organization`, `Branch`), `05-access-control-clinical-scoping.md`
-(`Permission`, `DutyProfile`), `12-billables-and-price-catalog.md` (`BillableItem`, `ItemCost`,
+(`Permission`, `DutyProfile`), `12-billables-and-price-catalog.md` (`BillableItem`, `ItemCostPrice`,
 `ServiceCategory`).
-Answers: `12` §4.3 (drug details, stock and batches; how batch cost feeds `ItemCost`) and `04` §3
+Answers: `12` §4.3 (drug details, stock and batches; how batch cost feeds `ItemCostPrice`) and `04` §3
 ("pharmacy stock management is a data-management concern owned by the Pharmacy & Inventory PRD").
 
 This document defines how the hospital puts stock into the system and keeps track of it: what it
@@ -47,7 +47,7 @@ confirmation (§24).
 | D6 | **Balances are keyed by location + batch + status.** Status is `AVAILABLE`, `QUARANTINE` or `DAMAGED` (`IN_TRANSIT` arrives with transfers). Batch-wide quality (`RELEASED`, `ON_HOLD`, `RECALLED`) sits on the batch; expiry is computed from the date, never flagged by a job. | 8 |
 | D7 | **Movements are the only writer of balances.** Movements are append-only; a database trigger applies each one to its balance, and `CHECK (quantity >= 0)` rejects any overdraw. | 9 |
 | D8 | **Receiving records what actually arrived**: delivered vs accepted packs per line, each line naming its batch. Only accepted quantities enter stock, optionally into quarantine. | 10 |
-| D9 | **Selling price stays per item, not per batch.** *(proposed)* Posting a receipt rolls the item's `ItemCost` forward when the unit cost changed (on by default, off per line), so `MARKUP` prices follow the supplier. Batch cost is kept for valuation. | 11 |
+| D9 | **Selling price stays per item, not per batch.** *(proposed)* Posting a receipt rolls the item's `ItemCostPrice` forward when the unit cost changed (on by default, off per line), so `MARKUP` prices follow the supplier. Batch cost is kept for valuation. | 11 |
 | D10 | **FEFO**: stock leaves earliest-expiry first among eligible stock, and every multi-batch issue records the quantity per batch. | 12 |
 | D11 | **Moves never change the total.** A transfer between locations or branches is dispatch then receive, with the quantity `IN_TRANSIT` in between. | 13 |
 | D12 | **Quantity-changing corrections are maker-checker.** *(proposed)* Adjustments, write-offs and count variances need an approver other than the requester. Value thresholds come later. | 14 |
@@ -156,6 +156,11 @@ CREATE INDEX "Medicine_search_trgm" ON "Medicine" USING gin ("searchText" gin_tr
 - **A hospital can add a medicine that's missing** (`pharmacy.medicine.manage`). It's shown as
   `USER_ADDED` and visible only to that hospital. It's refused (409) if it matches a seeded medicine
   or one of the hospital's own. It picks therapeutic uses from the list; it can't invent new ones.
+- **When CareFusion later seeds a medicine a hospital already added**, the seeder adds it as usual (it never
+  touches hospital rows), so the hospital briefly sees both. The hospital's copy then carries
+  `seededMatch: { id }` in list and detail responses, and `POST /medicines/:id/merge` moves every product
+  naming the copy onto the seeded medicine and marks the copy `INACTIVE`, in one transaction. A merge is the
+  hospital's decision, so nothing is moved without it.
 - **Prescribing and dispensing will work against the medicine.** A doctor prescribes paracetamol
   500 mg tablet, oral; dispensing offers every product in stock that names it, whatever the brand.
 - **`controlled` can be unknown.** The NHIA list doesn't say, and guessing `false` would be wrong
@@ -230,7 +235,7 @@ model ItemPack {
   id           String        @id @default(uuid())
   itemId       String
   name         String        // "Box of 100", "Strip of 10"
-  unitsPerPack Int           // never edited; a new size is a new pack
+  sellingUnitsPerPurchaseUnit Int           // never edited; a new size is a new pack
   barcode      String?
   isDefault    Boolean       @default(false)
   status       CatalogStatus @default(ACTIVE)
@@ -247,7 +252,7 @@ model ItemPack {
 ```
 
 ```sql
-ALTER TABLE "ItemPack" ADD CONSTRAINT item_pack_units_positive CHECK ("unitsPerPack" > 0);
+ALTER TABLE "ItemPack" ADD CONSTRAINT item_pack_units_positive CHECK ("sellingUnitsPerPurchaseUnit" > 0);
 CREATE UNIQUE INDEX item_pack_one_default ON "ItemPack" ("itemId") WHERE "isDefault";
 CREATE UNIQUE INDEX item_pack_barcode ON "ItemPack" ("barcode") WHERE "barcode" IS NOT NULL;
 ```
@@ -257,10 +262,10 @@ CREATE UNIQUE INDEX item_pack_barcode ON "ItemPack" ("barcode") WHERE "barcode" 
   tablet: base unit "tablet". A syrup only ever handed over whole: base unit "bottle". A bulk liquid
   measured out: base unit "ml". That one choice is the explicit "can this be divided" rule; the
   system never converts beyond it.
-- **`unitsPerPack` can't be edited.** A different pack size is a new pack; the old one is
+- **`sellingUnitsPerPurchaseUnit` can't be edited.** A different pack size is a new pack; the old one is
   deactivated. Receipt lines snapshot the pack name and size anyway (§10.1), so history never
   depends on a pack row.
-- `ItemCost` (`12` §5) already stores cost as `packCost + unitsPerPack`; receipts produce exactly
+- `ItemCostPrice` (`12` §5) already stores cost as `purchaseUnitCost + sellingUnitsPerPurchaseUnit`; receipts produce exactly
   that pair.
 
 ## 5. Suppliers and Manufacturers
@@ -612,7 +617,7 @@ What this buys:
 ### 9.3 Cost of a quantity
 
 Movements store no money. A batch's **unit cost** is worked out from its receipt lines:
-`Σ(packCost × packsAccepted) ÷ Σ(packsAccepted × unitsPerPack)` — a weighted average when one lot
+`Σ(purchaseUnitCost × purchaseUnitsAccepted) ÷ Σ(purchaseUnitsAccepted × sellingUnitsPerPurchaseUnit)` — a weighted average when one lot
 arrived in several deliveries at different prices. Value of any quantity = quantity × unit cost,
 **rounded half-up to 2 places once**, at the end of the sum (`12` D12). Opening stock carries its
 own cost the same way. This gives stock valuation and, once Dispensing exists, cost of goods issued,
@@ -665,21 +670,21 @@ model GoodsReceiptItem {
   receiptId      String
   itemId         String
   packId         String?                            // the pack chosen; null = base unit
-  packName       String                             // snapshot: "Box of 100"
-  unitsPerPack   Int                                // snapshot
-  packsDelivered Int
-  packsAccepted  Int
+  purchaseUnitName       String                             // snapshot: "Box of 100"
+  sellingUnitsPerPurchaseUnit   Int                                // snapshot
+  purchaseUnitsDelivered Int
+  purchaseUnitsAccepted  Int
   rejectReason   String?                            // required when fewer accepted than delivered
-  packCost       Decimal       @db.Decimal(14, 2)   // as on the invoice line
+  purchaseUnitCost       Decimal       @db.Decimal(14, 2)   // as on the invoice line
   batchNumber    String?
   manufacturedOn DateTime?     @db.Date
   expiryDate     DateTime?     @db.Date
   locationId     String?                            // put-away override within the receipt's branch
   receiveAs      StockStatus   @default(AVAILABLE)  // AVAILABLE | QUARANTINE
-  updateCost     Boolean       @default(true)       // roll ItemCost forward on posting (§11)
+  updateCost     Boolean       @default(true)       // roll ItemCostPrice forward on posting (§11)
   keepCostReason String?                            // required when updateCost = false
   batchId        String?                            // set on posting
-  itemCostId     String?                            // set when posting rolled the cost
+  itemCostPriceId     String?                            // set when posting rolled the cost
   createdAt      DateTime      @default(now())
 
   receipt        GoodsReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
@@ -687,7 +692,7 @@ model GoodsReceiptItem {
   pack           ItemPack?        @relation(fields: [packId], references: [id])
   location       StorageLocation? @relation(fields: [locationId], references: [id])
   batch          StockBatch?      @relation(fields: [batchId], references: [id])
-  itemCost       ItemCost?        @relation(fields: [itemCostId], references: [id])
+  itemCostPrice  ItemCostPrice?        @relation(fields: [itemCostPriceId], references: [id])
 
   @@index([receiptId])
   @@index([itemId])
@@ -709,12 +714,12 @@ enum ReceiptStatus {
 ```sql
 ALTER TABLE "GoodsReceipt" ADD CONSTRAINT goods_receipt_supplier
   CHECK ("type" = 'OPENING' OR "supplierId" IS NOT NULL);
-ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_units_positive CHECK ("unitsPerPack" > 0);
+ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_units_positive CHECK ("sellingUnitsPerPurchaseUnit" > 0);
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_packs_valid
-  CHECK ("packsDelivered" >= 0 AND "packsAccepted" >= 0 AND "packsAccepted" <= "packsDelivered");
+  CHECK ("purchaseUnitsDelivered" >= 0 AND "purchaseUnitsAccepted" >= 0 AND "purchaseUnitsAccepted" <= "purchaseUnitsDelivered");
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_reject_reason
-  CHECK ("packsAccepted" = "packsDelivered" OR "rejectReason" IS NOT NULL);
-ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_pack_cost_non_negative CHECK ("packCost" >= 0);
+  CHECK ("purchaseUnitsAccepted" = "purchaseUnitsDelivered" OR "rejectReason" IS NOT NULL);
+ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_pack_cost_non_negative CHECK ("purchaseUnitCost" >= 0);
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_receive_as CHECK ("receiveAs" IN ('AVAILABLE', 'QUARANTINE'));
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
   CHECK ("updateCost" OR "keepCostReason" IS NOT NULL);
@@ -729,9 +734,9 @@ ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
 2. **Post** (`pharmacy.receipt.post`), in one database transaction:
    - validates every line (below) and reports **all** failing lines in one 400;
    - finds or creates each line's batch (§6.1) and sets `batchId`;
-   - writes one `RECEIPT` (or `OPENING`) transaction with a `+packsAccepted × unitsPerPack`
+   - writes one `RECEIPT` (or `OPENING`) transaction with a `+purchaseUnitsAccepted × sellingUnitsPerPurchaseUnit`
      movement per line at its location and `receiveAs` status; the trigger updates the balances;
-   - rolls `ItemCost` forward where due (§11) and sets `itemCostId`;
+   - rolls `ItemCostPrice` forward where due (§11) and sets `itemCostPriceId`;
    - stamps `postedAt/postedBy` and the `transactionId`.
 3. **Posted receipts are immutable.** A wrong quantity is corrected by an adjustment (§14), wrong
    goods by a supplier return. A wrong batch number or expiry, see §6.1.
@@ -745,7 +750,7 @@ ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
 - supplier active (for `DELIVERY`);
 - lines for the same lot agree on expiry, and agree with the existing batch row.
 
-**Only accepted stock enters inventory.** `packsDelivered` vs `packsAccepted` with a `rejectReason`
+**Only accepted stock enters inventory.** `purchaseUnitsDelivered` vs `purchaseUnitsAccepted` with a `rejectReason`
 records short-dated, broken or wrong items handed back to the driver; the difference never touches a
 balance. Shortfalls against an order (slice 3) are the PO's concern: the receipt records what came.
 
@@ -761,12 +766,12 @@ whether receipts feed that cost. Decision *(proposed)*:
 - **The price stays per item.** If markup read the batch's cost, the same capsule would have two
   prices on the same day depending on which lot the pharmacist picked. Patients and HMOs won't
   accept that, and FEFO would change the bill.
-- **Posting a receipt rolls `ItemCost` forward.** For each item on the receipt with `updateCost` lines:
-  - if the item has no cost in effect, a new `ItemCost` row starts now;
-  - if the line's unit cost (`packCost ÷ unitsPerPack`) **equals** the current cost's, nothing
+- **Posting a receipt rolls `ItemCostPrice` forward.** For each item on the receipt with `updateCost` lines:
+  - if the item has no cost in effect, a new `ItemCostPrice` row starts now;
+  - if the line's unit cost (`purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit`) **equals** the current cost's, nothing
     changes (no churn on repeat buys at the same price);
-  - otherwise the current row is ended now and a new row starts now with the line's `packCost` and
-    `unitsPerPack`, `source` = the GRN number and supplier invoice, `reason` = "Goods receipt
+  - otherwise the current row is ended now and a new row starts now with the line's `purchaseUnitCost` and
+    `sellingUnitsPerPurchaseUnit`, `source` = the GRN number and supplier invoice, `reason` = "Goods receipt
     GRN-000123". Every `MARKUP` line reprices from that moment, as `12` §5.3 intends.
   - Several `updateCost` lines for the same item on one receipt must carry the same unit cost;
     otherwise the post is a 400 asking for all but one to be unticked.
@@ -776,9 +781,9 @@ whether receipts feed that cost. Decision *(proposed)*:
   still carries its real cost for valuation (§9.3).
 - **The receipt's posting permission covers the cost roll.** The person who posts a receipt doesn't
   also need `billable.cost.create`; the roll is part of the receipt and is traceable to it through
-  `GoodsReceiptItem.itemCostId`.
+  `GoodsReceiptItem.itemCostPriceId`.
 
-Acquisition cost (batch, receipt line), cost in effect (`ItemCost`), selling price (`ItemPrice`), and
+Acquisition cost (batch, receipt line), cost in effect (`ItemCostPrice`), selling price (`ItemSellingPrice`), and
 what the patient finally pays (charge and allocation, `13`) stay four separate things.
 
 ## 12. Rotation, Expiry and the Issue Contract
@@ -1130,13 +1135,14 @@ actor from the token; lists return `{ count, docs }` with `limit` (20) / `offset
 | `/therapeutic-uses` | GET | `pharmacy.stock.view` | `{ count, docs }`: every use with its medicine count, for the filter and the add-medicine form |
 | `/medicines` | POST | `pharmacy.medicine.manage` | Add a hospital medicine: `genericName`, `strength?`, `dosageForm`, `route`, `presentation?`, `ingredients?`, `aliases?`, `therapeuticUses?` (codes), `bodySystems?`, `legalCategory?`, `controlled?`, `description?`; 409 if it matches a seeded or own medicine |
 | `/medicines/stats` | GET | `pharmacy.stock.view` | Catalogue figures for the medicines page: `total` (active), `inactive`, `userAdded`, `stocked` (named by one of the hospital's products), `controlled`, and how many different `dosageForms`, `routes`, `legalCategories` and `therapeuticUses` the active medicines cover |
+| `/medicines/:id/merge` | POST | `pharmacy.medicine.manage` | Merge the hospital's own medicine into its `seededMatch`: products move to the seeded medicine, the copy becomes `INACTIVE`. 400 if nothing seeded matches; 403 for a seeded medicine. Returns `{ id, message }` (the seeded medicine's id) |
 | `/medicines/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
 | `/items` | GET | `pharmacy.stock.view` | Stocked items with category, medicine, strength, brand, stock totals (§8.2) for `locationId?` / `branchId?`; filter `kind`, `categoryId`, `medicineId`, `search` (code, name, brand, generic name), `lowStock`, `status` |
 | `/items/:itemId` | PUT | `pharmacy.item.manage` | Make an item stocked / update settings: `batchTracked`, `quarantineOnReceipt`, `storageCondition`, `medicineId` (required for `PHARMACY` items), `brandName?`, `manufacturerId?`, `registrationNo?` |
 | `/items/:itemId` | GET | `pharmacy.stock.view` | Settings, drug, packs, levels, totals |
 | `/items/:itemId/stock` | GET | `pharmacy.stock.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) value |
-| `/items/:itemId/packs` | POST / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Add pack (`name`, `unitsPerPack`, `barcode?`, `isDefault?`) / list |
-| `/packs/:id` | PATCH | `pharmacy.item.manage` | `name`, `barcode`, `isDefault`, `status` (never `unitsPerPack`) |
+| `/items/:itemId/packs` | POST / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Add pack (`name`, `sellingUnitsPerPurchaseUnit`, `barcode?`, `isDefault?`) / list |
+| `/packs/:id` | PATCH | `pharmacy.item.manage` | `name`, `barcode`, `isDefault`, `status` (never `sellingUnitsPerPurchaseUnit`) |
 | `/items/:itemId/levels` | PUT / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Set / list reorder levels per location |
 | `/locations` | POST / GET | `pharmacy.location.manage` / `pharmacy.stock.view` | Create / list for `branchId?` |
 | `/locations/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.location.manage` | Detail with stock summary / edit, deactivate |
@@ -1172,7 +1178,7 @@ actor from the token; lists return `{ count, docs }` with `limit` (20) / `offset
 **Module**: `src/inventory/` (`items`, `locations`, `suppliers`, `receipts`, `batches`, `movements`,
 `transfers`, `adjustments`, `counts`, `inventory.rules.ts` + `inventory.rules.spec.ts` for FEFO,
 eligibility, cost roll, unit conversion and transfer/adjustment state rules). It imports
-`BillablesModule` to read items and roll `ItemCost`. Dispensing (the existing `src/pharmacy/` stub)
+`BillablesModule` to read items and roll `ItemCostPrice`. Dispensing (the existing `src/pharmacy/` stub)
 will import Inventory; nothing imports in the other direction. DTOs in
 `src/shared/contracts/inventory`, enum mirrors in `src/shared/enums/inventory`.
 
@@ -1180,7 +1186,7 @@ will import Inventory; nothing imports in the other direction. DTOs in
 |---|---|
 | — | `Medicine`, `TherapeuticUse`, `MedicineTherapeuticUse` (seeded), `StockItem`, `ItemPack`, `Supplier`, `Manufacturer`, `StockBatch`, `StorageLocation`, `StockBalance`, `StockTransaction`, `StockMovement`, `GoodsReceipt`, `GoodsReceiptItem` (slice 1); `StockTransfer(Line)`, `StockAdjustment(Line)`, `StockCount(Line)`, `StockLevel` (slice 2); enums as above |
 | `BillableItem` | Gains `stockItem` relation. **`unit` can't change once the item has a movement** (rule added to `PATCH /billables/items/:id`) |
-| `ItemCost` | Gains `receiptItems` relation (`GoodsReceiptItem.itemCostId`). No new columns |
+| `ItemCostPrice` | Gains `receiptItems` relation (`GoodsReceiptItem.itemCostPriceId`). No new columns |
 | `Organization` | Gains `nearExpiryDays Int @default(90)` and relations `medicines`, `suppliers`, `manufacturers`, `storageLocations`, `goodsReceipts` |
 | `Branch` | Gains `storageLocations`, `goodsReceipts`, `stockTransactions` relations |
 | `prisma/seed.ts` | Seeds medicines and their therapeutic uses from `prisma/data/medicines/medicines-*.json`, insert-only (`organizationId` null, `createdBy` null) |
@@ -1208,7 +1214,7 @@ main branch: Main Store `MS`, OPD Dispensary `OPD`.
 
 | Event | Ledger | Stock afterwards | Cost / price |
 |---|---|---|---|
-| GRN-000101 from Alpha Pharma: 20 boxes delivered, 19 accepted (1 crushed), lot `A123` exp 2027-06-30, ₦3,500.00/box → `MS` | `RECEIPT` +1,900 `A123` `MS` AVAILABLE | `MS`: A123 1,900 | First `ItemCost` 3,500.00/100 → self-pay **₦45.50** |
+| GRN-000101 from Alpha Pharma: 20 boxes delivered, 19 accepted (1 crushed), lot `A123` exp 2027-06-30, ₦3,500.00/box → `MS` | `RECEIPT` +1,900 `A123` `MS` AVAILABLE | `MS`: A123 1,900 | First `ItemCostPrice` 3,500.00/100 → self-pay **₦45.50** |
 | GRN-000108: 10 boxes, lot `B456` exp 2027-03-31, ₦3,800.00/box | `RECEIPT` +1,000 `B456` `MS` | `MS`: A123 1,900 · B456 1,000 | Cost rolled at posting: 3,800.00/100 → **₦49.40**. A123 still valued at ₦35.00/capsule |
 | Transfer TRF-000045 `MS` → `OPD`, 1,200 capsules, no batch named | `TRANSFER_DISPATCH`: FEFO takes B456 (earlier expiry) 1,000 + A123 200; −at `MS` AVAILABLE, +at `OPD` IN_TRANSIT | `MS`: A123 1,700 · `OPD` in transit 1,200 | Total still 2,900 |
 | OPD receives 1,180 (one strip of 20 missing) | `TRANSFER_RECEIVE` IN_TRANSIT → AVAILABLE 1,180; ADJ-000017 `LOSS` −20 raised, pending | `OPD`: 1,180 available, 20 in transit | — |
@@ -1253,7 +1259,7 @@ main branch: Main Store `MS`, OPD Dispensary `OPD`.
 
 ## 24. Open Decisions
 
-1. **D9 cost roll default** *(proposed)*: receipts update `ItemCost` unless unticked. Alternative:
+1. **D9 cost roll default** *(proposed)*: receipts update `ItemCostPrice` unless unticked. Alternative:
    cost changes only by hand in Billables.
 2. **D12 approval** *(proposed)*: every adjustment needs a second person. Alternatives: only above a
    value threshold (per-profile limits like `ApprovalLimit`), or write-offs only.

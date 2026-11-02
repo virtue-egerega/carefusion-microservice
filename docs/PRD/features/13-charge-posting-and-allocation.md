@@ -45,8 +45,8 @@ type ChargePrice = {
     unitPrice:      Decimal;             // 2 dp
     basis:          PriceBasis;          // how it was worked out
     source:         PriceSource;         // where it came from
-    itemPriceId:    string;              // the line used
-    itemCostId:     string | null;       // the cost used, for MARKUP
+    itemSellingPriceId:    string;              // the line used
+    itemCostPriceId:     string | null;       // the cost used, for MARKUP
     percent:        Decimal | null;      // the markup or discount percent used
     agreementId:    string | null;       // Phase 2: the payer line's agreement
     payerDiscountId: string | null;      // Phase 2: the payer's default discount
@@ -75,16 +75,16 @@ shows it was given and at what price.
   billableItemId  String?                       // null only on charges posted before PRD 13
   pricingBasis    PriceBasis?
   priceSource     PriceSource?
-  itemPriceId     String?
-  itemCostId      String?
+  itemSellingPriceId     String?
+  itemCostPriceId      String?
   agreementId     String?
   payerDiscountId String?
   pricePercent    Decimal?    @db.Decimal(5, 2)
   quantity        Decimal     @default(1) @db.Decimal(12, 3)   // was Int
 
   billableItem    BillableItem?   @relation(fields: [billableItemId], references: [id])
-  itemPrice       ItemPrice?      @relation(fields: [itemPriceId], references: [id])
-  itemCost        ItemCost?       @relation(fields: [itemCostId], references: [id])
+  itemSellingPrice ItemSellingPrice?     @relation(fields: [itemSellingPriceId], references: [id])
+  itemCostPrice    ItemCostPrice?        @relation(fields: [itemCostPriceId], references: [id])
   agreement       PayerAgreement? @relation(fields: [agreementId], references: [id])
   payerDiscount   PayerDiscount?  @relation(fields: [payerDiscountId], references: [id])
 
@@ -92,7 +92,7 @@ shows it was given and at what price.
 ```
 
 The fields are nullable only because charges posted before this PRD have none. Every new charge
-sets `billableItemId`, `pricingBasis`, `priceSource` and `itemPriceId` (the service requires them).
+sets `billableItemId`, `pricingBasis`, `priceSource` and `itemSellingPriceId` (the service requires them).
 
 ## 4. Where Charges Are Posted
 

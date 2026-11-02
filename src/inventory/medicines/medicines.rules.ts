@@ -51,3 +51,19 @@ export function medicineUpdateRefusal(found: { organizationId: string | null } |
     if (!found || found.organizationId !== organizationId) return { reason: 'Medicine not found' };
     return null;
 }
+
+/**
+ * Why a hospital's medicine can't be merged into a seeded one (§3.1), or null. Same ownership rules as an
+ * update; then it must still be active, and CareFusion must now seed a medicine with the same identity.
+ */
+export function mergeRefusal(
+    found: { organizationId: string | null; status: string } | null,
+    organizationId: string,
+    seededMatch: { id: string } | null,
+): Refusal | null {
+    const refusal = medicineUpdateRefusal(found, organizationId);
+    if (refusal) return found?.organizationId === null ? { reason: 'Seeded medicines are what others merge into; there is nothing to merge', forbidden: true } : refusal;
+    if (found!.status !== 'ACTIVE') return { reason: 'This medicine is inactive; it may already have been merged' };
+    if (!seededMatch) return { reason: 'No seeded medicine has the same name, strength, form and route, so there is nothing to merge into' };
+    return null;
+}

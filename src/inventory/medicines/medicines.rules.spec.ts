@@ -1,4 +1,30 @@
-import { medicineSource, medicineUpdateRefusal, sameMedicine, unknownUses, visibleMedicines } from './medicines.rules';
+import { medicineSource, medicineUpdateRefusal, mergeRefusal, sameMedicine, unknownUses, visibleMedicines } from './medicines.rules';
+
+describe('mergeRefusal', () => {
+    const OWN = { organizationId: 'org-1', status: 'ACTIVE' };
+    const SEEDED = { id: 'seeded-1' };
+
+    it("allows an active medicine of the hospital's own that a seeded medicine now matches", () => {
+        expect(mergeRefusal(OWN, 'org-1', SEEDED)).toBeNull();
+    });
+
+    it('refuses a seeded medicine as forbidden', () => {
+        expect(mergeRefusal({ organizationId: null, status: 'ACTIVE' }, 'org-1', SEEDED)).toMatchObject({ forbidden: true });
+    });
+
+    it("reports a missing or another organisation's medicine as not found", () => {
+        expect(mergeRefusal(null, 'org-1', SEEDED)).toEqual({ reason: 'Medicine not found' });
+        expect(mergeRefusal({ organizationId: 'org-2', status: 'ACTIVE' }, 'org-1', SEEDED)).toEqual({ reason: 'Medicine not found' });
+    });
+
+    it('refuses an inactive medicine, which may already be merged', () => {
+        expect(mergeRefusal({ ...OWN, status: 'INACTIVE' }, 'org-1', SEEDED)?.reason).toMatch(/inactive/);
+    });
+
+    it('refuses when no seeded medicine matches', () => {
+        expect(mergeRefusal(OWN, 'org-1', null)?.reason).toMatch(/nothing to merge into/);
+    });
+});
 
 describe('visibleMedicines', () => {
     it("shows seeded medicines and the organisation's own by default", () => {

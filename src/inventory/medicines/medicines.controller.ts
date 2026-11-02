@@ -80,6 +80,17 @@ export class MedicinesController {
         return this.medicinesService.stats(orgId);
     }
 
+    @ApiOperation({
+        summary: "Merge one of the hospital's own medicines into the seeded medicine CareFusion now lists",
+        description: 'Only when the medicine has a `seededMatch`. Its products move to the seeded medicine and it becomes INACTIVE, together. '
+            + '400 if nothing seeded matches or it is already inactive; 403 for a seeded medicine. Returns `{ id, message }` (the seeded medicine).',
+    })
+    @Authorize('pharmacy.medicine.manage')
+    @Post('medicines/:id/merge')
+    merge(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
+        return this.medicinesService.merge(id, orgId, user.sub);
+    }
+
     @ApiOperation({ summary: "A medicine with its therapeutic uses and the hospital's products of it" })
     @Authorize('pharmacy.stock.view')
     @Get('medicines/:id')
