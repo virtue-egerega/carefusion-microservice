@@ -27,16 +27,53 @@ export function stockItemRefusal({ kind, medicineId, medicine, manufacturer }: S
     return null;
 }
 
-type PackState = { status: string; isDefault: boolean };
+export type Forbidden = { reason: string; forbidden: true };
+
+export type ProductInput = {
+    categoryId?:       string;
+    category?:         unknown;
+    manufacturerId?:   string;
+    manufacturer?:     unknown;
+    sellingUnitPrice?: number;
+    reason?:           string;
+};
 
 /**
- * A pack's default flag after a change (§4), or why the change is refused. Only an active pack can
- * be the default, so deactivating the default pack also clears the flag.
+ * Why a new product is refused before anything is read (§3.3), or null: the category is picked by id
+ * or by name (exactly one), the manufacturer by at most one of the two, a first price comes with its
+ * reason, and setting a price needs billable.price.create (`forbidden`: 403).
  */
-export function packDefaultAfter(current: PackState, change: { status?: string; isDefault?: boolean }): { isDefault: boolean } | Refusal {
-    const status = change.status ?? current.status;
-    const isDefault = change.isDefault ?? current.isDefault;
-    if (status === 'ACTIVE') return { isDefault };
-    if (change.isDefault) return { reason: "An inactive pack can't be the default" };
-    return { isDefault: false };
+export function productRefusal(product: ProductInput, permissions: string[]): Refusal | Forbidden | null {
+    if (!product.categoryId === !product.category) return { reason: 'Give the category: categoryId, or category: { name } to find or create it' };
+    if (product.manufacturerId && product.manufacturer) return { reason: 'Give manufacturerId or manufacturer, not both' };
+    if ((product.sellingUnitPrice === undefined) !== (product.reason === undefined)) {
+        return { reason: 'A selling price needs a reason, and a reason needs a selling price' };
+    }
+    if (product.sellingUnitPrice !== undefined && !permissions.includes('billable.price.create')) {
+        return { reason: 'Missing permission: billable.price.create', forbidden: true };
+    }
+    return null;
+}
+
+export type ProductUnits = { purchaseUnitName: string; sellingUnitsPerPurchaseUnit: number; sellableInHalves: boolean };
+
+/**
+ * Why a change to a product's units is refused, or null (§3.4). They're required when an item is first
+ * stocked, and fixed once it has stock: each would silently change what every balance means.
+ */
+export function unitsChangeRefusal(
+    current: (ProductUnits & { hasStock: boolean }) | null,
+    change: Partial<ProductUnits>,
+): Refusal | null {
+    if (!current) {
+        return change.purchaseUnitName === undefined || change.sellingUnitsPerPurchaseUnit === undefined
+            ? { reason: 'A newly stocked item needs its purchaseUnitName and sellingUnitsPerPurchaseUnit' }
+            : null;
+    }
+    if (!current.hasStock) return null;
+    const changed = (Object.keys(change) as (keyof ProductUnits)[])
+        .filter(key => change[key] !== undefined && change[key] !== current[key]);
+    return changed.length
+        ? { reason: `This product has stock, so ${changed.join(', ')} can't change. Add a new product instead` }
+        : null;
 }

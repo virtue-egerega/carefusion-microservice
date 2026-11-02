@@ -649,7 +649,7 @@ scoped to the caller's `organizationId`.
 | `/billables/items/:id` | GET | `billable.view` | Detail with category and current price list |
 | `/billables/items/:id` | PATCH | `billable.item.update` | `code`, `name`, `description`, `sellingUnit`, `categoryId` (same kind), `status` |
 | `/billables/items/:id/clinics` | GET | `billable.view` | `{ count, docs }`: the item's clinic links by clinic name (`clinic { id, name, isActive }`, `linkedAt`); `limit` (20) / `offset`; 404 if the item isn't the caller's |
-| `/billables/items/:id/prices` | POST | `billable.price.create` | New line: `payerId?`, `basis`, `sellingUnitPrice?`, `percent?`, `agreementId?`, `effectiveFrom?`, `reason` |
+| `/billables/items/:id/prices` | POST | `billable.price.create` | New line: `payerId?`, `basis`, `sellingUnitPrice?`, `percent?`, `agreementId?`, `effectiveFrom?`, `reason`. For a stocked item's self-pay line below its cost price per selling unit, the response adds `warning` (the line is still created; `15` §11) |
 | `/billables/items/:id/prices` | GET | `billable.view` | Line history; filter `payerId` (`self` for self-pay) |
 | `/billables/items/:id/costs` | POST / GET | `billable.cost.create` / `billable.cost.view` | New cost / cost history |
 | `/billables/items/:id/price-list` | GET | `billable.view` | Resolved price now for self-pay and every active payer |

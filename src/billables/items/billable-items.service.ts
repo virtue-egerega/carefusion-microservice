@@ -2,10 +2,10 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums, Prisma } from '../../../generated/prisma/client';
-import { CreateBillableItemDto, UpdateBillableItemDto } from '@shared/contracts/billables';
-import { inEffectAt, resolvePrice, selfPayAmount, selfPayAndPayerLines, visiblePrice } from '../pricing/pricing.rules';
+import { CreateBillableItemDto, CreatePriceLineDto, UpdateBillableItemDto } from '@shared/contracts/billables';
+import { belowCostWarning, inEffectAt, resolvePrice, selfPayAmount, selfPayAndPayerLines, visiblePrice } from '../pricing/pricing.rules';
 import { payerForPricing } from '../pricing/pricing.service';
-import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, selfPayRefusal } from './items.rules';
+import { PriceLineInput, clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, selfPayRefusal } from './items.rules';
 
 export type CategoryItemsQuery = {
     status?: $Enums.CatalogStatus;
@@ -14,8 +14,8 @@ export type CategoryItemsQuery = {
     offset:  number;
 };
 
-type PriceLine = { id: string; basis: $Enums.PriceBasis; amount: Prisma.Decimal | null; percent: Prisma.Decimal | null; effectiveFrom: Date; reason: string };
-type CostRow   = { id: string; packCost: Prisma.Decimal; unitsPerPack: number; effectiveFrom: Date; source: string | null };
+type PriceLine = { id: string; basis: $Enums.PriceBasis; sellingUnitPrice: Prisma.Decimal | null; percent: Prisma.Decimal | null; effectiveFrom: Date; reason: string };
+type CostRow   = { id: string; purchaseUnitCost: Prisma.Decimal; sellingUnitsPerPurchaseUnit: number; effectiveFrom: Date; source: string | null };
 
 type ClinicLink = { clinic: { id: string; name: string } };
 
@@ -31,7 +31,7 @@ function present<T extends { clinicLinks: ClinicLink[] }>(
         clinics: clinicLinks.map(link => link.clinic),
         selfPayPrice: selfPayAmount(line, cost),
         selfPayLine: line && {
-            id: line.id, basis: line.basis, amount: line.amount, effectiveFrom: line.effectiveFrom, reason: line.reason,
+            id: line.id, basis: line.basis, sellingUnitPrice: line.sellingUnitPrice, effectiveFrom: line.effectiveFrom, reason: line.reason,
             ...(canSeeCost && { percent: line.percent }),
         },
         ...(canSeeCost && cost && { cost }),
@@ -40,9 +40,9 @@ function present<T extends { clinicLinks: ClinicLink[] }>(
 
 // at most one self-pay line and one cost are in effect at a time (exclusion constraints)
 const currentSelfPay = (at: Date) => ({
-    prices:      { where: { payerId: null, ...inEffectAt(at) }, take: 1 },
-    costs:       { where: inEffectAt(at), take: 1 },
-    clinicLinks: { select: { clinic: { select: { id: true, name: true } } }, orderBy: { clinic: { name: 'asc' as const } } },
+    sellingPrices: { where: { payerId: null, ...inEffectAt(at) }, take: 1 },
+    costPrices:    { where: inEffectAt(at), take: 1 },
+    clinicLinks:   { select: { clinic: { select: { id: true, name: true } } }, orderBy: { clinic: { name: 'asc' as const } } },
 });
 
 export type ItemsQuery = CategoryItemsQuery & {
@@ -72,7 +72,7 @@ const itemFilters = (organizationId: string, query: ItemsQuery) => ({
 const pricedInclude = (payerId: string | undefined, at: Date) => ({
     category: { select: { id: true, name: true, kind: true, status: true } },
     ...currentSelfPay(at),
-    prices:   { where: selfPayAndPayerLines(payerId, at), take: 2 },
+    sellingPrices: { where: selfPayAndPayerLines(payerId, at), take: 2 },
 });
 
 type PricingPayer = { id: string; name: string; status: string; discounts: { id: string; percent: Prisma.Decimal }[] };
@@ -85,17 +85,17 @@ function assertPayer(payerId: string | undefined, payer: PricingPayer | null) {
 /** An item as listed: present() plus `price` for the payer (§9.1), or `priceError` when it can't be priced. */
 function pricedDoc<T extends {
     id: string; name: string; status: string; category: { kind: string; status: string };
-    prices: (PriceLine & { payerId: string | null; agreementId: string | null })[]; costs: CostRow[]; clinicLinks: ClinicLink[];
-}>({ prices, costs, ...item }: T, payer: PricingPayer | null, canSeeCost: boolean) {
-    const selfPayLine = prices.find(line => line.payerId === null);
+    sellingPrices: (PriceLine & { payerId: string | null; agreementId: string | null })[]; costPrices: CostRow[]; clinicLinks: ClinicLink[];
+}>({ sellingPrices, costPrices, ...item }: T, payer: PricingPayer | null, canSeeCost: boolean) {
+    const selfPayLine = sellingPrices.find(line => line.payerId === null);
     const price = resolvePrice({
-        item:      { ...item, prices: selfPayLine ? [selfPayLine] : [], costs },
+        item:      { ...item, sellingPrices: selfPayLine ? [selfPayLine] : [], costPrices },
         payer:     payer ?? undefined,
-        payerLine: prices.find(line => line.payerId !== null),
+        payerLine: sellingPrices.find(line => line.payerId !== null),
         discount:  payer?.discounts[0],
     });
     return {
-        ...present(item, selfPayLine, costs[0], canSeeCost),
+        ...present(item, selfPayLine, costPrices[0], canSeeCost),
         price:      typeof price === 'string' ? null : visiblePrice(price, canSeeCost),
         priceError: typeof price === 'string' ? price : null,
     };
@@ -138,22 +138,22 @@ export class BillableItemsService {
                     ...item,
                     organizationId,
                     createdBy,
-                    prices: {
+                    sellingPrices: {
                         create: {
-                            basis:   selfPay.basis as $Enums.PriceBasis,
-                            amount:  markup ? null : selfPay.amount,
-                            percent: markup ? selfPay.percent : null,
+                            basis:            selfPay.basis as $Enums.PriceBasis,
+                            sellingUnitPrice: markup ? null : selfPay.sellingUnitPrice,
+                            percent:          markup ? selfPay.percent : null,
                             effectiveFrom,
                             reason,
                             createdBy,
                         },
                     },
                     ...(markup && {
-                        costs: {
+                        costPrices: {
                             create: {
-                                packCost:     selfPay.cost!.packCost,
-                                unitsPerPack: selfPay.cost!.unitsPerPack ?? 1,
-                                source:       selfPay.cost!.source,
+                                purchaseUnitCost:            selfPay.cost!.purchaseUnitCost,
+                                sellingUnitsPerPurchaseUnit: selfPay.cost!.sellingUnitsPerPurchaseUnit ?? 1,
+                                source:                      selfPay.cost!.source,
                                 effectiveFrom,
                                 reason,
                                 createdBy,
@@ -170,6 +170,75 @@ export class BillableItemsService {
             { conflict: CODE_CONFLICT },
         );
         return { id, message: 'Billable item created' };
+    }
+
+    /**
+     * A new price line for the item (PRD 12 §6.3): starts now or later, never in the past. The line open
+     * for the same (item, payer) is closed where the new one starts; a line already scheduled after it
+     * must be withdrawn first. A stocked item's self-pay price below its cost price per selling unit is
+     * created with a `warning` (PRD 15 §11). One transaction; the exclusion constraint is the backstop.
+     */
+    async addPriceLine(itemId: string, dto: CreatePriceLineDto, organizationId: string, createdBy: string) {
+        const refusal = priceLineRefusal(dto as PriceLineInput);
+        if (refusal) throw new BadRequestException(refusal);
+
+        const now = new Date();
+        const effectiveFrom = dto.effectiveFrom ?? now;
+        // a minute's grace for clock skew between the client and the server
+        if (effectiveFrom.getTime() < now.getTime() - 60_000) throw new BadRequestException("A price line can't start in the past");
+        const payerId = dto.payerId ?? null;
+
+        return withConstraintErrors(
+            () => this.databaseService.transaction(async () => {
+                const tx = this.databaseService.client;
+                const [item, payer, scheduled] = await Promise.all([
+                    tx.billableItem.findFirst({
+                        where:  { id: itemId, organizationId },
+                        select: {
+                            sellingUnit: true,
+                            stockItem:   { select: { itemId: true } },
+                            costPrices:  { where: inEffectAt(effectiveFrom), take: 1, select: { purchaseUnitCost: true, sellingUnitsPerPurchaseUnit: true } },
+                        },
+                    }),
+                    payerId ? tx.payer.findFirst({ where: { id: payerId, organizationId }, select: { id: true } }) : null,
+                    tx.itemSellingPrice.findFirst({
+                        where:  { itemId, payerId, cancelledAt: null, effectiveFrom: { gt: effectiveFrom } },
+                        select: { effectiveFrom: true },
+                    }),
+                ]);
+                if (!item) throw new NotFoundException('Billable item not found');
+                if (payerId && !payer) throw new NotFoundException('Payer not found');
+                if (scheduled) {
+                    throw new ConflictException(`A line is already scheduled from ${scheduled.effectiveFrom.toISOString()}; withdraw it first`);
+                }
+
+                await tx.itemSellingPrice.updateMany({
+                    where: { itemId, payerId, ...inEffectAt(effectiveFrom) },
+                    data:  { effectiveTo: effectiveFrom },
+                });
+                const { id } = await tx.itemSellingPrice.create({
+                    data: {
+                        itemId,
+                        payerId,
+                        basis:            dto.basis as $Enums.PriceBasis,
+                        sellingUnitPrice: dto.sellingUnitPrice,
+                        percent:          dto.percent,
+                        agreementId:      dto.agreementId,
+                        effectiveFrom,
+                        reason:           dto.reason,
+                        createdBy,
+                    },
+                    select: { id: true },
+                });
+
+                const warning = !payerId && dto.basis === 'MANUAL' && item.stockItem
+                    ? belowCostWarning(dto.sellingUnitPrice!, item.costPrices[0], item.sellingUnit)
+                    : null;
+                return { id, message: 'Price line added', ...(warning && { warning }) };
+            }),
+            // the agreement FK is composite with the payer, so a wrong agreement fails it
+            { notFound: "Payer agreement not found for this payer" },
+        );
     }
 
     /**
@@ -202,7 +271,7 @@ export class BillableItemsService {
         const canSeeCost = permissions.includes('billable.cost.view');
         return {
             count,
-            docs: items.map(({ prices: [line], costs: [cost], ...item }) => present(item, line, cost, canSeeCost)),
+            docs: items.map(({ sellingPrices: [line], costPrices: [cost], ...item }) => present(item, line, cost, canSeeCost)),
         };
     }
 
@@ -279,7 +348,7 @@ export class BillableItemsService {
             include: { category: { select: { id: true, name: true, kind: true, status: true } }, ...currentSelfPay(new Date()) },
         });
         if (!item) throw new NotFoundException('Billable item not found');
-        const { prices: [line], costs: [cost], ...rest } = item;
+        const { sellingPrices: [line], costPrices: [cost], ...rest } = item;
         return present(rest, line, cost, permissions.includes('billable.cost.view'));
     }
 
@@ -313,9 +382,9 @@ export class BillableItemsService {
                     where: {
                         id: itemId, organizationId,
                         ...(targetKind && { category: { kind: targetKind } }),
-                        // stock is counted in the unit, so it's locked once a batch exists (PRD 15 §3.3)
-                        ...(fields.unit !== undefined && {
-                            OR: [{ unit: fields.unit }, { stockItem: { is: null } }, { stockItem: { batches: { none: {} } } }],
+                        // stock is counted in the selling unit, so it's locked once a batch exists (PRD 15 §3.4)
+                        ...(fields.sellingUnit !== undefined && {
+                            OR: [{ sellingUnit: fields.sellingUnit }, { stockItem: { is: null } }, { stockItem: { batches: { none: {} } } }],
                         }),
                     },
                     data:  { ...fields, status: fields.status as $Enums.CatalogStatus | undefined, updatedBy },
@@ -339,12 +408,12 @@ export class BillableItemsService {
         if (!count) {
             const found = await client.billableItem.findFirst({
                 where:  { id: itemId, organizationId },
-                select: { unit: true, category: { select: { kind: true } }, stockItem: { select: { _count: { select: { batches: true } } } } },
+                select: { sellingUnit: true, category: { select: { kind: true } }, stockItem: { select: { _count: { select: { batches: true } } } } },
             });
             const { reason } = itemUpdateRefusal(
-                found && { kind: found.category.kind, unit: found.unit, hasStock: (found.stockItem?._count.batches ?? 0) > 0 },
+                found && { kind: found.category.kind, sellingUnit: found.sellingUnit, hasStock: (found.stockItem?._count.batches ?? 0) > 0 },
                 targetKind,
-                fields.unit,
+                fields.sellingUnit,
             );
             throw found ? new ConflictException(reason) : new NotFoundException(reason);
         }

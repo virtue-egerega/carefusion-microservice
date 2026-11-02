@@ -8,7 +8,7 @@ import type { PartyQuery } from './suppliers.service';
 
 const CONFLICT = 'A manufacturer with this name already exists';
 
-/** Who makes the hospital's products (PRD 15 §5): picked or created when stocking an item. */
+/** Who makes the hospital's products (PRD 15 §5): found or created when stocking an item. */
 @Injectable()
 export class ManufacturersService {
     constructor(private readonly databaseService: DatabaseService) {}

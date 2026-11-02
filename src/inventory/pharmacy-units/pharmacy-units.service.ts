@@ -2,30 +2,30 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
 import { $Enums } from '../../../generated/prisma/client';
-import { CreateStorageLocationDto, UpdateStorageLocationDto } from '@shared/contracts/inventory';
+import { CreatePharmacyUnitDto, UpdatePharmacyUnitDto } from '@shared/contracts/inventory';
 import { loadActors, withActors } from '../../billables/actors';
-import { locationUpdateRefusal } from './locations.rules';
+import { pharmacyUnitUpdateRefusal } from './pharmacy-units.rules';
 
-const CONFLICT = 'A storage location with this code already exists';
+const CONFLICT = 'A pharmacy unit with this code already exists';
 
-export type LocationsQuery = {
+export type PharmacyUnitsQuery = {
     branchId?: string;
-    type?:     $Enums.LocationType;
+    type?:     $Enums.PharmacyUnitType;
     status?:   $Enums.CatalogStatus;
     search?:   string;
     limit:     number;
     offset:    number;
 };
 
-/** Where stock is kept (PRD 15 §7): flat per branch in v1. Scoped to the caller's organisation. */
+/** Pharmacy units (PRD 15 §7): a branch's store and its dispensaries. Scoped to the caller's organisation. */
 @Injectable()
-export class LocationsService {
+export class PharmacyUnitsService {
     constructor(private readonly databaseService: DatabaseService) {}
 
     /** In the given branch, or the caller's own. The branch must be the organisation's (an FK can't check that). */
-    async create(dto: CreateStorageLocationDto, organizationId: string, callerBranchId: string | null, createdBy: string) {
+    async create(dto: CreatePharmacyUnitDto, organizationId: string, callerBranchId: string | null, createdBy: string) {
         const branchId = dto.branchId ?? callerBranchId;
-        if (!branchId) throw new BadRequestException('Choose the branch this location is in');
+        if (!branchId) throw new BadRequestException('Choose the branch this pharmacy unit is in');
 
         const branch = await this.databaseService.client.branch.findFirst({
             where:  { id: branchId, organizationId, deletedAt: null },
@@ -34,12 +34,11 @@ export class LocationsService {
         if (!branch) throw new NotFoundException('Branch not found');
 
         const { id } = await withConstraintErrors(
-            () => this.databaseService.client.storageLocation.create({
+            () => this.databaseService.client.pharmacyUnit.create({
                 data: {
                     ...dto,
                     branchId,
-                    type:             dto.type as $Enums.LocationType,
-                    storageCondition: dto.storageCondition as $Enums.StorageCondition | undefined,
+                    type:           dto.type as $Enums.PharmacyUnitType,
                     organizationId,
                     createdBy,
                 },
@@ -47,11 +46,11 @@ export class LocationsService {
             }),
             { conflict: CONFLICT },
         );
-        return { id, message: 'Storage location created' };
+        return { id, message: 'Pharmacy unit created' };
     }
 
     /** By branch, then name. */
-    async findAll(organizationId: string, query: LocationsQuery) {
+    async findAll(organizationId: string, query: PharmacyUnitsQuery) {
         const client = this.databaseService.client;
         const where = {
             organizationId,
@@ -67,8 +66,8 @@ export class LocationsService {
         };
 
         const [count, docs] = await client.$transaction([
-            client.storageLocation.count({ where }),
-            client.storageLocation.findMany({
+            client.pharmacyUnit.count({ where }),
+            client.pharmacyUnit.findMany({
                 where,
                 take:    query.limit,
                 skip:    query.offset,
@@ -79,41 +78,40 @@ export class LocationsService {
         return { count, docs };
     }
 
-    /** One location with its branch and the units of stock it holds (all statuses). */
-    async findOne(locationId: string, organizationId: string) {
+    /** One pharmacy unit with its branch and the selling units of stock it holds (all statuses). */
+    async findOne(pharmacyUnitId: string, organizationId: string) {
         const client = this.databaseService.client;
-        const [location, held] = await client.$transaction([
-            client.storageLocation.findFirst({
-                where:   { id: locationId, organizationId },
+        const [pharmacyUnit, held] = await client.$transaction([
+            client.pharmacyUnit.findFirst({
+                where:   { id: pharmacyUnitId, organizationId },
                 include: { branch: { select: { id: true, name: true } } },
             }),
-            client.stockBalance.aggregate({ where: { locationId, organizationId }, _sum: { quantity: true } }),
+            client.stockBalance.aggregate({ where: { pharmacyUnitId, organizationId }, _sum: { sellingUnitQuantity: true } }),
         ]);
-        if (!location) throw new NotFoundException('Storage location not found');
+        if (!pharmacyUnit) throw new NotFoundException('Pharmacy unit not found');
 
-        const actors = await loadActors(this.databaseService, [location.createdBy, location.updatedBy]);
-        return { ...withActors(location, actors), stockHeld: held._sum.quantity ?? 0 };
+        const actors = await loadActors(this.databaseService, [pharmacyUnit.createdBy, pharmacyUnit.updatedBy]);
+        return { ...withActors(pharmacyUnit, actors), stockHeld: Number(held._sum.sellingUnitQuantity ?? 0) };
     }
 
     /**
-     * One conditional update: deactivating needs the location to hold no stock (§7.1). Only when
-     * nothing matched is the location read, to say why.
+     * One conditional update: deactivating needs the unit to hold no stock (§7.1). Only when
+     * nothing matched is the unit read, to say why.
      */
-    async update(locationId: string, dto: UpdateStorageLocationDto, organizationId: string, updatedBy: string) {
+    async update(pharmacyUnitId: string, dto: UpdatePharmacyUnitDto, organizationId: string, updatedBy: string) {
         const client = this.databaseService.client;
         const deactivating = dto.status === 'INACTIVE';
 
         const { count } = await withConstraintErrors(
-            () => client.storageLocation.updateMany({
+            () => client.pharmacyUnit.updateMany({
                 where: {
-                    id: locationId, organizationId,
-                    ...(deactivating && { balances: { none: { quantity: { gt: 0 } } } }),
+                    id: pharmacyUnitId, organizationId,
+                    ...(deactivating && { balances: { none: { sellingUnitQuantity: { gt: 0 } } } }),
                 },
                 data: {
                     ...dto,
-                    type:             dto.type as $Enums.LocationType | undefined,
-                    storageCondition: dto.storageCondition as $Enums.StorageCondition | undefined,
-                    status:           dto.status as $Enums.CatalogStatus | undefined,
+                    type:   dto.type as $Enums.PharmacyUnitType | undefined,
+                    status: dto.status as $Enums.CatalogStatus | undefined,
                     updatedBy,
                 },
             }),
@@ -122,12 +120,12 @@ export class LocationsService {
 
         if (!count) {
             const [found, held] = await client.$transaction([
-                client.storageLocation.findFirst({ where: { id: locationId, organizationId }, select: { id: true } }),
-                client.stockBalance.aggregate({ where: { locationId, organizationId }, _sum: { quantity: true } }),
+                client.pharmacyUnit.findFirst({ where: { id: pharmacyUnitId, organizationId }, select: { id: true } }),
+                client.stockBalance.aggregate({ where: { pharmacyUnitId, organizationId }, _sum: { sellingUnitQuantity: true } }),
             ]);
-            const reason = locationUpdateRefusal(found && { stockHeld: held._sum.quantity ?? 0 }, deactivating);
+            const reason = pharmacyUnitUpdateRefusal(found && { stockHeld: Number(held._sum.sellingUnitQuantity ?? 0) }, deactivating);
             throw found ? new ConflictException(reason) : new NotFoundException(reason);
         }
-        return { message: 'Storage location updated' };
+        return { message: 'Pharmacy unit updated' };
     }
 }

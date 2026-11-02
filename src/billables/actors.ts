@@ -18,10 +18,10 @@ export async function loadActors(db: DatabaseService, ids: (string | null | unde
 }
 
 /** Replaces a row's createdBy / updatedBy ids with the users (null if the id is unset or unknown). */
-export function withActors<T extends { createdBy: string; updatedBy: string | null }>(row: T, actors: Map<string, Actor>) {
+export function withActors<T extends { createdBy: string | null; updatedBy: string | null }>(row: T, actors: Map<string, Actor>) {
     return {
         ...row,
-        createdBy: actors.get(row.createdBy) ?? null,
+        createdBy: row.createdBy ? actors.get(row.createdBy) ?? null : null,
         updatedBy: row.updatedBy ? actors.get(row.updatedBy) ?? null : null,
     };
 }

@@ -1,7 +1,7 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-    ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Max,
+    ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsDate, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Max,
     Min, MinLength, ValidateNested,
 } from 'class-validator';
 import { ServiceCategory } from '@shared/enums/billing/billing.enums';
@@ -31,13 +31,13 @@ export class UpdateBillableCategoryDto extends PartialType(CreateBillableCategor
 // ── Billable items (PRD 12 §4) ───────────────────────────────────────────────
 
 export class CostPriceDto {
-    @ApiProperty({ example: 1234.5, description: 'What the pack cost, as invoiced (naira, 2 dp)' })
+    @ApiProperty({ example: 50000, description: 'What one purchase unit (the carton, box) cost, as invoiced (naira, 2 dp)' })
     @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
-    packCost!: number;
+    purchaseUnitCost!: number;
 
-    @ApiProperty({ example: 100, default: 1, description: "How many of the item's unit are in that pack" })
+    @ApiProperty({ example: 24, default: 1, description: 'How many selling units are in that purchase unit' })
     @IsInt() @Min(1) @IsOptional()
-    unitsPerPack?: number;
+    sellingUnitsPerPurchaseUnit?: number;
 
     @ApiProperty({ required: false, example: 'INV-20431', description: 'Supplier invoice number, market survey…' })
     @IsString() @IsOptional()
@@ -47,14 +47,14 @@ export class CostPriceDto {
 export class SelfPayPriceDto {
     @ApiProperty({
         enum: [PriceBasis.MANUAL, PriceBasis.MARKUP],
-        description: 'MANUAL: a fixed `amount`. MARKUP: `percent` on top of `cost` (needs billable.cost.create)',
+        description: 'MANUAL: a fixed `sellingUnitPrice`. MARKUP: `percent` on top of `cost` (needs billable.cost.create)',
     })
     @IsIn([PriceBasis.MANUAL, PriceBasis.MARKUP])
     basis!: PriceBasis.MANUAL | PriceBasis.MARKUP;
 
-    @ApiProperty({ required: false, example: 4500, description: 'MANUAL only' })
+    @ApiProperty({ required: false, example: 4500, description: 'MANUAL only: the price of one selling unit' })
     @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @IsOptional()
-    amount?: number;
+    sellingUnitPrice?: number;
 
     @ApiProperty({ required: false, example: 30, description: 'MARKUP only: percent on top of cost' })
     @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(999.99) @IsOptional()
@@ -85,10 +85,10 @@ export class CreateBillableItemDto {
     @IsOptional() 
     description?: string;
     
-    @ApiProperty({ example: 'test', description: 'What one quantity means: test, visit, day, tablet…' }) 
+    @ApiProperty({ example: 'test', description: 'What one quantity sold means: test, visit, day, bottle, card…' }) 
     @IsString() 
     @MinLength(1) 
-    unit!: string;
+    sellingUnit!: string;
 
     @ApiProperty({ type: SelfPayPriceDto, description: 'The self-pay price, effective immediately (PRD 12 §4.2)' })
     @ValidateNested() @Type(() => SelfPayPriceDto)
@@ -108,7 +108,7 @@ export class UpdateBillableItemDto {
     @ApiProperty({ required: false }) @IsString() @MinLength(1) @IsOptional() code?: string;
     @ApiProperty({ required: false }) @IsString() @MinLength(2) @IsOptional() name?: string;
     @ApiProperty({ required: false }) @IsString() @IsOptional() description?: string;
-    @ApiProperty({ required: false }) @IsString() @MinLength(1) @IsOptional() unit?: string;
+    @ApiProperty({ required: false, description: "Locked once the item has stock (PRD 15 §3.4)" }) @IsString() @MinLength(1) @IsOptional() sellingUnit?: string;
 
     @ApiProperty({ enum: CatalogStatus, required: false, description: "INACTIVE: can't be priced for new charges; never deleted" })
     @IsEnum(CatalogStatus) @IsOptional()
@@ -121,6 +121,38 @@ export class UpdateBillableItemDto {
     @ApiProperty({ type: [String], required: false, description: 'Clinics to unlink; unlinked ones are ignored' })
     @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) @IsOptional()
     removeClinicIds?: string[];
+}
+
+// ── Price lines (PRD 12 §6) ──────────────────────────────────────────────────
+
+export class CreatePriceLineDto {
+    @ApiProperty({ required: false, description: 'Omit for the self-pay line' })
+    @IsUUID() @IsOptional()
+    payerId?: string;
+
+    @ApiProperty({ enum: PriceBasis, description: 'Self-pay: MANUAL or MARKUP. Payer: any' })
+    @IsEnum(PriceBasis)
+    basis!: PriceBasis;
+
+    @ApiProperty({ required: false, example: 2500, description: 'TARIFF, MANUAL: the price of one selling unit (naira, 2 dp)' })
+    @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @IsOptional()
+    sellingUnitPrice?: number;
+
+    @ApiProperty({ required: false, example: 30, description: 'DISCOUNT: off the self-pay price. MARKUP: on top of cost' })
+    @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(999.99) @IsOptional()
+    percent?: number;
+
+    @ApiProperty({ required: false, description: 'TARIFF (required): the payer agreement that set it' })
+    @IsUUID() @IsOptional()
+    agreementId?: string;
+
+    @ApiProperty({ required: false, description: 'Defaults to now; never in the past (no backdating)' })
+    @Type(() => Date) @IsDate() @IsOptional()
+    effectiveFrom?: Date;
+
+    @ApiProperty({ example: 'Launch price' })
+    @IsString() @MinLength(3)
+    reason!: string;
 }
 
 // ── Quotes (PRD 12 §9.3) ─────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { medicineKey, parseMedicines, useName } from './medicines-file';
+import { medicineKey, parseMedicines, useName } from '../inventory/medicines/medicines-file';
 
 const VALUES = {
     dosageForms: ['TABLET', 'CAPSULE', 'INJECTION', 'MEDICINAL_GAS'],

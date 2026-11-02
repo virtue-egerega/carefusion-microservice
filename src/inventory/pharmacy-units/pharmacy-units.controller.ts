@@ -4,49 +4,49 @@ import {
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Authorize, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
 import type { AuthUser } from '../../auth/permissions.guard';
-import { CreateStorageLocationDto, UpdateStorageLocationDto } from '@shared/contracts/inventory';
+import { CreatePharmacyUnitDto, UpdatePharmacyUnitDto } from '@shared/contracts/inventory';
 import { CatalogStatus } from '@shared/enums/billables/billables.enums';
-import { LocationType } from '@shared/enums/inventory/inventory.enums';
+import { PharmacyUnitType } from '@shared/enums/inventory/inventory.enums';
 import { $Enums } from '../../../generated/prisma/client';
-import { LocationsService } from './locations.service';
+import { PharmacyUnitsService } from './pharmacy-units.service';
 
 @ApiTags('inventory')
-@Controller('pharmacy/locations')
-export class LocationsController {
-    constructor(private readonly locationsService: LocationsService) {}
+@Controller('pharmacy/units')
+export class PharmacyUnitsController {
+    constructor(private readonly pharmacyUnitsService: PharmacyUnitsService) {}
 
     @ApiOperation({
-        summary: 'Add a storage location: a store, dispensary, ward… (PRD 15 §7)',
-        description: "In `branchId`, or the caller's branch. Returns `{ id, message }`. 409 if the code is taken.",
+        summary: `Add a pharmacy unit: a store or a dispensary (PRD 15 §7)`,
+        description: `In \`branchId\`, or the caller's branch. Returns \`{ id, message }\`. 409 if the code is taken.`,
     })
-    @Authorize('pharmacy.location.manage')
+    @Authorize('pharmacy.unit.manage')
     @Post()
-    create(@Body() dto: CreateStorageLocationDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
-        return this.locationsService.create(dto, orgId, user.branchId, user.sub);
+    create(@Body() dto: CreatePharmacyUnitDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
+        return this.pharmacyUnitsService.create(dto, orgId, user.branchId, user.sub);
     }
 
     @ApiOperation({
-        summary: 'Storage locations by branch and name, paginated',
-        description: '`count` is the total matching the filters; `docs` is the page, each with its branch.',
+        summary: `Pharmacy units by branch and name, paginated`,
+        description: `\`count\` is the total matching the filters; \`docs\` is the page, each with its branch.`,
     })
     @ApiQuery({ name: 'branchId', required: false })
-    @ApiQuery({ name: 'type', enum: LocationType, required: false })
+    @ApiQuery({ name: 'type', enum: PharmacyUnitType, required: false })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name or code, any case' })
-    @Authorize('pharmacy.stock.view')
+    @Authorize()
     @Get()
     findAll(
         @OrganizationId() orgId: string,
         @Query('branchId', new ParseUUIDPipe({ optional: true })) branchId?: string,
-        @Query('type', new ParseEnumPipe(LocationType, { optional: true })) type?: LocationType,
+        @Query('type', new ParseEnumPipe(PharmacyUnitType, { optional: true })) type?: PharmacyUnitType,
         @Query('status', new ParseEnumPipe(CatalogStatus, { optional: true })) status?: CatalogStatus,
         @Query('search') search?: string,
         @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
         @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
     ) {
-        return this.locationsService.findAll(orgId, {
+        return this.pharmacyUnitsService.findAll(orgId, {
             branchId,
-            type:   type as $Enums.LocationType | undefined,
+            type:   type as $Enums.PharmacyUnitType | undefined,
             status: status as $Enums.CatalogStatus | undefined,
             search: search?.trim() || undefined,
             limit,
@@ -54,22 +54,22 @@ export class LocationsController {
         });
     }
 
-    @ApiOperation({ summary: 'One storage location with its branch and `stockHeld` (units, all statuses)' })
+    @ApiOperation({ summary: `One pharmacy unit with its branch and \`stockHeld\` (selling units, all statuses)` })
     @Authorize('pharmacy.stock.view')
     @Get(':id')
     findOne(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
-        return this.locationsService.findOne(id, orgId);
+        return this.pharmacyUnitsService.findOne(id, orgId);
     }
 
-    @ApiOperation({ summary: 'Edit or deactivate a storage location', description: '409 when deactivating a location that still holds stock.' })
-    @Authorize('pharmacy.location.manage')
+    @ApiOperation({ summary: `Edit or deactivate a pharmacy unit`, description: `409 when deactivating a unit that still holds stock.` })
+    @Authorize('pharmacy.unit.manage')
     @Patch(':id')
     update(
         @Param('id', ParseUUIDPipe) id: string,
-        @Body() dto: UpdateStorageLocationDto,
+        @Body() dto: UpdatePharmacyUnitDto,
         @OrganizationId() orgId: string,
         @CurrentUser() user: AuthUser,
     ) {
-        return this.locationsService.update(id, dto, orgId, user.sub);
+        return this.pharmacyUnitsService.update(id, dto, orgId, user.sub);
     }
 }

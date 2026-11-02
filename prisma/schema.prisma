@@ -65,8 +65,9 @@ model Organization {
   medicines              Medicine[]
   suppliers              Supplier[]
   manufacturers          Manufacturer[]
-  storageLocations       StorageLocation[]
+  pharmacyUnits          PharmacyUnit[]
   goodsReceipts          GoodsReceipt[]
+  storedFiles            StoredFile[]
 
 }
 
@@ -96,7 +97,7 @@ model Branch {
   patients       Patient[]
   encounters     Encounter[]
   queueEntries   QueueEntry[]
-  storageLocations  StorageLocation[]
+  pharmacyUnits     PharmacyUnit[]
   goodsReceipts     GoodsReceipt[]
   stockTransactions StockTransaction[]
 
@@ -729,7 +730,7 @@ model Payer {
   account         BillingAccount?
   plans           Plan[]
   nhisWorkers     NHISWorker[]
-  itemPrices      ItemPrice[]
+  itemSellingPrices ItemSellingPrice[]
   agreements      PayerAgreement[]
   discounts       PayerDiscount[]
 
@@ -837,7 +838,7 @@ model BillableCategory {
   organization   Organization    @relation(fields: [organizationId], references: [id])
   items          BillableItem[]
 
-  @@unique([organizationId, name])
+  // unique name per org: lower(btrim(name)) index in the migration SQL (15 §5)
   @@index([organizationId, kind])
 }
 
@@ -848,7 +849,7 @@ model BillableItem {
   code           String
   name           String
   description    String?
-  unit           String           // what one quantity means: "test", "visit", "day", "tablet"
+  sellingUnit    String           // what one quantity sold means: "test", "visit", "day", "bottle", "card"
   status         CatalogStatus    @default(ACTIVE)
   createdAt      DateTime         @default(now())
   createdBy      String
@@ -857,8 +858,8 @@ model BillableItem {
 
   organization   Organization     @relation(fields: [organizationId], references: [id])
   category       BillableCategory @relation(fields: [categoryId], references: [id])
-  prices         ItemPrice[]
-  costs          ItemCost[]
+  sellingPrices  ItemSellingPrice[]
+  costPrices     ItemCostPrice[]
   clinicLinks    ClinicBillableItem[]
   charges        Charge[]
   stockItem      StockItem?
@@ -868,11 +869,13 @@ model BillableItem {
   @@index([organizationId, categoryId, status])
 }
 
-model ItemCost {
+// The cost of one purchase unit as invoiced, and how many selling units it holds. The cost price of one selling
+// unit (purchaseUnitCost / sellingUnitsPerPurchaseUnit) is worked out, never stored (12 §5.2).
+model ItemCostPrice {
   id            String       @id @default(uuid())
   itemId        String
-  packCost      Decimal      @db.Decimal(14, 2) // as invoiced; unit cost is never stored (12 §5.2)
-  unitsPerPack  Int          @default(1)
+  purchaseUnitCost            Decimal  @db.Decimal(14, 2) // ₦50,000.00 for the carton, as invoiced
+  sellingUnitsPerPurchaseUnit Int      @default(1)        // 24 bottles in that carton; 1 for a service
   effectiveFrom DateTime     // inclusive
   effectiveTo   DateTime?    // exclusive; null = open-ended
   source        String?      // supplier invoice no., market survey…
@@ -887,17 +890,18 @@ model ItemCost {
 
   item          BillableItem @relation(fields: [itemId], references: [id])
   charges       Charge[]
-  receiptItems  GoodsReceiptItem[] // costs rolled forward by a goods receipt (15 §11)
+  receiptItems  GoodsReceiptItem[] // cost prices rolled forward by a goods receipt (15 §11)
 
   @@index([itemId, effectiveFrom])
 }
 
-model ItemPrice {
+// The price of one selling unit, per payer (null = self-pay) and period.
+model ItemSellingPrice {
   id            String          @id @default(uuid())
   itemId        String
   payerId       String?         // null = self-pay
   basis         PriceBasis
-  amount        Decimal?        @db.Decimal(14, 2) // TARIFF, MANUAL
+  sellingUnitPrice Decimal?     @db.Decimal(14, 2) // price of one selling unit: TARIFF, MANUAL
   percent       Decimal?        @db.Decimal(5, 2)  // DISCOUNT (off self-pay), MARKUP (on cost)
   agreementId   String?         // required for TARIFF
   effectiveFrom DateTime        // inclusive
@@ -938,11 +942,11 @@ model PayerAgreement {
   updatedBy   String?
 
   payer       Payer       @relation(fields: [payerId], references: [id])
-  prices      ItemPrice[]
+  sellingPrices ItemSellingPrice[]
   charges     Charge[]
 
   @@unique([payerId, reference])
-  @@unique([id, payerId]) // target of ItemPrice's composite FK
+  @@unique([id, payerId]) // target of ItemSellingPrice's composite FK
 }
 
 // Items used at a clinic, per organisation (clinics are system-wide): eye drops and glasses at Eye,
@@ -1045,53 +1049,37 @@ model MedicineTherapeuticUse {
   @@index([useId])
 }
 
-// A billable the hospital holds in stock (1:1): "Emzor Paracetamol 500mg". PHARMACY-kind items must name their medicine.
+// A billable the hospital holds in stock (1:1): "Emzor Paracetamol 500mg, by the card, cartons of 10". One purchase unit per
+// product; a different carton size is a different product (15 §4). PHARMACY-kind items must name their medicine.
 model StockItem {
-  itemId              String           @id
-  organizationId      String
-  medicineId          String?          // required for PHARMACY-kind items; its strength is the product's
-  brandName           String?          // "Emzor Paracetamol"
-  manufacturerId      String?          // the maker identifies the product, not the batch
-  registrationNo      String?          // NAFDAC registration number
-  batchTracked        Boolean          @default(true)  // batch number + expiry required on receipt
-  quarantineOnReceipt Boolean          @default(false) // receipt lines default to QUARANTINE
-  storageCondition    StorageCondition @default(ROOM_TEMPERATURE)
-  createdAt           DateTime         @default(now())
-  createdBy           String
-  updatedAt           DateTime         @updatedAt
-  updatedBy           String?
+  itemId                      String           @id
+  organizationId              String
+  medicineId                  String?          // required for PHARMACY-kind items; its strength is the product's
+  brandName                   String?          // "Emzor Paracetamol"
+  manufacturerId              String?          // the maker identifies the product, not the batch
+  registrationNo              String?          // NAFDAC registration number
+  shelfNumber                 String?          // where it sits in the pharmacy, if shelves are labelled: "B3"
+  purchaseUnitName            String           // what the product is bought in: "Carton", "Cup"
+  sellingUnitsPerPurchaseUnit Int              // selling units (BillableItem.sellingUnit) in one purchase unit; fixed once stocked
+  sellableInHalves            Boolean          @default(false) // half a selling unit (half a card) may be issued
+  batchTracked                Boolean          @default(true)  // batch number + expiry required on receipt
+  quarantineOnReceipt         Boolean          @default(false) // receipt items default to QUARANTINE
+  storageCondition            StorageCondition @default(ROOM_TEMPERATURE)
+  createdAt                   DateTime         @default(now())
+  createdBy                   String
+  updatedAt                   DateTime         @updatedAt
+  updatedBy                   String?
 
-  item                BillableItem     @relation(fields: [itemId, organizationId], references: [id, organizationId])
-  medicine            Medicine?        @relation(fields: [medicineId], references: [id])
-  manufacturer        Manufacturer?    @relation(fields: [manufacturerId], references: [id])
-  packs               ItemPack[]
-  batches             StockBatch[]
-  receiptItems        GoodsReceiptItem[]
+  item                        BillableItem     @relation(fields: [itemId, organizationId], references: [id, organizationId])
+  medicine                    Medicine?        @relation(fields: [medicineId], references: [id])
+  manufacturer                Manufacturer?    @relation(fields: [manufacturerId], references: [id])
+  batches                     StockBatch[]
+  receiptItems                GoodsReceiptItem[]
 
   @@unique([itemId, organizationId]) // target of StockBatch's composite FK
   @@index([organizationId])
   @@index([medicineId])
   @@index([manufacturerId])
-}
-
-// How the item is bought or handled, in base units (BillableItem.unit). The base unit itself is an implicit pack of 1.
-model ItemPack {
-  id           String        @id @default(uuid())
-  itemId       String
-  name         String        // "Box of 100", "Strip of 10"
-  unitsPerPack Int           // never edited; a new size is a new pack
-  barcode      String?
-  isDefault    Boolean       @default(false)
-  status       CatalogStatus @default(ACTIVE)
-  createdAt    DateTime      @default(now())
-  createdBy    String
-  updatedAt    DateTime      @updatedAt
-  updatedBy    String?
-
-  stockItem    StockItem     @relation(fields: [itemId], references: [itemId])
-  receiptItems GoodsReceiptItem[]
-
-  @@unique([itemId, name])
 }
 
 model Supplier {
@@ -1113,7 +1101,7 @@ model Supplier {
   organization   Organization  @relation(fields: [organizationId], references: [id])
   receipts       GoodsReceipt[]
 
-  @@unique([organizationId, name])
+  // unique name per org: lower(btrim(name)) index in the migration SQL (15 §5)
 }
 
 // Who makes a product: picked or created when stocking an item, like suppliers.
@@ -1131,7 +1119,7 @@ model Manufacturer {
   organization   Organization  @relation(fields: [organizationId], references: [id])
   stockItems     StockItem[]
 
-  @@unique([organizationId, name])
+  // unique name per org: lower(btrim(name)) index in the migration SQL (15 §5)
 }
 
 // A manufacturer's lot of one stock item. Created only by posting a receipt; later deliveries of the same lot reuse it.
@@ -1161,49 +1149,50 @@ model StockBatch {
   @@index([itemId, expiryDate])
 }
 
-// A place stock is kept in a branch: Main Store, OPD Dispensary, Ward 3. Flat in v1 (15 §7).
-model StorageLocation {
-  id               String           @id @default(uuid())
-  organizationId   String
-  branchId         String
-  code             String           // "MS", "OPD-DISP"
-  name             String
-  type             LocationType
-  storageCondition StorageCondition @default(ROOM_TEMPERATURE)
-  status           CatalogStatus    @default(ACTIVE)
-  createdAt        DateTime         @default(now())
-  createdBy        String
-  updatedAt        DateTime         @updatedAt
-  updatedBy        String?
+// A pharmacy unit of a branch that holds and counts its own stock (15 §7): its store, where deliveries arrive
+// and bulk stock is kept, or a dispensary, where medicines reach patients. Storage conditions belong to the
+// product, and where it sits inside the unit to its shelfNumber, so a unit has neither.
+model PharmacyUnit {
+  id                String           @id @default(uuid())
+  organizationId    String
+  branchId          String
+  code              String           // "STORE-MAIN", "OPD-DISP"
+  name              String           // "Main Pharmacy Store", "OPD Dispensary"
+  type              PharmacyUnitType
+  status            CatalogStatus    @default(ACTIVE)
+  createdAt         DateTime         @default(now())
+  createdBy         String?          // null = created with its branch (the main pharmacy store, 15 §7.1)
+  updatedAt         DateTime         @updatedAt
+  updatedBy         String?
 
-  organization     Organization     @relation(fields: [organizationId], references: [id])
-  branch           Branch           @relation(fields: [branchId], references: [id])
-  balances         StockBalance[]
-  movements        StockMovement[]
-  receipts         GoodsReceipt[]
-  receiptItems     GoodsReceiptItem[]
+  organization      Organization     @relation(fields: [organizationId], references: [id])
+  branch            Branch           @relation(fields: [branchId], references: [id])
+  balances          StockBalance[]
+  movements         StockMovement[]
+  goodsReceipts     GoodsReceipt[]
+  goodsReceiptItems GoodsReceiptItem[]
 
   @@unique([organizationId, code])
   @@unique([id, organizationId]) // target of balance and movement composite FKs
   @@index([organizationId, branchId])
 }
 
-// How much of one batch sits at one location in one status. Written only by the movement trigger; never by code.
+// How much of one batch sits in one pharmacy unit in one status. Written only by the movement trigger; never by code.
 model StockBalance {
   id             String          @id @default(uuid())
   organizationId String
   branchId       String
-  locationId     String
+  pharmacyUnitId String
   itemId         String
   batchId        String
   status         StockStatus
-  quantity       Int             @default(0) // base units; CHECK >= 0
+  sellingUnitQuantity Decimal     @default(0) @db.Decimal(12, 1) // whole or half selling units; CHECK >= 0
   updatedAt      DateTime        @updatedAt
 
-  location       StorageLocation @relation(fields: [locationId, organizationId], references: [id, organizationId])
+  pharmacyUnit   PharmacyUnit    @relation(fields: [pharmacyUnitId, organizationId], references: [id, organizationId])
   batch          StockBatch      @relation(fields: [batchId, organizationId], references: [id, organizationId])
 
-  @@unique([locationId, batchId, status])
+  @@unique([pharmacyUnitId, batchId, status])
   @@index([organizationId, itemId, status])
   @@index([batchId])
 }
@@ -1233,20 +1222,20 @@ model StockMovement {
   id             String           @id @default(uuid())
   transactionId  String
   organizationId String
-  locationId     String
+  pharmacyUnitId String
   itemId         String
   batchId        String
   status         StockStatus
-  quantity       Int              // signed base units; never 0
+  sellingUnitQuantity Decimal     @db.Decimal(12, 1) // signed whole or half selling units; never 0
   createdAt      DateTime         @default(now())
 
   transaction    StockTransaction @relation(fields: [transactionId], references: [id])
-  location       StorageLocation  @relation(fields: [locationId, organizationId], references: [id, organizationId])
+  pharmacyUnit   PharmacyUnit     @relation(fields: [pharmacyUnitId, organizationId], references: [id, organizationId])
   batch          StockBatch       @relation(fields: [batchId, organizationId], references: [id, organizationId])
 
   @@index([transactionId])
   @@index([batchId, createdAt])
-  @@index([locationId, itemId, createdAt])
+  @@index([pharmacyUnitId, itemId, createdAt])
   @@index([itemId, createdAt])
 }
 
@@ -1257,10 +1246,11 @@ model GoodsReceipt {
   branchId            String
   number              String          // "GRN-000123" (SequenceCounter "grn:<orgId>")
   type                ReceiptType     @default(DELIVERY)
-  locationId          String          // where it's received; lines may put away elsewhere in the branch
+  pharmacyUnitId      String          // the unit it's received into (default: the branch's store); items may put away elsewhere in the branch
   supplierId          String?         // required for DELIVERY
   supplierInvoiceNo   String?
   supplierInvoiceDate DateTime?       @db.Date
+  supplierInvoiceTotal Decimal      @db.Decimal(14, 2) // the invoice's total as printed; checked against the items (15 §10.4)
   deliveryNote        String?
   receivedAt          DateTime        // when the goods physically arrived
   status              ReceiptStatus   @default(DRAFT)
@@ -1278,10 +1268,11 @@ model GoodsReceipt {
 
   organization        Organization     @relation(fields: [organizationId], references: [id])
   branch              Branch           @relation(fields: [branchId], references: [id])
-  location            StorageLocation  @relation(fields: [locationId], references: [id])
+  pharmacyUnit        PharmacyUnit     @relation(fields: [pharmacyUnitId], references: [id])
   supplier            Supplier?        @relation(fields: [supplierId], references: [id])
   transaction         StockTransaction? @relation(fields: [transactionId], references: [id])
   items               GoodsReceiptItem[]
+  attachments         GoodsReceiptAttachment[]
 
   @@unique([organizationId, number])
   @@index([organizationId, status, receivedAt])
@@ -1289,37 +1280,72 @@ model GoodsReceipt {
 }
 
 model GoodsReceiptItem {
-  id             String           @id @default(uuid())
-  receiptId      String
-  itemId         String
-  packId         String?          // null = received in base units
-  packName       String           // snapshot: "Box of 100"
-  unitsPerPack   Int              // snapshot
-  packsDelivered Int
-  packsAccepted  Int              // only accepted packs enter stock
-  rejectReason   String?          // required when fewer accepted than delivered
-  packCost       Decimal          @db.Decimal(14, 2) // as on the invoice line
-  batchNumber    String?
-  manufacturedOn DateTime?        @db.Date
-  expiryDate     DateTime?        @db.Date
-  locationId     String?          // put-away override within the receipt's branch
-  receiveAs      StockStatus      @default(AVAILABLE) // AVAILABLE | QUARANTINE
-  updateCost     Boolean          @default(true)      // roll ItemCost forward on posting (15 §11)
-  keepCostReason String?          // required when updateCost is false
-  batchId        String?          // set on posting
-  itemCostId     String?          // set when posting rolled the cost
-  createdAt      DateTime         @default(now())
+  id                          String           @id @default(uuid())
+  receiptId                   String
+  stockItemId                 String           // the stocked product received (StockItem; its id is also its billable item's)
+  purchaseUnitName            String           // copied from the product: "Carton"
+  sellingUnitsPerPurchaseUnit Int              // copied from the product: 24
+  purchaseUnitsDelivered      Int
+  purchaseUnitsAccepted       Int              // only accepted purchase units enter stock
+  rejectReason                String?          // required when fewer accepted than delivered
+  purchaseUnitCost            Decimal          @db.Decimal(14, 2) // cost of one purchase unit, as invoiced
+  batchNumber                 String?
+  manufacturedOn              DateTime?        @db.Date
+  expiryDate                  DateTime?        @db.Date
+  putAwayPharmacyUnitId       String?          // put away in this unit instead of the receipt's (same branch)
+  receiveAs                   StockStatus      @default(AVAILABLE) // AVAILABLE | QUARANTINE
+  updateCost                  Boolean          @default(true)      // roll ItemCostPrice forward on posting (15 §11)
+  keepCostReason              String?          // required when updateCost is false
+  batchId                     String?          // set on posting
+  itemCostPriceId             String?          // set when posting rolled the cost price
+  createdAt                   DateTime         @default(now())
 
-  receipt        GoodsReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-  stockItem      StockItem        @relation(fields: [itemId], references: [itemId])
-  pack           ItemPack?        @relation(fields: [packId], references: [id])
-  location       StorageLocation? @relation(fields: [locationId], references: [id])
-  batch          StockBatch?      @relation(fields: [batchId], references: [id])
-  itemCost       ItemCost?        @relation(fields: [itemCostId], references: [id])
+  receipt                     GoodsReceipt     @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  stockItem                   StockItem        @relation(fields: [stockItemId], references: [itemId])
+  putAwayPharmacyUnit         PharmacyUnit?    @relation(fields: [putAwayPharmacyUnitId], references: [id])
+  batch                       StockBatch?      @relation(fields: [batchId], references: [id])
+  itemCostPrice               ItemCostPrice?   @relation(fields: [itemCostPriceId], references: [id])
 
   @@index([receiptId])
-  @@index([itemId])
+  @@index([stockItemId])
   @@index([batchId])
+}
+
+// A supplier's invoice or delivery note attached to a goods receipt (15 §10.3): a link to a stored file.
+model GoodsReceiptAttachment {
+  id           String       @id @default(uuid())
+  receiptId    String
+  storedFileId String
+  description  String?      // "Invoice page 2"
+  attachedBy   String
+  attachedAt   DateTime     @default(now())
+
+  receipt      GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  storedFile   StoredFile   @relation(fields: [storedFileId], references: [id])
+
+  @@unique([receiptId, storedFileId]) // a file is attached to a receipt once
+  @@index([storedFileId])
+}
+
+// A file uploaded once and linked to whatever needs it: a goods receipt's invoice photos, later others.
+// How files are stored is to be redefined (15 §24); for now they sit on the server's disk (FILE_STORAGE_ROOT).
+model StoredFile {
+  id             String       @id @default(uuid())
+  organizationId String
+  storageKey     String       // where the bytes are kept: "<organizationId>/<id>.<ext>" under FILE_STORAGE_ROOT for now
+  url            String       // where they're fetched from: GET /api/v1/files/:id/content
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  sha256         String
+  uploadedBy     String
+  uploadedAt     DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  goodsReceiptAttachments GoodsReceiptAttachment[]
+
+  @@unique([organizationId, sha256]) // the same file uploaded twice is the same stored file
+  @@index([organizationId, uploadedAt])
 }
 
 // ------------ Charges & allocation (§5, §6) ------------
@@ -1346,8 +1372,8 @@ model Charge {
   billableItemId   String?
   pricingBasis     PriceBasis?
   priceSource      PriceSource?
-  itemPriceId      String?
-  itemCostId       String?
+  itemSellingPriceId String?
+  itemCostPriceId    String?
   agreementId      String?
   payerDiscountId  String?
   pricePercent     Decimal?        @db.Decimal(5, 2)
@@ -1358,8 +1384,8 @@ model Charge {
   billingAccount   BillingAccount  @relation(fields: [billingAccountId], references: [id], onDelete: Cascade)
   coverage         Coverage?       @relation(fields: [coverageId], references: [id], onDelete: Cascade)
   billableItem     BillableItem?   @relation(fields: [billableItemId], references: [id])
-  itemPrice        ItemPrice?      @relation(fields: [itemPriceId], references: [id])
-  itemCost         ItemCost?       @relation(fields: [itemCostId], references: [id])
+  itemSellingPrice ItemSellingPrice? @relation(fields: [itemSellingPriceId], references: [id])
+  itemCostPrice    ItemCostPrice?    @relation(fields: [itemCostPriceId], references: [id])
   agreement        PayerAgreement? @relation(fields: [agreementId], references: [id])
   payerDiscount    PayerDiscount?  @relation(fields: [payerDiscountId], references: [id])
   allocations      ChargeAllocation[]
@@ -2549,13 +2575,9 @@ enum BatchQuality {
   RECALLED // terminal; stock leaves by write-off or supplier return
 }
 
-enum LocationType {
-  STORE
-  DISPENSARY
-  WARD
-  THEATRE
-  CLINIC
-  OTHER
+enum PharmacyUnitType {
+  STORE      // receives deliveries, holds bulk stock
+  DISPENSARY // hands medicines to patients; topped up from the store
 }
 
 enum StockStatus {

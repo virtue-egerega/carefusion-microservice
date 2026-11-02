@@ -23,7 +23,7 @@ export class BillablesMetricsService {
         const [categories, items, upcomingPrices, upcomingDiscounts] = await client.$transaction([
             client.billableCategory.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true }, orderBy: { status: 'asc' } }),
             client.billableItem.groupBy({ by: ['status'], where: { organizationId }, _count: { _all: true }, orderBy: { status: 'asc' } }),
-            client.itemPrice.count({ where: { ...scheduled, item: { organizationId } } }),
+            client.itemSellingPrice.count({ where: { ...scheduled, item: { organizationId } } }),
             client.payerDiscount.count({ where: { ...scheduled, payer: { organizationId } } }),
         ]);
 

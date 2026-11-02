@@ -141,13 +141,9 @@ export enum BatchQuality {
     RECALLED = 'RECALLED',
 }
 
-export enum LocationType {
+export enum PharmacyUnitType {
     STORE = 'STORE',
     DISPENSARY = 'DISPENSARY',
-    WARD = 'WARD',
-    THEATRE = 'THEATRE',
-    CLINIC = 'CLINIC',
-    OTHER = 'OTHER',
 }
 
 export enum StockStatus {

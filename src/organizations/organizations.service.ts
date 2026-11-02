@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { DatabaseService } from '../database/database.service';
 import { DepartmentsService } from '../departments/departments.service';
 import { AccessControlService } from '../access-control/access-control.service';
+import { mainPharmacyStore } from '../inventory/pharmacy-units/pharmacy-units.rules';
 import { BranchDto, CreateBranchDto, OnboardOrganizationDto, OrganizationDto, UpdateBranchDto, UpdateOrganizationDto } from '@shared/contracts/organizations';
 import { BranchStatus, BusinessType, OrgType, OrganizationFilter, PaymentPlan } from '@shared/enums/organizations/organization.enums';
 import { Prisma, $Enums } from '../../generated/prisma/client';
@@ -84,6 +85,7 @@ export class OrganizationsService {
                     phone: organization.phone,
                     email: organization.email,
                     isMainBranch: true,
+                    pharmacyUnits: { create: mainPharmacyStore({ organizationId: organization.id, code: 'MAIN' }) },
                 },
             });
 
@@ -348,7 +350,11 @@ export class OrganizationsService {
         }
 
         const branch = await this.databaseService.client.branch.create({
-            data: { ...dto, organizationId },
+            data: {
+                ...dto,
+                organizationId,
+                pharmacyUnits: { create: mainPharmacyStore({ organizationId, code: dto.code }) },
+            },
         });
 
         return this.mapToBranchDto(branch);

@@ -21,7 +21,7 @@ const listQuery = (search?: string, status?: CatalogStatus, limit = 20, offset =
 
 /** Suppliers and manufacturers (PRD 15 §5): the hospital's own lists, picked from or added to while working. */
 @ApiTags('inventory')
-@Controller('pharmacy')
+@Controller('pharmacy/suppliers')
 export class SuppliersController {
     constructor(
         private readonly suppliersService: SuppliersService,
@@ -30,18 +30,18 @@ export class SuppliersController {
 
     // ── suppliers ────────────────────────────────────────────────────────────
 
-    @ApiOperation({ summary: 'Add a supplier', description: 'Returns `{ id, message }`. 409 if the name is taken.' })
+    @ApiOperation({ summary: `Add a supplier`, description: `Returns \`{ id, message }\`. 409 if the name is taken.` })
     @Authorize('pharmacy.supplier.manage')
-    @Post('suppliers')
+    @Post()
     createSupplier(@Body() dto: CreateSupplierDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
         return this.suppliersService.create(dto, orgId, user.sub);
     }
 
-    @ApiOperation({ summary: 'Suppliers by name, paginated', description: '`count` is the total matching the filters; `docs` is the page.' })
+    @ApiOperation({ summary: `Suppliers by name, paginated`, description: `\`count\` is the total matching the filters; \`docs\` is the page.` })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
     @Authorize('pharmacy.stock.view')
-    @Get('suppliers')
+    @Get()
     findSuppliers(
         @OrganizationId() orgId: string,
         @Query('search') search?: string,
@@ -52,16 +52,16 @@ export class SuppliersController {
         return this.suppliersService.findAll(orgId, listQuery(search, status, limit, offset));
     }
 
-    @ApiOperation({ summary: 'One supplier', description: '`createdBy` / `updatedBy` are the users, or null.' })
+    @ApiOperation({ summary: `One supplier`, description: `\`createdBy\` / \`updatedBy\` are the users, or null.` })
     @Authorize('pharmacy.stock.view')
-    @Get('suppliers/:id')
+    @Get(':id')
     findSupplier(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
         return this.suppliersService.findOne(id, orgId);
     }
 
-    @ApiOperation({ summary: 'Edit or deactivate a supplier' })
+    @ApiOperation({ summary: `Edit or deactivate a supplier` })
     @Authorize('pharmacy.supplier.manage')
-    @Patch('suppliers/:id')
+    @Patch(':id')
     updateSupplier(
         @Param('id', ParseUUIDPipe) id: string,
         @Body() dto: UpdateSupplierDto,
@@ -73,7 +73,7 @@ export class SuppliersController {
 
     // ── manufacturers ────────────────────────────────────────────────────────
 
-    @ApiOperation({ summary: 'Add a manufacturer', description: 'Returns `{ id, message }`. 409 if the name is taken.' })
+    @ApiOperation({ summary: `Add a manufacturer`, description: `Returns \`{ id, message }\`. 409 if the name is taken.` })
     @Authorize('pharmacy.supplier.manage')
     @Post('manufacturers')
     createManufacturer(@Body() dto: CreateManufacturerDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
@@ -81,8 +81,8 @@ export class SuppliersController {
     }
 
     @ApiOperation({
-        summary: 'Manufacturers by name, paginated, with their product counts',
-        description: '`count` is the total matching the filters; `docs` is the page.',
+        summary: `Manufacturers by name, paginated, with their product counts`,
+        description: `\`count\` is the total matching the filters; \`docs\` is the page.`,
     })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
@@ -98,14 +98,14 @@ export class SuppliersController {
         return this.manufacturersService.findAll(orgId, listQuery(search, status, limit, offset));
     }
 
-    @ApiOperation({ summary: 'One manufacturer with its product count' })
+    @ApiOperation({ summary: `One manufacturer with its product count` })
     @Authorize('pharmacy.stock.view')
     @Get('manufacturers/:id')
     findManufacturer(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
         return this.manufacturersService.findOne(id, orgId);
     }
 
-    @ApiOperation({ summary: 'Edit or deactivate a manufacturer' })
+    @ApiOperation({ summary: `Edit or deactivate a manufacturer` })
     @Authorize('pharmacy.supplier.manage')
     @Patch('manufacturers/:id')
     updateManufacturer(

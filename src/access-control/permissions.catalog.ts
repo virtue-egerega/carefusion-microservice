@@ -87,10 +87,10 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'billable.discount.cancel',  name: 'Withdraw Payer Discount',   description: "Withdraw a payer discount that hasn't taken effect" },
 
     // Pharmacy: drugs & consumables in stock (PRD 15 §17) — one key per job; cost figures still need billable.cost.view
-    { key: 'pharmacy.stock.view',       name: 'Pharmacy: View Stock',                  description: 'Medicines, stocked items, packs, locations, suppliers, manufacturers, batches, stock and receipts' },
+    { key: 'pharmacy.stock.view',       name: 'Pharmacy: View Stock',                  description: 'Medicines, stocked products, pharmacy units, suppliers, manufacturers, batches, stock and receipts' },
     { key: 'pharmacy.medicine.manage',  name: 'Pharmacy: Manage Hospital Medicines',   description: "Add or edit the hospital's own medicines (never seeded ones)" },
     { key: 'pharmacy.item.manage',      name: 'Pharmacy: Manage Stock Items',          description: 'Stock settings, medicine link, brand and maker, and packs' },
-    { key: 'pharmacy.location.manage',  name: 'Pharmacy: Manage Storage Locations',    description: 'Create, edit and deactivate stores, dispensaries and other stock locations' },
+    { key: 'pharmacy.unit.manage',      name: 'Pharmacy: Manage Pharmacy Units',       description: 'Create, edit and deactivate the stores and dispensaries that hold stock' },
     { key: 'pharmacy.supplier.manage',  name: 'Pharmacy: Manage Suppliers & Manufacturers', description: 'Create, edit and deactivate suppliers and manufacturers' },
     { key: 'pharmacy.receipt.create',   name: 'Pharmacy: Record Goods Receipt',        description: 'Create, edit and cancel draft receipts, including opening stock' },
     { key: 'pharmacy.receipt.post',     name: 'Pharmacy: Post Goods Receipt',          description: 'Post a receipt into stock (updates the cost price)' },
@@ -125,7 +125,8 @@ export const RETIRED_PERMISSIONS: Record<string, string[]> = {
     'inventory.view':            ['pharmacy.stock.view'],
     'inventory.medicine.manage': ['pharmacy.medicine.manage'],
     'inventory.item.manage':     ['pharmacy.item.manage'],
-    'inventory.location.manage': ['pharmacy.location.manage'],
+    'inventory.location.manage': ['pharmacy.unit.manage'],
+    'pharmacy.location.manage':  ['pharmacy.unit.manage'],
     'inventory.supplier.manage': ['pharmacy.supplier.manage'],
     'inventory.receipt.create':  ['pharmacy.receipt.create'],
     'inventory.receipt.post':    ['pharmacy.receipt.post'],

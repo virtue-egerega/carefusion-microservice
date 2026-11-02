@@ -10,16 +10,33 @@ export const toKobo = (value: Prisma.Decimal) => value.toDecimalPlaces(2, Prisma
 export const lineAmount = (unitPrice: Prisma.Decimal, quantity: Money) => toKobo(unitPrice.mul(quantity));
 
 /**
- * A MARKUP price: packCost ÷ unitsPerPack × (100 + percent) / 100, rounded once (§5.2).
- * The per-unit cost is never rounded on its own, so ₦1,234.50 / 100 at 30% is ₦16.05, not ₦16.06.
+ * A MARKUP price: purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit × (100 + percent) / 100, rounded once (§5.2).
+ * The cost of one selling unit is never rounded on its own, so ₦1,234.50 / 100 at 30% is ₦16.05, not ₦16.06.
  */
-export function markupPrice(packCost: Money, unitsPerPack: number, percent: Money): Prisma.Decimal {
+export function markupPrice(purchaseUnitCost: Money, sellingUnitsPerPurchaseUnit: number, percent: Money): Prisma.Decimal {
     const pct = new Prisma.Decimal(percent);
-    return toKobo(new Prisma.Decimal(packCost).mul(pct.plus(100)).div(100).div(unitsPerPack));
+    return toKobo(new Prisma.Decimal(purchaseUnitCost).mul(pct.plus(100)).div(100).div(sellingUnitsPerPurchaseUnit));
 }
 
-type SelfPayLine = { basis: string; amount: Prisma.Decimal | null; percent: Prisma.Decimal | null };
-type CostRow = { packCost: Prisma.Decimal; unitsPerPack: number };
+type SelfPayLine = { basis: string; sellingUnitPrice: Prisma.Decimal | null; percent: Prisma.Decimal | null };
+type CostRow = { purchaseUnitCost: Prisma.Decimal; sellingUnitsPerPurchaseUnit: number };
+
+/** The cost price of one selling unit, unrounded: compared exactly, rounded only for display (12 §5.2). */
+export const sellingUnitCostPrice = (cost: { purchaseUnitCost: Money; sellingUnitsPerPurchaseUnit: number }) =>
+    new Prisma.Decimal(cost.purchaseUnitCost).div(cost.sellingUnitsPerPurchaseUnit);
+
+/**
+ * The below-cost warning (PRD 15 §11): a selling price under the cost price of one selling unit is
+ * allowed (promotions, programmes) but never silent. Null when there's no cost yet or the price covers it.
+ */
+export function belowCostWarning(sellingUnitPrice: Money, cost: CostRow | undefined, sellingUnit: string): string | null {
+    if (!cost) return null;
+    const costPrice = sellingUnitCostPrice(cost);
+    if (new Prisma.Decimal(sellingUnitPrice).gte(costPrice)) return null;
+    return `Selling price ₦${naira(sellingUnitPrice)} is below the cost price ₦${naira(toKobo(costPrice))} per ${sellingUnit}`;
+}
+
+const naira = (value: Money) => new Prisma.Decimal(value).toNumber().toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
  * The self-pay price from the self-pay line and the cost in effect with it (§9.1 step 2).
@@ -27,8 +44,8 @@ type CostRow = { packCost: Prisma.Decimal; unitsPerPack: number };
  */
 export function selfPayAmount(line: SelfPayLine | undefined, cost: CostRow | undefined): Prisma.Decimal | null {
     if (!line) return null;
-    if (line.basis === 'MARKUP') return cost && line.percent ? markupPrice(cost.packCost, cost.unitsPerPack, line.percent) : null;
-    return line.amount;
+    if (line.basis === 'MARKUP') return cost && line.percent ? markupPrice(cost.purchaseUnitCost, cost.sellingUnitsPerPurchaseUnit, line.percent) : null;
+    return line.sellingUnitPrice;
 }
 
 /** Rows in effect at `at`: started, not yet ended, not withdrawn (§6.3). For Prisma `where`. */
@@ -54,8 +71,8 @@ export type ChargePrice = {
     unitPrice:       Prisma.Decimal;
     basis:           string;            // PriceBasis
     source:          string;            // PriceSource
-    itemPriceId:     string;
-    itemCostId:      string | null;
+    itemSellingPriceId:     string;
+    itemCostPriceId:      string | null;
     percent:         Prisma.Decimal | null;
     agreementId:     string | null;
     payerDiscountId: string | null;
@@ -66,8 +83,8 @@ export type PriceableItem = {
     name: string;
     status: string;
     category: { kind: string; status: string };
-    prices: (SelfPayLine & { id: string })[];   // the self-pay line in effect, if any
-    costs: (CostRow & { id: string })[];        // the cost in effect, if any
+    sellingPrices: (SelfPayLine & { id: string })[]; // the self-pay line in effect, if any
+    costPrices: (CostRow & { id: string })[];        // the cost price in effect, if any
 };
 
 /** A price for an item at a time, for self-pay or a payer, and how it was reached (§9.2). Money is 2 dp. */
@@ -75,21 +92,21 @@ export type ResolvedPrice = {
     unitPrice:       Prisma.Decimal;
     basis:           string;            // PriceBasis
     source:          string;            // PriceSource
-    itemPriceId:     string;            // the payer line (PAYER_LINE), else the self-pay line
+    itemSellingPriceId:     string;            // the payer line (PAYER_LINE), else the self-pay line
     selfPayPriceId:  string;
     selfPayAmount:   Prisma.Decimal;
     agreementId:     string | null;
     payerDiscountId: string | null;
     percent:         Prisma.Decimal | null;
-    itemCostId:      string | null;
-    packCost:        Prisma.Decimal | null;
-    unitsPerPack:    number | null;
+    itemCostPriceId:      string | null;
+    purchaseUnitCost:        Prisma.Decimal | null;
+    sellingUnitsPerPurchaseUnit:    number | null;
 };
 
 type PayerLine = SelfPayLine & { id: string; agreementId: string | null };
 
 export type PriceInputs = {
-    item:      PriceableItem;                                          // `prices` holds the self-pay line in effect
+    item:      PriceableItem;                                          // `sellingPrices` holds the self-pay line in effect
     payer?:    { name: string; status: string };
     payerLine?: PayerLine;                                             // the payer's line in effect, if any
     discount?: { id: string; percent: Prisma.Decimal };                // the payer's default discount in effect, if any
@@ -108,20 +125,20 @@ export function resolvePrice({ item, payer, payerLine, discount }: PriceInputs):
     if (item.status !== 'ACTIVE') return `${item.name} is inactive`;
     if (item.category.status !== 'ACTIVE') return `${item.name} is in an inactive category`;
 
-    const [line] = item.prices;
-    const [cost] = item.costs;
+    const [line] = item.sellingPrices;
+    const [cost] = item.costPrices;
     const selfPay = selfPayAmount(line, cost);
     if (!line || !selfPay) return `${item.name} has no current self-pay price`;
 
     const base = {
         selfPayPriceId: line.id, selfPayAmount: selfPay,
-        agreementId: null, payerDiscountId: null, percent: null, itemCostId: null, packCost: null, unitsPerPack: null,
+        agreementId: null, payerDiscountId: null, percent: null, itemCostPriceId: null, purchaseUnitCost: null, sellingUnitsPerPurchaseUnit: null,
     };
     const withCost = (percent: Prisma.Decimal | null) => ({
-        percent, itemCostId: cost!.id, packCost: cost!.packCost, unitsPerPack: cost!.unitsPerPack,
+        percent, itemCostPriceId: cost!.id, purchaseUnitCost: cost!.purchaseUnitCost, sellingUnitsPerPurchaseUnit: cost!.sellingUnitsPerPurchaseUnit,
     });
     const selfPayPrice = (): ResolvedPrice => ({
-        ...base, unitPrice: selfPay, basis: line.basis, source: 'SELF_PAY', itemPriceId: line.id,
+        ...base, unitPrice: selfPay, basis: line.basis, source: 'SELF_PAY', itemSellingPriceId: line.id,
         ...(line.basis === 'MARKUP' && withCost(line.percent)),
     });
 
@@ -129,22 +146,22 @@ export function resolvePrice({ item, payer, payerLine, discount }: PriceInputs):
     if (payer.status !== 'ACTIVE') return `${payer.name} is inactive`;
 
     if (payerLine) {
-        const fromLine = { ...base, basis: payerLine.basis, source: 'PAYER_LINE', itemPriceId: payerLine.id, agreementId: payerLine.agreementId };
+        const fromLine = { ...base, basis: payerLine.basis, source: 'PAYER_LINE', itemSellingPriceId: payerLine.id, agreementId: payerLine.agreementId };
         switch (payerLine.basis) {
             case 'DISCOUNT':
                 return { ...fromLine, unitPrice: discounted(selfPay, payerLine.percent!), percent: payerLine.percent };
             case 'MARKUP':
                 if (!cost) return `${item.name} has no current cost for ${payer.name}'s markup`;
-                return { ...fromLine, unitPrice: markupPrice(cost.packCost, cost.unitsPerPack, payerLine.percent!), ...withCost(payerLine.percent) };
+                return { ...fromLine, unitPrice: markupPrice(cost.purchaseUnitCost, cost.sellingUnitsPerPurchaseUnit, payerLine.percent!), ...withCost(payerLine.percent) };
             default: // TARIFF, MANUAL
-                return { ...fromLine, unitPrice: payerLine.amount! };
+                return { ...fromLine, unitPrice: payerLine.sellingUnitPrice! };
         }
     }
 
     if (discount) {
         return {
             ...base, unitPrice: discounted(selfPay, discount.percent), basis: 'DISCOUNT', source: 'PAYER_DISCOUNT',
-            itemPriceId: line.id, payerDiscountId: discount.id, percent: discount.percent,
+            itemSellingPriceId: line.id, payerDiscountId: discount.id, percent: discount.percent,
         };
     }
     return selfPayPrice();
@@ -158,8 +175,8 @@ export function selfPayChargePrice(item: PriceableItem): ChargePrice | string {
     if (item.status !== 'ACTIVE') return `${item.name} is inactive`;
     if (item.category.status !== 'ACTIVE') return `${item.name} is in an inactive category`;
 
-    const [line] = item.prices;
-    const [cost] = item.costs;
+    const [line] = item.sellingPrices;
+    const [cost] = item.costPrices;
     const unitPrice = selfPayAmount(line, cost);
     if (!line || !unitPrice) return `${item.name} has no current self-pay price`;
 
@@ -171,8 +188,8 @@ export function selfPayChargePrice(item: PriceableItem): ChargePrice | string {
         unitPrice,
         basis:           line.basis,
         source:          'SELF_PAY',
-        itemPriceId:     line.id,
-        itemCostId:      markup ? cost.id : null,
+        itemSellingPriceId:     line.id,
+        itemCostPriceId:      markup ? cost.id : null,
         percent:         markup ? line.percent : null,
         agreementId:     null,
         payerDiscountId: null,
@@ -182,6 +199,6 @@ export function selfPayChargePrice(item: PriceableItem): ChargePrice | string {
 /** A resolved price as shown: a markup's cost and percent reveal the margin, so they need billable.cost.view (§10). */
 export function visiblePrice(price: ResolvedPrice, canSeeCost: boolean) {
     if (canSeeCost) return price;
-    const { itemCostId, packCost, unitsPerPack, ...shown } = price;
+    const { itemCostPriceId, purchaseUnitCost, sellingUnitsPerPurchaseUnit, ...shown } = price;
     return { ...shown, percent: price.basis === 'MARKUP' ? null : price.percent };
 }

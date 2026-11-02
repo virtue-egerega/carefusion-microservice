@@ -31,8 +31,8 @@ export class PricingService {
                 id: true, name: true, status: true,
                 category: { select: { kind: true, status: true } },
                 // at most one of each is in effect at a time (exclusion constraints)
-                prices: { where: { payerId: null, ...inEffectAt(at) }, take: 1, select: { id: true, basis: true, amount: true, percent: true } },
-                costs:  { where: inEffectAt(at), take: 1, select: { id: true, packCost: true, unitsPerPack: true } },
+                sellingPrices: { where: { payerId: null, ...inEffectAt(at) }, take: 1, select: { id: true, basis: true, sellingUnitPrice: true, percent: true } },
+                costPrices:    { where: inEffectAt(at), take: 1, select: { id: true, purchaseUnitCost: true, sellingUnitsPerPurchaseUnit: true } },
             },
         });
 
@@ -118,11 +118,11 @@ export class PricingService {
                 select: {
                     id: true, name: true, status: true,
                     category: { select: { kind: true, status: true } },
-                    prices: {
+                    sellingPrices: {
                         where:  selfPayAndPayerLines(payerId, at),
-                        select: { id: true, payerId: true, basis: true, amount: true, percent: true, agreementId: true },
+                        select: { id: true, payerId: true, basis: true, sellingUnitPrice: true, percent: true, agreementId: true },
                     },
-                    costs: { where: inEffectAt(at), take: 1, select: { id: true, packCost: true, unitsPerPack: true } },
+                    costPrices: { where: inEffectAt(at), take: 1, select: { id: true, purchaseUnitCost: true, sellingUnitsPerPurchaseUnit: true } },
                 },
             }),
             client.payer.findFirst({ where: { id: payerId ?? '', organizationId }, select: payerForPricing(at) }),
@@ -130,9 +130,9 @@ export class PricingService {
         if (payerId && !payer) throw new NotFoundException('Payer not found');
 
         const priceOf = (item: (typeof items)[number]) => resolvePrice({
-            item:      { ...item, prices: item.prices.filter(line => line.payerId === null) },
+            item:      { ...item, sellingPrices: item.sellingPrices.filter(line => line.payerId === null) },
             payer:     payer ?? undefined,
-            payerLine: item.prices.find(line => line.payerId !== null),
+            payerLine: item.sellingPrices.find(line => line.payerId !== null),
             discount:  payer?.discounts[0],
         });
         return { items, payer, priceOf };

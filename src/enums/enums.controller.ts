@@ -19,6 +19,9 @@ import {
   Acuity, Disposition, EncounterStatus, EncounterType, HoldReason, QueueEntryStatus, QueuePriority, VisitType,
 } from '@shared/enums/encounters/encounter.enums';
 import { NotificationType } from '@shared/contracts/notifications/create-notification.dto';
+import {
+  BatchQuality, PharmacyUnitType, ReceiptStatus, ReceiptType, StockStatus, StorageCondition,
+} from '@shared/enums/inventory/inventory.enums';
 
 function toOptions(enumObj: Record<string, string>) {
   return Object.values(enumObj).map(value => ({
@@ -97,6 +100,14 @@ export class EnumsController {
         diagnosisCodeSystem: toOptions(DiagnosisCodeSystem),
         diagnosisCertainty: toOptions(DiagnosisCertainty),
         consultationOutcome: toOptions(ConsultationOutcome),
+      },
+      inventory: {
+        pharmacyUnitType: toOptions(PharmacyUnitType),
+        storageCondition: toOptions(StorageCondition),
+        stockStatus: toOptions(StockStatus),
+        batchQuality: toOptions(BatchQuality),
+        receiptType: toOptions(ReceiptType),
+        receiptStatus: toOptions(ReceiptStatus),
       },
       notifications: {
         notificationType: toOptions(NotificationType),

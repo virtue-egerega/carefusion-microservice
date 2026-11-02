@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DatabaseService } from '../../database/database.service';
-import { withConstraintErrors } from '../../database/prisma-errors';
-import { $Enums } from '../../../generated/prisma/client';
+import { DatabaseService } from '../database/database.service';
+import { withConstraintErrors } from '../database/prisma-errors';
+import { $Enums } from '../../generated/prisma/client';
 import { CreateMedicineDto, UpdateMedicineDto } from '@shared/contracts/inventory';
 import { medicineKey } from './medicines-file';
 import {
@@ -50,7 +50,7 @@ const toDoc = <T extends MedicineWithUses>({ therapeuticUses, ...medicine }: T, 
  * (USER_ADDED), visible only to that hospital. Hospitals can't change seeded rows.
  */
 @Injectable()
-export class MedicinesService {
+export class MedicineManagementService {
     constructor(private readonly databaseService: DatabaseService) {}
 
     /**
@@ -174,7 +174,7 @@ export class MedicinesService {
                     select:  {
                         brandName:    true,
                         manufacturer: { select: { id: true, name: true } },
-                        item:         { select: { id: true, code: true, name: true, unit: true, status: true } },
+                        item:         { select: { id: true, code: true, name: true, sellingUnit: true, status: true } },
                     },
                     orderBy: { item: { name: 'asc' } },
                 },

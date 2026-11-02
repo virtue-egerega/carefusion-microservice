@@ -5,7 +5,8 @@ import { CLINIC_CATALOG, DEPARTMENT_CATALOG, RETIRED_QUEUE_KEYS, getActiveKeys }
 import { PERMISSION_CATALOG, SYSTEM_DUTY_PROFILES } from '../src/access-control/permissions.catalog';
 import { AccessControlService } from '../src/access-control/access-control.service';
 import { parseIcd10Chapters, parseIcd10Codes, parseIcd10Groups } from '../src/consultations/rules/icd10-file';
-import { medicineKey, parseMedicines, useName } from '../src/inventory/medicines/medicines-file';
+import { medicineKey, parseMedicines, useName } from '../src/medicine-management/medicines-file';
+import { mainPharmacyStore } from '../src/inventory/pharmacy-units/pharmacy-units.rules';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -175,12 +176,27 @@ async function seedMedicines() {
     console.log(`✓ ${medicines.length} medicines from ${names.length} file(s) (${added.length} added, ${medicines.length - added.length} already there); ${codes.length} therapeutic uses (${usesAdded} added)`);
 }
 
+// The main pharmacy store for branches created before stores came with every branch (15 §7.1). Insert-only:
+// a branch that already has a store is left alone.
+async function seedPharmacyStores() {
+    const branches = await prisma.branch.findMany({
+        where:  { deletedAt: null, pharmacyUnits: { none: { type: $Enums.PharmacyUnitType.STORE } } },
+        select: { id: true, organizationId: true, code: true },
+    });
+    const { count } = await prisma.pharmacyUnit.createMany({
+        data:           branches.map(b => ({ ...mainPharmacyStore(b), branchId: b.id })),
+        skipDuplicates: true,
+    });
+    console.log(`✓ Main pharmacy stores: ${count} added`);
+}
+
 async function main() {
     console.log('Seeding...');
     await seedDepartments();
     await seedAccessControl();
     await seedDiagnosisCodes();
     await seedMedicines();
+    await seedPharmacyStores();
     console.log('Done.');
 }
 

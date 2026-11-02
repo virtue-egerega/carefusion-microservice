@@ -24,6 +24,8 @@ import { EncountersModule } from './encounters/encounters.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { QueueManagementModule } from'./queue-management/queue-management.module';
 import { TriageModule } from './triage/triage.module';
+import { MedicineManagementModule } from './medicine-management/medicine-management.module';
+import { FilesModule } from './files/files.module';
 
 @Module({
     imports: [
@@ -50,6 +52,8 @@ import { TriageModule } from './triage/triage.module';
         QueueManagementModule,
         TriageModule,
         ClinicsModule,
+        MedicineManagementModule,
+        FilesModule,
     ],
     controllers: [AppController],
     providers: [AppService],

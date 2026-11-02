@@ -1,4 +1,4 @@
-import { packDefaultAfter, stockItemRefusal } from './stock-items.rules';
+import { productRefusal, stockItemRefusal, unitsChangeRefusal } from './stock-items.rules';
 
 const ACTIVE = { status: 'ACTIVE' };
 const INACTIVE = { status: 'INACTIVE' };
@@ -57,30 +57,54 @@ describe('stockItemRefusal', () => {
     });
 });
 
-describe('packDefaultAfter', () => {
-    const activeDefault = { status: 'ACTIVE', isDefault: true };
-    const activePlain = { status: 'ACTIVE', isDefault: false };
-    const inactive = { status: 'INACTIVE', isDefault: false };
+describe('productRefusal', () => {
+    const PRODUCT = { categoryId: 'cat-1' };
 
-    it('makes an active pack the default', () => {
-        expect(packDefaultAfter(activePlain, { isDefault: true })).toEqual({ isDefault: true });
+    it('accepts a category picked by id or by name', () => {
+        expect(productRefusal(PRODUCT, [])).toBeNull();
+        expect(productRefusal({ category: { name: 'Antibiotics' } }, [])).toBeNull();
     });
 
-    it('keeps the flag when the change leaves it out', () => {
-        expect(packDefaultAfter(activeDefault, { status: 'ACTIVE' })).toEqual({ isDefault: true });
-        expect(packDefaultAfter(activePlain, {})).toEqual({ isDefault: false });
+    it('needs exactly one way of giving the category', () => {
+        expect(productRefusal({}, [])?.reason).toMatch(/Give the category/);
+        expect(productRefusal({ categoryId: 'cat-1', category: { name: 'Antibiotics' } }, [])?.reason).toMatch(/Give the category/);
     });
 
-    it('clears the flag when the default pack is deactivated', () => {
-        expect(packDefaultAfter(activeDefault, { status: 'INACTIVE' })).toEqual({ isDefault: false });
+    it('refuses both a manufacturer id and a name', () => {
+        expect(productRefusal({ ...PRODUCT, manufacturerId: 'm-1', manufacturer: { name: 'GSK' } }, [])?.reason).toMatch(/not both/);
     });
 
-    it('refuses to make an inactive pack the default', () => {
-        expect(packDefaultAfter(inactive, { isDefault: true })).toEqual({ reason: "An inactive pack can't be the default" });
-        expect(packDefaultAfter(activePlain, { status: 'INACTIVE', isDefault: true })).toEqual({ reason: "An inactive pack can't be the default" });
+    it('pairs a first price with its reason', () => {
+        expect(productRefusal({ ...PRODUCT, sellingUnitPrice: 2500 }, ['billable.price.create'])?.reason).toMatch(/needs a reason/);
+        expect(productRefusal({ ...PRODUCT, reason: 'Launch price' }, [])?.reason).toMatch(/needs a reason/);
     });
 
-    it('can reactivate a pack and make it the default together', () => {
-        expect(packDefaultAfter(inactive, { status: 'ACTIVE', isDefault: true })).toEqual({ isDefault: true });
+    it('needs billable.price.create to set a price', () => {
+        expect(productRefusal({ ...PRODUCT, sellingUnitPrice: 2500, reason: 'Launch price' }, [])).toEqual({
+            reason: 'Missing permission: billable.price.create', forbidden: true,
+        });
+        expect(productRefusal({ ...PRODUCT, sellingUnitPrice: 2500, reason: 'Launch price' }, ['billable.price.create'])).toBeNull();
+    });
+});
+
+describe('unitsChangeRefusal', () => {
+    const UNITS = { purchaseUnitName: 'Carton', sellingUnitsPerPurchaseUnit: 24, sellableInHalves: false };
+
+    it('needs the purchase unit and its size when an item is first stocked', () => {
+        expect(unitsChangeRefusal(null, {})?.reason).toMatch(/needs its purchaseUnitName and sellingUnitsPerPurchaseUnit/);
+        expect(unitsChangeRefusal(null, { purchaseUnitName: 'Carton', sellingUnitsPerPurchaseUnit: 24 })).toBeNull();
+    });
+
+    it('lets a product without stock change its units', () => {
+        expect(unitsChangeRefusal({ ...UNITS, hasStock: false }, { sellingUnitsPerPurchaseUnit: 12 })).toBeNull();
+    });
+
+    it('fixes the units once the product has stock, naming what was changed', () => {
+        expect(unitsChangeRefusal({ ...UNITS, hasStock: true }, { sellingUnitsPerPurchaseUnit: 12, sellableInHalves: true })?.reason)
+            .toBe("This product has stock, so sellingUnitsPerPurchaseUnit, sellableInHalves can't change. Add a new product instead");
+    });
+
+    it('accepts the same values again on a product with stock', () => {
+        expect(unitsChangeRefusal({ ...UNITS, hasStock: true }, { purchaseUnitName: 'Carton', sellingUnitsPerPurchaseUnit: 24 })).toBeNull();
     });
 });

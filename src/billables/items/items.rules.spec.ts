@@ -1,29 +1,29 @@
-import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, selfPayRefusal } from './items.rules';
+import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, selfPayRefusal } from './items.rules';
 
-const COST = { packCost: 1234.5, unitsPerPack: 100 };
+const COST = { purchaseUnitCost: 1234.5, sellingUnitsPerPurchaseUnit: 100 };
 const WITH_COST = ['billable.cost.create'];
 
 describe('selfPayRefusal', () => {
     describe('MANUAL', () => {
-        it('accepts an amount', () => {
-            expect(selfPayRefusal({ basis: 'MANUAL', amount: 4500 }, [])).toBeNull();
+        it('accepts a selling unit price', () => {
+            expect(selfPayRefusal({ basis: 'MANUAL', sellingUnitPrice: 4500 }, [])).toBeNull();
         });
 
-        it('accepts a zero amount (a free service still has a price line)', () => {
-            expect(selfPayRefusal({ basis: 'MANUAL', amount: 0 }, [])).toBeNull();
+        it('accepts a zero selling unit price (a free service still has a price line)', () => {
+            expect(selfPayRefusal({ basis: 'MANUAL', sellingUnitPrice: 0 }, [])).toBeNull();
         });
 
-        it('needs an amount', () => {
-            expect(selfPayRefusal({ basis: 'MANUAL' }, [])?.reason).toMatch(/needs an amount/);
+        it('needs a selling unit price', () => {
+            expect(selfPayRefusal({ basis: 'MANUAL' }, [])?.reason).toMatch(/needs a selling unit price/);
         });
 
         it('refuses a percent or cost', () => {
-            expect(selfPayRefusal({ basis: 'MANUAL', amount: 4500, percent: 10 }, [])?.reason).toMatch(/only an amount/);
-            expect(selfPayRefusal({ basis: 'MANUAL', amount: 4500, cost: COST }, [])?.reason).toMatch(/only an amount/);
+            expect(selfPayRefusal({ basis: 'MANUAL', sellingUnitPrice: 4500, percent: 10 }, [])?.reason).toMatch(/only a selling unit price/);
+            expect(selfPayRefusal({ basis: 'MANUAL', sellingUnitPrice: 4500, cost: COST }, [])?.reason).toMatch(/only a selling unit price/);
         });
 
         it("doesn't need the cost permission", () => {
-            expect(selfPayRefusal({ basis: 'MANUAL', amount: 4500 }, [])).toBeNull();
+            expect(selfPayRefusal({ basis: 'MANUAL', sellingUnitPrice: 4500 }, [])).toBeNull();
         });
     });
 
@@ -37,8 +37,8 @@ describe('selfPayRefusal', () => {
             expect(selfPayRefusal({ basis: 'MARKUP', cost: COST }, WITH_COST)?.reason).toMatch(/needs a percent and the cost/);
         });
 
-        it('refuses an amount', () => {
-            expect(selfPayRefusal({ basis: 'MARKUP', percent: 30, cost: COST, amount: 16 }, WITH_COST)?.reason).toMatch(/takes no amount/);
+        it('refuses a selling unit price', () => {
+            expect(selfPayRefusal({ basis: 'MARKUP', percent: 30, cost: COST, sellingUnitPrice: 16 }, WITH_COST)?.reason).toMatch(/takes no selling unit price/);
         });
 
         it('is forbidden without billable.cost.create, since it records the first cost', () => {
@@ -64,20 +64,20 @@ describe('itemUpdateRefusal', () => {
     });
 
     it("refuses a new unit once the item has held stock (PRD 15 §3.3)", () => {
-        expect(itemUpdateRefusal({ kind: 'PHARMACY', unit: 'tablet', hasStock: true }, null, 'strip').reason)
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnit: 'tablet', hasStock: true }, null, 'strip').reason)
             .toMatch(/stock counted in "tablet", so its unit can't change/);
     });
 
     it('treats a unit miss on an item without stock as not found, since that change would have succeeded', () => {
-        expect(itemUpdateRefusal({ kind: 'PHARMACY', unit: 'tablet', hasStock: false }, null, 'strip').reason).toBe('Billable item not found');
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnit: 'tablet', hasStock: false }, null, 'strip').reason).toBe('Billable item not found');
     });
 
     it('treats an unchanged unit as not found', () => {
-        expect(itemUpdateRefusal({ kind: 'PHARMACY', unit: 'tablet', hasStock: true }, null, 'tablet').reason).toBe('Billable item not found');
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnit: 'tablet', hasStock: true }, null, 'tablet').reason).toBe('Billable item not found');
     });
 
     it('reports the kind mismatch before the unit', () => {
-        expect(itemUpdateRefusal({ kind: 'LABORATORY', unit: 'test', hasStock: true }, 'PHARMACY', 'tablet').reason)
+        expect(itemUpdateRefusal({ kind: 'LABORATORY', sellingUnit: 'test', hasStock: true }, 'PHARMACY', 'tablet').reason)
             .toMatch(/same kind/);
     });
 });
@@ -116,5 +116,30 @@ describe('clinicPage', () => {
 
     it('is the plain list when nothing is linked', () => {
         expect(clinicPage(0, 40, 20)).toEqual({ linked: { skip: 40, take: 0 }, others: { skip: 40, take: 20 } });
+    });
+});
+
+describe('priceLineRefusal', () => {
+    it('accepts a self-pay MANUAL price', () => {
+        expect(priceLineRefusal({ basis: 'MANUAL', sellingUnitPrice: 2500 })).toBeNull();
+    });
+
+    it('keeps the self-pay line to MANUAL or MARKUP, with no agreement', () => {
+        expect(priceLineRefusal({ basis: 'DISCOUNT', percent: 10 })).toMatch(/self-pay line is MANUAL or MARKUP/);
+        expect(priceLineRefusal({ basis: 'MANUAL', sellingUnitPrice: 2500, agreementId: 'agr-1' })).toMatch(/Only a payer line/);
+    });
+
+    it('needs a TARIFF to carry its price and agreement', () => {
+        expect(priceLineRefusal({ basis: 'TARIFF', payerId: 'hyg', sellingUnitPrice: 15000, agreementId: 'agr-1' })).toBeNull();
+        expect(priceLineRefusal({ basis: 'TARIFF', payerId: 'hyg', sellingUnitPrice: 15000 })).toMatch(/agreement/);
+    });
+
+    it('needs a DISCOUNT percent strictly between 0 and 100', () => {
+        expect(priceLineRefusal({ basis: 'DISCOUNT', payerId: 'axa', percent: 15 })).toBeNull();
+        expect(priceLineRefusal({ basis: 'DISCOUNT', payerId: 'axa', percent: 100 })).toMatch(/between 0 and 100/);
+    });
+
+    it('refuses a price on a MARKUP line', () => {
+        expect(priceLineRefusal({ basis: 'MARKUP', percent: 30, sellingUnitPrice: 16 })).toMatch(/takes no selling unit price/);
     });
 });
