@@ -3,6 +3,7 @@ import { DatabaseService } from '../../database/database.service';
 import { $Enums } from '../../../generated/prisma/client';
 import { BatchQualityDto } from '@shared/contracts/inventory';
 import { batchCostPrice, qualityChangeRefusal, stockValue } from '../stock/stock.rules';
+import { roundUpToKobo } from '../../billables/pricing/pricing.rules';
 
 export type BatchesQuery = {
     itemId?:        string;
@@ -14,7 +15,7 @@ export type BatchesQuery = {
     offset:         number;
 };
 
-const productSelect = { select: { item: { select: { id: true, code: true, name: true, sellingUnit: true } } } };
+const productSelect = { select: { item: { select: { id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } } } } } };
 
 /** Batches (PRD 15 §6, §14.3): a product's lots, where their stock is, and their quality. */
 @Injectable()
@@ -91,7 +92,8 @@ export class BatchesService {
             return { ...shown, receiptItems: batch.receiptItems.map(({ purchaseUnitCost, ...item }) => item) };
         }
         const costPrice = batchCostPrice(batch.receiptItems);
-        return { ...shown, sellingUnitCostPrice: costPrice, value: stockValue(shown.sellingUnitQuantity, costPrice) };
+        // shown rounded up (D14); the value is worked out from the exact cost
+        return { ...shown, sellingUnitCostPrice: costPrice && roundUpToKobo(costPrice), value: stockValue(shown.sellingUnitQuantity, costPrice) };
     }
 
     /**

@@ -5,8 +5,11 @@ import {
     ValidateNested,
 } from 'class-validator';
 import { CatalogStatus } from '@shared/enums/billables/billables.enums';
+import { ServiceCategory } from '@shared/enums/billing/billing.enums';
+import { NewItemUnitDto } from '@shared/contracts/billables';
 import {
     BatchQuality, MedicineBodySystem, DosageForm, LegalCategory, MedicineRoute, PharmacyUnitType, ReceiptType, StockStatus, StorageCondition,
+    SupplierClaimSettlement,
 } from '@shared/enums/inventory/inventory.enums';
 
 // ── Medicines (PRD 15 §3.1) ──────────────────────────────────────────────────
@@ -139,9 +142,13 @@ export class UpdatePharmacyUnitDto {
 // ── Stocked products (PRD 15 §3.2–§4) ────────────────────────────────────────
 
 export class NewCategoryDto {
-    @ApiProperty({ example: 'Antibiotics', description: "Matched to the hospital's categories ignoring case and spacing, else created" })
+    @ApiProperty({ example: 'Drugs', description: "Matched to the hospital's categories ignoring case and spacing, else created" })
     @IsString() @MinLength(2)
     name!: string;
+
+    @ApiProperty({ enum: [ServiceCategory.PHARMACY, ServiceCategory.CONSUMABLE], required: false, default: ServiceCategory.PHARMACY, description: 'For a category created here' })
+    @IsIn([ServiceCategory.PHARMACY, ServiceCategory.CONSUMABLE]) @IsOptional()
+    kind?: ServiceCategory.PHARMACY | ServiceCategory.CONSUMABLE;
 }
 
 /** What `PUT /pharmacy/items/:itemId` sets on an existing catalogue item. Fields left out keep their value. */
@@ -155,9 +162,9 @@ export class StockItemDto {
     @ApiProperty({ required: false, description: 'NAFDAC registration number' }) @IsString() @IsOptional() registrationNo?: string;
     @ApiProperty({ required: false, example: 'B3', description: 'Where it sits in the pharmacy, if shelves are labelled' }) @IsString() @IsOptional() shelfNumber?: string;
 
-    @ApiProperty({ required: false, example: 'Carton', description: 'What it is bought in. Required when first stocked; fixed once it has stock' })
-    @IsString() @MinLength(1) @IsOptional()
-    purchaseUnitName?: string;
+    @ApiProperty({ required: false, description: 'What it is bought in: an item unit (GET /billables/item-units?use=PURCHASE). Required when first stocked; fixed once it has stock' })
+    @IsUUID() @IsOptional()
+    purchaseUnitId?: string;
 
     @ApiProperty({ required: false, example: 24, description: 'Selling units in one purchase unit. Required when first stocked; fixed once it has stock' })
     @IsInt() @Min(1) @IsOptional()
@@ -200,9 +207,13 @@ export class CreateStockedProductDto {
 
     @ApiProperty({ required: false }) @IsString() @IsOptional() description?: string;
 
-    @ApiProperty({ example: 'bottle', description: 'What one quantity sold means: bottle, card, vial. Stock is counted in it' })
-    @IsString() @MinLength(1)
-    sellingUnit!: string;
+    @ApiProperty({ required: false, description: 'What one quantity sold is: an item unit (GET /billables/item-units?use=SELLING&kind=PHARMACY); or give `sellingUnit`. Stock is counted in it' })
+    @IsUUID() @IsOptional()
+    sellingUnitId?: string;
+
+    @ApiProperty({ type: NewItemUnitDto, required: false, description: 'A selling unit typed by name: found, or added as the hospital\'s own' })
+    @ValidateNested() @Type(() => NewItemUnitDto) @IsOptional()
+    sellingUnit?: NewItemUnitDto;
 
     @ApiProperty({ 
         required: false, 
@@ -225,9 +236,13 @@ export class CreateStockedProductDto {
     @ApiProperty({ required: false, description: 'NAFDAC registration number' }) @IsString() @IsOptional() registrationNo?: string;
     @ApiProperty({ required: false, example: 'B3' }) @IsString() @IsOptional() shelfNumber?: string;
 
-    @ApiProperty({ example: 'Carton', description: 'What it is bought in' })
-    @IsString() @MinLength(1)
-    purchaseUnitName!: string;
+    @ApiProperty({ required: false, description: 'What it is bought in: an item unit (GET /billables/item-units?use=PURCHASE); or give `purchaseUnit`' })
+    @IsUUID() @IsOptional()
+    purchaseUnitId?: string;
+
+    @ApiProperty({ type: NewItemUnitDto, required: false, description: 'A purchase unit typed by name: found, or added as the hospital\'s own' })
+    @ValidateNested() @Type(() => NewItemUnitDto) @IsOptional()
+    purchaseUnit?: NewItemUnitDto;
 
     @ApiProperty({ example: 24, description: 'Selling units in one purchase unit' })
     @IsInt() @Min(1)
@@ -345,21 +360,43 @@ export class GoodsReceiptItemDto {
     @ValidateNested() @Type(() => CreateStockedProductDto) @IsOptional()
     newProduct?: CreateStockedProductDto;
 
-    @ApiProperty({ example: 50 }) @IsInt() @Min(0) purchaseUnitsDelivered!: number;
-    @ApiProperty({ example: 50, description: 'Only accepted purchase units enter stock' }) @IsInt() @Min(0) purchaseUnitsAccepted!: number;
-    @ApiProperty({ required: false, example: '1 carton crushed', description: 'Required when fewer were accepted than delivered' }) @IsString() @IsOptional() rejectReason?: string;
+    @ApiProperty({ example: 50, description: 'What the invoice line charges for' }) 
+    @IsInt() 
+    @Min(1) 
+    purchaseUnitsDelivered!: number;
 
-    @ApiProperty({ example: 50000, description: 'Cost of one purchase unit, as invoiced (naira, 2 dp)' })
-    @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
-    purchaseUnitCost!: number;
+    @ApiProperty({ example: 50, description: 'Only accepted purchase units enter stock' }) 
+    @IsInt() 
+    @Min(0) 
+    purchaseUnitsAccepted!: number;
 
-    @ApiProperty({ required: false, example: 'A123', description: 'Required for batch-tracked products, by posting' }) @IsString() @MinLength(1) @IsOptional() batchNumber?: string;
+    @ApiProperty({ required: false, example: '1 carton crushed', description: 'Required when fewer were accepted than delivered' }) 
+    @IsString() 
+    @IsOptional()
+    rejectReason?: string;
+
+    @ApiProperty({
+        example: 2500000,
+        description: 'What the invoice line says was paid for the purchase units delivered (naira, 2 dp). The cost of one purchase unit ' +
+            'is worked out from it, rounded up. For opening stock: what those purchase units are worth in total',
+    })
+    @IsNumber({ maxDecimalPlaces: 2 }) 
+    @Min(0)
+    invoiceLineTotal!: number;
+
+    @ApiProperty({ required: false, example: 'A123', description: 'Required for batch-tracked products, by posting' }) 
+    @IsString() 
+    @MinLength(1) 
+    @IsOptional() 
+    batchNumber?: string;
+    
     @ApiProperty({ required: false, example: '2027-06-30', description: 'Required for batch-tracked products. EXP 06/2027 is the last day of the month' })
     @IsDateString({ strict: true }) @IsOptional()
     expiryDate?: string;
     @ApiProperty({ required: false }) @IsDateString({ strict: true }) @IsOptional() manufacturedOn?: string;
 
-    @ApiProperty({ required: false, description: "Put away in this pharmacy unit instead of the receipt's (same branch)" }) @IsUUID() @IsOptional() putAwayPharmacyUnitId?: string;
+    @ApiProperty({ required: false, description: "Put away in this pharmacy unit instead of the receipt's (same branch)" }) @IsUUID() @IsOptional() 
+    putAwayPharmacyUnitId?: string;
 
     @ApiProperty({ enum: [StockStatus.AVAILABLE, StockStatus.QUARANTINE], required: false, description: "Defaults from the product's quarantineOnReceipt" })
     @IsIn([StockStatus.AVAILABLE, StockStatus.QUARANTINE]) @IsOptional()
@@ -382,6 +419,26 @@ export class AttachGoodsReceiptFilesDto {
     attachmentFileIds!: string[];
 
     @ApiProperty({ required: false, example: 'Invoice page 2' }) @IsString() @IsOptional() description?: string;
+}
+
+// ── Supplier credit claims (PRD 15 §10.5) ────────────────────────────────────
+
+export class SettleSupplierClaimDto {
+    @ApiProperty({ enum: SupplierClaimSettlement, description: 'How the supplier made it good' })
+    @IsEnum(SupplierClaimSettlement)
+    settledAs!: SupplierClaimSettlement;
+
+    @ApiProperty({ required: false, example: 'CN-2026-0114', description: "The supplier's credit note or refund reference" })
+    @IsString() @MinLength(1) @IsOptional()
+    settlementReference?: string;
+
+    @ApiProperty({ required: false, description: 'REPLACEMENT only: the posted delivery from the same supplier that brought the goods back' })
+    @IsUUID() @IsOptional()
+    replacementGoodsReceiptId?: string;
+}
+
+export class WaiveSupplierClaimDto {
+    @ApiProperty({ example: 'Supplier closed; amount too small to pursue' }) @IsString() @MinLength(3) reason!: string;
 }
 
 // ── Stock status and batch quality (PRD 15 §8.3, §14.3) ──────────────────────

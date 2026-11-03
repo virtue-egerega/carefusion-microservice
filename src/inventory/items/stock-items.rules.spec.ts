@@ -9,8 +9,8 @@ describe('stockItemRefusal', () => {
             expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: 'medicine-1', medicine: ACTIVE })).toBeNull();
         });
 
-        it('requires a PHARMACY item to name its medicine', () => {
-            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: null })?.reason).toBe('A PHARMACY item must name its medicine');
+        it('accepts a PHARMACY item without a medicine: sanitary pads, baby food', () => {
+            expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: null })).toBeNull();
         });
 
         it('keeps the medicine already linked when the change leaves it out', () => {
@@ -52,8 +52,8 @@ describe('stockItemRefusal', () => {
     });
 
     it('checks the medicine rule before the manufacturer', () => {
-        expect(stockItemRefusal({ kind: 'PHARMACY', medicineId: null, manufacturer: null })?.reason)
-            .toBe('A PHARMACY item must name its medicine');
+        expect(stockItemRefusal({ kind: 'CONSUMABLE', medicineId: 'medicine-1', manufacturer: null })?.reason)
+            .toMatch(/Only PHARMACY items name a medicine/);
     });
 });
 
@@ -88,11 +88,11 @@ describe('productRefusal', () => {
 });
 
 describe('unitsChangeRefusal', () => {
-    const UNITS = { purchaseUnitName: 'Carton', sellingUnitsPerPurchaseUnit: 24, sellableInHalves: false };
+    const UNITS = { purchaseUnitId: 'carton-id', sellingUnitsPerPurchaseUnit: 24, sellableInHalves: false };
 
     it('needs the purchase unit and its size when an item is first stocked', () => {
-        expect(unitsChangeRefusal(null, {})?.reason).toMatch(/needs its purchaseUnitName and sellingUnitsPerPurchaseUnit/);
-        expect(unitsChangeRefusal(null, { purchaseUnitName: 'Carton', sellingUnitsPerPurchaseUnit: 24 })).toBeNull();
+        expect(unitsChangeRefusal(null, {})?.reason).toMatch(/needs its purchaseUnitId and sellingUnitsPerPurchaseUnit/);
+        expect(unitsChangeRefusal(null, { purchaseUnitId: 'carton-id', sellingUnitsPerPurchaseUnit: 24 })).toBeNull();
     });
 
     it('lets a product without stock change its units', () => {
@@ -105,6 +105,6 @@ describe('unitsChangeRefusal', () => {
     });
 
     it('accepts the same values again on a product with stock', () => {
-        expect(unitsChangeRefusal({ ...UNITS, hasStock: true }, { purchaseUnitName: 'Carton', sellingUnitsPerPurchaseUnit: 24 })).toBeNull();
+        expect(unitsChangeRefusal({ ...UNITS, hasStock: true }, { purchaseUnitId: 'carton-id', sellingUnitsPerPurchaseUnit: 24 })).toBeNull();
     });
 });

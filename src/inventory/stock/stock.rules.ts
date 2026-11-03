@@ -1,6 +1,6 @@
 // Pure rules for PRD 15 §8, §12, §14.3 (no DB access) — unit-tested in stock.rules.spec.ts.
 import { Prisma } from '../../../generated/prisma/client';
-import { toKobo } from '../../billables/pricing/pricing.rules';
+import { roundUpToKobo } from '../../billables/pricing/pricing.rules';
 
 type Money = Prisma.Decimal | number | string;
 
@@ -119,9 +119,9 @@ export function batchCostPrice(items: { purchaseUnitCost: Money; purchaseUnitsAc
     return paid.div(units);
 }
 
-/** The value of a quantity at a batch's cost price, rounded once (§9.3, 12 D12). */
+/** The value of a quantity at a batch's cost price, rounded up once (§9.3, D14). */
 export const stockValue = (sellingUnits: Money, costPrice: Prisma.Decimal | null) =>
-    costPrice ? toKobo(costPrice.mul(sellingUnits)) : null;
+    costPrice ? roundUpToKobo(costPrice.mul(sellingUnits)) : null;
 
 /** Which expiry group a batch is in today (§12.2): expired, within the window, or neither. */
 export function expiryGroup(expiryDate: Date | null, today: Date, windowDays: number): 'EXPIRED' | 'EXPIRING' | null {

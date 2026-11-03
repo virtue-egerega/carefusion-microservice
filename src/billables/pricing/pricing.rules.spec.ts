@@ -1,6 +1,6 @@
 import { Prisma } from '../../../generated/prisma/client';
 import {
-    belowCostWarning, discounted, lineAmount, markupPrice, resolvePrice, selfPayAmount, selfPayChargePrice, sellingUnitCostPrice, visiblePrice,
+    belowCostWarning, discounted, lineAmount, markupPrice, resolvePrice, roundUpToKobo, selfPayAmount, selfPayChargePrice, sellingUnitCostPrice, visiblePrice,
 } from './pricing.rules';
 
 const d = (v: number) => new Prisma.Decimal(v);
@@ -237,11 +237,23 @@ describe('sellingUnitCostPrice', () => {
     });
 });
 
+describe('roundUpToKobo', () => {
+    it('rounds a cost up to the kobo, never down', () => {
+        expect(roundUpToKobo(d(100000).div(3)).toFixed(2)).toBe('33333.34');
+        expect(roundUpToKobo(d(2500000).div(1200)).toFixed(2)).toBe('2083.34');
+    });
+
+    it('leaves a whole-kobo amount as it is', () => {
+        expect(roundUpToKobo(d(2500000).div(50)).toFixed(2)).toBe('50000.00');
+        expect(roundUpToKobo(d(10).div(10)).toFixed(2)).toBe('1.00');
+    });
+});
+
 describe('belowCostWarning', () => {
     const CARTON = { purchaseUnitCost: d(50000), sellingUnitsPerPurchaseUnit: 24 };
 
     it('warns when the selling price is under the cost price of one selling unit', () => {
-        expect(belowCostWarning(2000, CARTON, 'bottle')).toBe('Selling price ₦2,000.00 is below the cost price ₦2,083.33 per bottle');
+        expect(belowCostWarning(2000, CARTON, 'bottle')).toBe('Selling price ₦2,000.00 is below the cost price ₦2,083.34 per bottle');
     });
 
     it('compares against the exact cost, not the rounded one', () => {

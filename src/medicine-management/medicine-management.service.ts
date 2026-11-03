@@ -174,7 +174,7 @@ export class MedicineManagementService {
                     select:  {
                         brandName:    true,
                         manufacturer: { select: { id: true, name: true } },
-                        item:         { select: { id: true, code: true, name: true, sellingUnit: true, status: true } },
+                        item:         { select: { id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } }, status: true } },
                     },
                     orderBy: { item: { name: 'asc' } },
                 },

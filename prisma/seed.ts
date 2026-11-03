@@ -7,6 +7,7 @@ import { AccessControlService } from '../src/access-control/access-control.servi
 import { parseIcd10Chapters, parseIcd10Codes, parseIcd10Groups } from '../src/consultations/rules/icd10-file';
 import { medicineKey, parseMedicines, useName } from '../src/medicine-management/medicines-file';
 import { mainPharmacyStore } from '../src/inventory/pharmacy-units/pharmacy-units.rules';
+import { ITEM_UNIT_CATALOG } from '../src/billables/item-units/item-units.catalog';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -176,6 +177,19 @@ async function seedMedicines() {
     console.log(`✓ ${medicines.length} medicines from ${names.length} file(s) (${added.length} added, ${medicines.length - added.length} already there); ${codes.length} therapeutic uses (${usesAdded} added)`);
 }
 
+// The item units CareFusion provides (15 §4.1), from src/billables/item-units/item-units.catalog.ts. Insert-only:
+// units already there (by name, any case) are left as they are, so hospitals' use of them never changes.
+async function seedItemUnits() {
+    const existing = new Set(
+        (await prisma.itemUnit.findMany({ where: { organizationId: null }, select: { name: true } })).map(u => u.name.toLowerCase()),
+    );
+    const missing = ITEM_UNIT_CATALOG.filter(u => !existing.has(u.name.toLowerCase()));
+    if (missing.length) {
+        await prisma.itemUnit.createMany({ data: missing.map(u => ({ ...u, kinds: u.kinds as $Enums.ServiceCategory[] })) });
+    }
+    console.log(`✓ Item units: ${ITEM_UNIT_CATALOG.length} seeded (${missing.length} added)`);
+}
+
 // The main pharmacy store for branches created before stores came with every branch (15 §7.1). Insert-only:
 // a branch that already has a store is left alone.
 async function seedPharmacyStores() {
@@ -196,6 +210,7 @@ async function main() {
     await seedAccessControl();
     await seedDiagnosisCodes();
     await seedMedicines();
+    await seedItemUnits();
     await seedPharmacyStores();
     console.log('Done.');
 }

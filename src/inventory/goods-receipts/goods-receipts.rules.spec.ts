@@ -1,6 +1,6 @@
 import { Prisma } from '../../../generated/prisma/client';
 import {
-    PostingItem, costRolls, goodsReceiptTotals, postingProblems, priceWarning, goodsReceiptItemProductRefusal, goodsReceiptItemRefusal, goodsReceiptNumber, goodsReceiptSupplierRefusal, sellingUnitsAdded,
+    PostingItem, acceptedValue, amountOwed, costRolls, goodsReceiptTotals, purchaseUnitCostFromLineTotal, postingProblems, priceWarning, goodsReceiptItemProductRefusal, goodsReceiptItemRefusal, goodsReceiptNumber, goodsReceiptSupplierRefusal, sellingUnitsAdded,
 } from './goods-receipts.rules';
 
 const d = (v: number) => new Prisma.Decimal(v);
@@ -55,6 +55,16 @@ describe('goodsReceiptItemRefusal', () => {
     it('needs a reason to leave the cost price alone', () => {
         expect(goodsReceiptItemRefusal({ purchaseUnitsDelivered: 1, purchaseUnitsAccepted: 1, updateCost: false })).toMatch(/keepCostReason/);
         expect(goodsReceiptItemRefusal({ purchaseUnitsDelivered: 1, purchaseUnitsAccepted: 1, updateCost: false, keepCostReason: 'Donated' })).toBeNull();
+    });
+
+    it('needs at least one purchase unit delivered: the cost of one is divided out of the line total', () => {
+        expect(goodsReceiptItemRefusal({ purchaseUnitsDelivered: 0, purchaseUnitsAccepted: 0 })).toMatch(/At least one purchase unit/);
+    });
+
+    it("refuses rejections on opening stock: there's no supplier to owe them", () => {
+        expect(goodsReceiptItemRefusal({ receiptType: 'OPENING', purchaseUnitsDelivered: 10, purchaseUnitsAccepted: 9, rejectReason: 'Broken' }))
+            .toMatch(/Opening stock can't reject/);
+        expect(goodsReceiptItemRefusal({ receiptType: 'DELIVERY', purchaseUnitsDelivered: 10, purchaseUnitsAccepted: 9, rejectReason: 'Broken' })).toBeNull();
     });
 });
 
@@ -162,24 +172,69 @@ describe('priceWarning', () => {
     });
 });
 
+describe('purchaseUnitCostFromLineTotal', () => {
+    it('divides the line total by the purchase units delivered', () => {
+        expect(purchaseUnitCostFromLineTotal(2500000, 50).toFixed(2)).toBe('50000.00');
+        expect(purchaseUnitCostFromLineTotal(10, 10).toFixed(2)).toBe('1.00');
+    });
+
+    it('rounds up, never down: 3 cartons for 100,000 cost 33,333.34 each', () => {
+        expect(purchaseUnitCostFromLineTotal(100000, 3).toFixed(2)).toBe('33333.34');
+        expect(purchaseUnitCostFromLineTotal(d(100), 7).toFixed(2)).toBe('14.29');
+    });
+});
+
+describe('acceptedValue and amountOwed', () => {
+    it('splits the line between what entered stock and what the supplier owes', () => {
+        // 10 paid for 10 delivered, 3 accepted
+        const line = { purchaseUnitsDelivered: 10, purchaseUnitsAccepted: 3, purchaseUnitCost: d(1), invoiceLineTotal: d(10) };
+        expect(acceptedValue(line).toFixed(2)).toBe('3.00');
+        expect(amountOwed(line).toFixed(2)).toBe('7.00');
+    });
+
+    it('owes nothing when everything was accepted', () => {
+        expect(amountOwed({ purchaseUnitsDelivered: 50, purchaseUnitsAccepted: 50, purchaseUnitCost: d(50000), invoiceLineTotal: d(2500000) }).toFixed(2)).toBe('0.00');
+    });
+
+    it('claims the rounded-up cost for each rejected unit', () => {
+        const line = { purchaseUnitsDelivered: 3, purchaseUnitsAccepted: 2, purchaseUnitCost: d(33333.34), invoiceLineTotal: d(100000) };
+        expect(amountOwed(line).toFixed(2)).toBe('33333.34');
+        expect(acceptedValue(line).toFixed(2)).toBe('66666.68');
+    });
+
+    it('never claims more than was paid for the line', () => {
+        // all 3 turned away: 100,000.00, not 3 × 33,333.34 = 100,000.02
+        expect(amountOwed({ purchaseUnitsDelivered: 3, purchaseUnitsAccepted: 0, purchaseUnitCost: d(33333.34), invoiceLineTotal: d(100000) }).toFixed(2))
+            .toBe('100000.00');
+    });
+});
+
 describe('goodsReceiptTotals', () => {
     const ITEMS = [
-        // 20 cartons delivered, 19 accepted (1 crushed) at 3,500; 50 cartons at 50,000
-        { purchaseUnitsDelivered: 20, purchaseUnitsAccepted: 19, purchaseUnitCost: d(3500) },
-        { purchaseUnitsDelivered: 50, purchaseUnitsAccepted: 50, purchaseUnitCost: d(50000) },
+        // 20 cartons delivered for 70,000, 19 accepted (1 crushed) at 3,500; 50 cartons for 2,500,000 at 50,000
+        { purchaseUnitsDelivered: 20, purchaseUnitsAccepted: 19, purchaseUnitCost: d(3500), invoiceLineTotal: d(70000) },
+        { purchaseUnitsDelivered: 50, purchaseUnitsAccepted: 50, purchaseUnitCost: d(50000), invoiceLineTotal: d(2500000) },
     ];
 
-    it('adds up what was delivered, accepted and handed back', () => {
+    it('adds up what was delivered, accepted and is owed by the supplier', () => {
         const totals = goodsReceiptTotals(ITEMS, null);
         expect(totals.deliveredValue.toFixed(2)).toBe('2570000.00');
         expect(totals.acceptedValue.toFixed(2)).toBe('2566500.00');
-        expect(totals.rejectedValue.toFixed(2)).toBe('3500.00');
+        expect(totals.owedBySupplier.toFixed(2)).toBe('3500.00');
         expect(totals.invoiceDifference).toBeNull();
     });
 
     it('shows how far the lines are from the printed invoice total', () => {
         expect(goodsReceiptTotals(ITEMS, d(2570000)).invoiceDifference?.toFixed(2)).toBe('0.00');
-        // a line typed as 5,000 instead of 50,000 shows up
-        expect(goodsReceiptTotals([ITEMS[0], { ...ITEMS[1], purchaseUnitCost: d(5000) }], d(2570000)).invoiceDifference?.toFixed(2)).toBe('2250000.00');
+        // a line total typed as 250,000 instead of 2,500,000 shows up
+        expect(goodsReceiptTotals([ITEMS[0], { ...ITEMS[1], purchaseUnitCost: d(5000), invoiceLineTotal: d(250000) }], d(2570000)).invoiceDifference?.toFixed(2))
+            .toBe('2250000.00');
+    });
+
+    it('lets accepted and owed come to a few kobo over what was paid when costs round up', () => {
+        const totals = goodsReceiptTotals([{ purchaseUnitsDelivered: 3, purchaseUnitsAccepted: 2, purchaseUnitCost: d(33333.34), invoiceLineTotal: d(100000) }], d(100000));
+        expect(totals.deliveredValue.toFixed(2)).toBe('100000.00');
+        expect(totals.acceptedValue.plus(totals.owedBySupplier).toFixed(2)).toBe('100000.02');
+        expect(totals.invoiceDifference?.toFixed(2)).toBe('0.00');
     });
 });

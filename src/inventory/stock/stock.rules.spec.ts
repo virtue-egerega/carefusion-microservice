@@ -132,8 +132,15 @@ describe('batchCostPrice and stockValue', () => {
     });
 
     it('values a quantity at the exact cost, rounded once', () => {
+        // 120 × 2,083.33… is exactly 250,000.00, not 120 × a rounded 2,083.34 = 250,000.80
         const cost = batchCostPrice([{ purchaseUnitCost: d(50000), purchaseUnitsAccepted: 5, sellingUnitsPerPurchaseUnit: 24 }]);
         expect(stockValue(120, cost)?.toFixed(2)).toBe('250000.00');
+    });
+
+    it('rounds a value up, never down', () => {
+        // 1 bottle at 2,083.33… is 2,083.34
+        const cost = batchCostPrice([{ purchaseUnitCost: d(50000), purchaseUnitsAccepted: 5, sellingUnitsPerPurchaseUnit: 24 }]);
+        expect(stockValue(1, cost)?.toFixed(2)).toBe('2083.34');
     });
 
     it('has no cost when nothing was accepted', () => {

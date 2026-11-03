@@ -17,8 +17,10 @@ export class StockItemsController {
 
     @ApiOperation({
         summary: `Add a product: what the pharmacy stocks, its selling unit and purchase unit (PRD 15 §3.3)`,
-        description: `Creates the billable item and its stock settings together. \`categoryId\`, or \`category: { name }\` to find ` +
-        `or create one (PHARMACY for a drug, else CONSUMABLE); \`manufacturerId\`, or \`manufacturer: { name }\` likewise. ` +
+        description: `Creates the billable item and its stock settings together. \`categoryId\`, or \`category: { name, kind? }\` to find ` +
+        `or create one (kind PHARMACY unless given); \`manufacturerId\`, or \`manufacturer: { name }\` likewise. Units from the item unit ` +
+        `list: \`sellingUnitId\` or \`sellingUnit: { name }\`, and \`purchaseUnitId\` or \`purchaseUnit: { name }\` (a typed unit is found or ` +
+        `added as the hospital's own). \`medicineId\` makes it a drug; sanitary pads and baby food have none. ` +
         `A first self-pay price per selling unit is optional (\`sellingUnitPrice\` + \`reason\`, needs billable.price.create); ` +
         `without one the product can't be charged yet. Returns \`{ id, message }\`.`,
     })
@@ -30,8 +32,8 @@ export class StockItemsController {
 
     @ApiOperation({
         summary: `Make an existing billable item stocked, or update its stock settings (PRD 15 §3.2)`,
-        description: `A PHARMACY item must name its medicine (a seeded medicine or the hospital's own); other kinds can't. ` +
-        `purchaseUnitName and sellingUnitsPerPurchaseUnit are required when first stocked; the units are fixed once it has stock. ` +
+        description: `Only a PHARMACY item can name a medicine (a seeded medicine or the hospital's own), and it's optional. ` +
+        `\`purchaseUnitId\` and \`sellingUnitsPerPurchaseUnit\` are required when first stocked; the units are fixed once it has stock. ` +
         `Fields left out keep their value.`,
     })
     @Authorize('pharmacy.item.manage')

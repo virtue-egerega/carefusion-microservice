@@ -63,21 +63,21 @@ describe('itemUpdateRefusal', () => {
         expect(itemUpdateRefusal({ kind: 'LABORATORY' }, 'LABORATORY').reason).toBe('Billable item not found');
     });
 
-    it("refuses a new unit once the item has held stock (PRD 15 §3.3)", () => {
-        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnit: 'tablet', hasStock: true }, null, 'strip').reason)
-            .toMatch(/stock counted in "tablet", so its unit can't change/);
+    it("refuses a new selling unit once the item has held stock (PRD 15 §3.4)", () => {
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnitId: 'tablet-id', sellingUnitName: 'Tablet', hasStock: true }, null, 'card-id').reason)
+            .toBe("This item has stock counted in Tablet, so its selling unit can't change. Create a new item instead");
     });
 
     it('treats a unit miss on an item without stock as not found, since that change would have succeeded', () => {
-        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnit: 'tablet', hasStock: false }, null, 'strip').reason).toBe('Billable item not found');
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnitId: 'tablet-id', hasStock: false }, null, 'card-id').reason).toBe('Billable item not found');
     });
 
     it('treats an unchanged unit as not found', () => {
-        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnit: 'tablet', hasStock: true }, null, 'tablet').reason).toBe('Billable item not found');
+        expect(itemUpdateRefusal({ kind: 'PHARMACY', sellingUnitId: 'tablet-id', hasStock: true }, null, 'tablet-id').reason).toBe('Billable item not found');
     });
 
     it('reports the kind mismatch before the unit', () => {
-        expect(itemUpdateRefusal({ kind: 'LABORATORY', sellingUnit: 'test', hasStock: true }, 'PHARMACY', 'tablet').reason)
+        expect(itemUpdateRefusal({ kind: 'LABORATORY', sellingUnitId: 'test-id', hasStock: true }, 'PHARMACY', 'tablet-id').reason)
             .toMatch(/same kind/);
     });
 });

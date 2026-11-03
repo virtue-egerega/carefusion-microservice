@@ -38,16 +38,16 @@ export function selfPayRefusal(selfPay: SelfPayInput, permissions: string[]): Re
  * runs only after it failed, to say whether the item is missing, the kinds differ, or the selling unit is locked.
  */
 export function itemUpdateRefusal(
-    found: { kind: string; sellingUnit?: string; hasStock?: boolean } | null,
+    found: { kind: string; sellingUnitId?: string; sellingUnitName?: string; hasStock?: boolean } | null,
     targetKind: string | null,
-    newSellingUnit?: string,
+    newSellingUnitId?: string,
 ): Refusal {
     if (!found) return { reason: 'Billable item not found' };
     if (targetKind && found.kind !== targetKind) {
         return { reason: `An item can only move to a category of the same kind (${found.kind}, not ${targetKind}), so its plan benefit doesn't change` };
     }
-    if (newSellingUnit !== undefined && found.hasStock && found.sellingUnit !== newSellingUnit) {
-        return { reason: `This item has stock counted in "${found.sellingUnit}", so its selling unit can't change. Create a new item instead` };
+    if (newSellingUnitId !== undefined && found.hasStock && found.sellingUnitId !== newSellingUnitId) {
+        return { reason: `This item has stock counted in ${found.sellingUnitName ?? 'its selling unit'}, so its selling unit can't change. Create a new item instead` };
     }
     return { reason: 'Billable item not found' };
 }

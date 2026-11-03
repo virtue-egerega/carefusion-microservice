@@ -5,6 +5,7 @@ import { $Enums } from '../../../generated/prisma/client';
 import { CreateStockedProductDto, StockItemDto } from '@shared/contracts/inventory';
 import { visibleMedicines } from '../../medicine-management/medicines.rules';
 import { findOrCreateCategory, findOrCreateManufacturer } from '../find-or-create';
+import { findItemUnit } from '../../billables/item-units/find-item-unit';
 import { productRefusal, stockItemRefusal, unitsChangeRefusal } from './stock-items.rules';
 
 const NOT_STOCKED = 'Stocked item not found';
@@ -25,12 +26,13 @@ export type StockItemsQuery = {
 const stockItemInclude = {
     item:         {
         select: {
-            id: true, code: true, name: true, sellingUnit: true, status: true,
+            id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } }, status: true,
             category: { select: { id: true, name: true, kind: true } },
         },
     },
     medicine:     { select: { id: true, genericName: true, strength: true, dosageForm: true, route: true, legalCategory: true, controlled: true } },
     manufacturer: { select: { id: true, name: true } },
+    purchaseUnit: { select: { id: true, name: true, pluralName: true } },
 };
 
 /** Selling units held per status, keyed by item (zero for statuses with none). */
@@ -56,7 +58,8 @@ export class StockItemsService {
 
         const {
             categoryId, category: newCategory, manufacturerId, manufacturer: newManufacturer, medicineId,
-            code, name, description, sellingUnit, sellingUnitPrice, reason, storageCondition, ...stock
+            code, name, description, sellingUnitId, sellingUnit, purchaseUnitId, purchaseUnit, sellingUnitPrice, reason, storageCondition,
+            ...stock
         } = dto;
 
         const { id } = await withConstraintErrors(
@@ -69,7 +72,7 @@ export class StockItemsService {
                 ]);
 
                 const category = newCategory
-                    ? await findOrCreateCategory(this.databaseService, organizationId, { name: newCategory.name, kind: medicineId ? 'PHARMACY' : 'CONSUMABLE' }, createdBy)
+                    ? await findOrCreateCategory(this.databaseService, organizationId, { name: newCategory.name, kind: newCategory.kind ?? 'PHARMACY' }, createdBy)
                     : categoryById;
                 if (!category) throw new NotFoundException('Billable category not found');
                 if (category.status !== 'ACTIVE') throw new BadRequestException('That category is inactive');
@@ -86,6 +89,12 @@ export class StockItemsService {
                 });
                 if (stockRefusal) throw stockRefusal.notFound ? new NotFoundException(stockRefusal.reason) : new BadRequestException(stockRefusal.reason);
 
+                // picked or typed, each must be offered for its use and the category's kind (§4.1)
+                const units = {
+                    selling:  await findItemUnit(this.databaseService, organizationId, { label: 'sellingUnit', id: sellingUnitId, byName: sellingUnit }, 'SELLING', category.kind, createdBy),
+                    purchase: await findItemUnit(this.databaseService, organizationId, { label: 'purchaseUnit', id: purchaseUnitId, byName: purchaseUnit }, 'PURCHASE', category.kind, createdBy),
+                };
+
                 return tx.billableItem.create({
                     data: {
                         organizationId,
@@ -93,11 +102,12 @@ export class StockItemsService {
                         code,
                         name,
                         description,
-                        sellingUnit,
+                        sellingUnitId: units.selling.id,
                         createdBy,
                         stockItem: {
                             create: {
                                 ...stock,
+                                purchaseUnitId:   units.purchase.id,
                                 medicineId,
                                 manufacturerId:   manufacturer?.id,
                                 storageCondition: storageCondition as $Enums.StorageCondition | undefined,
@@ -133,7 +143,7 @@ export class StockItemsService {
                     category:  { select: { kind: true } },
                     stockItem: {
                         select: {
-                            medicineId: true, purchaseUnitName: true, sellingUnitsPerPurchaseUnit: true, sellableInHalves: true,
+                            medicineId: true, purchaseUnitId: true, sellingUnitsPerPurchaseUnit: true, sellableInHalves: true,
                             _count: { select: { batches: true } },
                         },
                     },
@@ -151,9 +161,12 @@ export class StockItemsService {
             manufacturer: dto.manufacturerId ? manufacturer : undefined,
         }) ?? unitsChangeRefusal(
             item.stockItem && { ...item.stockItem, hasStock: item.stockItem._count.batches > 0 },
-            { purchaseUnitName: dto.purchaseUnitName, sellingUnitsPerPurchaseUnit: dto.sellingUnitsPerPurchaseUnit, sellableInHalves: dto.sellableInHalves },
+            { purchaseUnitId: dto.purchaseUnitId, sellingUnitsPerPurchaseUnit: dto.sellingUnitsPerPurchaseUnit, sellableInHalves: dto.sellableInHalves },
         );
         if (refusal) throw refusal.notFound ? new NotFoundException(refusal.reason) : new BadRequestException(refusal.reason);
+        if (dto.purchaseUnitId) {
+            await findItemUnit(this.databaseService, organizationId, { label: 'purchaseUnit', id: dto.purchaseUnitId }, 'PURCHASE', item.category.kind, userId);
+        }
 
         const data = { ...dto, storageCondition: dto.storageCondition as $Enums.StorageCondition | undefined };
         await client.stockItem.upsert({
@@ -161,7 +174,7 @@ export class StockItemsService {
             // unitsChangeRefusal has made sure both are present when the item is first stocked
             create: {
                 ...data,
-                purchaseUnitName:            dto.purchaseUnitName!,
+                purchaseUnitId:              dto.purchaseUnitId!,
                 sellingUnitsPerPurchaseUnit: dto.sellingUnitsPerPurchaseUnit!,
                 itemId, organizationId, createdBy: userId,
             },

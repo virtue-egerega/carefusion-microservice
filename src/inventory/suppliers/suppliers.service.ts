@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { withConstraintErrors } from '../../database/prisma-errors';
-import { $Enums } from '../../../generated/prisma/client';
+import { $Enums, Prisma } from '../../../generated/prisma/client';
 import { CreateSupplierDto, UpdateSupplierDto } from '@shared/contracts/inventory';
 import { loadActors, withActors } from '../../billables/actors';
 
@@ -45,12 +45,30 @@ export class SuppliersService {
         return { count, docs };
     }
 
-    async findOne(supplierId: string, organizationId: string) {
-        const supplier = await this.databaseService.client.supplier.findFirst({ where: { id: supplierId, organizationId } });
+    /**
+     * One supplier, and to whoever manages supplier claims, what it still owes the hospital (§10.5):
+     * `amountOutstanding` and `outstandingClaimCount`.
+     */
+    async findOne(supplierId: string, organizationId: string, permissions: string[]) {
+        const client = this.databaseService.client;
+        const canSeeClaims = permissions.includes('pharmacy.supplier.claim.manage');
+        const [supplier, owed] = await Promise.all([
+            client.supplier.findFirst({ where: { id: supplierId, organizationId } }),
+            canSeeClaims
+                ? client.supplierCreditClaim.aggregate({
+                    where:  { supplierId, organizationId, status: $Enums.SupplierClaimStatus.OUTSTANDING },
+                    _count: { _all: true },
+                    _sum:   { amountOwed: true },
+                })
+                : null,
+        ]);
         if (!supplier) throw new NotFoundException('Supplier not found');
 
         const actors = await loadActors(this.databaseService, [supplier.createdBy, supplier.updatedBy]);
-        return withActors(supplier, actors);
+        const shown = withActors(supplier, actors);
+        return owed
+            ? { ...shown, amountOutstanding: owed._sum.amountOwed ?? new Prisma.Decimal(0), outstandingClaimCount: owed._count._all }
+            : shown;
     }
 
     async update(supplierId: string, dto: UpdateSupplierDto, organizationId: string, updatedBy: string) {

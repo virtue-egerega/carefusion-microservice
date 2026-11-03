@@ -39,7 +39,7 @@ Agreed during design review, 2026-10-20. Each is elaborated in the section shown
 | D9 | **Tariffs point at a `PayerAgreement`** (reference, dates, document), so every tariff amount can be traced to the contract that set it. | 7 |
 | D10 | **A payer's price for an item is found in this order:** the payer's own price line for the item; otherwise the payer's default discount off self-pay; otherwise the self-pay price. The result always records the basis, where it came from (`PAYER_LINE`, `PAYER_DISCOUNT`, `SELF_PAY`), and every row used. | 9 |
 | D11 | **History is never edited or deleted.** Prices, costs and discounts are dated rows. A change closes the current row and adds a new one. Backdating is not allowed. A December charge can always be explained with December's figures. | 6.3 |
-| D12 | **Money is stored to 2 decimal places (kobo), never more.** Cost is stored as the cost of one purchase unit and the number of selling units in it, exactly as invoiced, so no per-unit fraction of a kobo is ever stored. A worked-out price is rounded half-up to 2 places **once**, at the end. `Charge.quantity` becomes a `Decimal` (§12). | 5, 9.2 |
+| D12 | **Money is stored to 2 decimal places (kobo), never more.** Cost is stored as the cost of one purchase unit and the number of selling units in it, so no per-unit fraction of a kobo is ever stored. A purchase unit cost worked out from an invoice line, and the cost price per selling unit, are rounded **up**, never down, so cost is never understated (`15` D14, 2026-11-03). A worked-out price is rounded half-up to 2 places **once**, at the end. `Charge.quantity` becomes a `Decimal` (§12). | 5, 9.2 |
 | D13 | **Billables has its own `billable.*` permissions, one per action**: creating a category, an item, a price line or a cost are separate keys. Price, cost and discount changes always need a reason. Cost has its own view key, because it reveals the hospital's margin. | 10 |
 | D14 | **Payers can be deactivated.** A deactivated payer keeps its price, agreement and discount history but can't be given new ones and can't be priced for. | 8.2 |
 
@@ -136,7 +136,7 @@ model BillableItem {
   code           String                        // hospital's own code, e.g. "LAB-FBC"; unique per org
   name           String                        // "Full Blood Count"
   description    String?
-  sellingUnit    String                        // what one quantity sold means: "test", "visit", "day", "bottle", "card"
+  sellingUnitId  String                        // what one quantity sold is: an ItemUnit ("Test", "Visit", "Bottle"), PRD 15 §4.1
   status         CatalogStatus    @default(ACTIVE)
   createdAt      DateTime         @default(now())
   createdBy      String
@@ -239,15 +239,18 @@ Encounter start charges whichever `billableItemId` it's sent. Whether this visit
 
 ### 5.1 `ItemCostPrice`
 
-What the hospital pays for an item it buys, stored **as invoiced**: the cost of one purchase unit
-(the carton, cup or box it was bought in) and how many selling units that purchase unit holds. The
-cost price of one selling unit is worked out from the two, never stored.
+What the hospital pays for an item it buys: the cost of one purchase unit (the carton, cup or box it
+was bought in) and how many selling units that purchase unit holds. The cost price of one selling unit
+is worked out from the two, rounded up to the kobo, never stored. A goods receipt sets the purchase unit
+cost from its invoice line: the line total ÷ purchase units delivered, rounded up (`15` §10.1), so
+₦100,000.00 for 3 cartons is ₦33,333.34 a carton. Rounding up keeps the cost payers are priced from
+slightly over what was paid, never under.
 
 ```prisma
 model ItemCostPrice {
   id            String       @id @default(uuid())
   itemId        String
-  purchaseUnitCost            Decimal  @db.Decimal(14, 2) // ₦50,000.00 for the carton, as invoiced
+  purchaseUnitCost            Decimal  @db.Decimal(14, 2) // ₦50,000.00 for the carton (from a receipt: its line total ÷ cartons, rounded up)
   sellingUnitsPerPurchaseUnit Int      @default(1)        // 24 bottles in that carton; 1 for a service bought per unit
   effectiveFrom DateTime                          // inclusive
   effectiveTo   DateTime?                         // exclusive; null = open-ended

@@ -170,3 +170,15 @@ export enum ReceiptStatus {
     POSTED = 'POSTED',
     CANCELLED = 'CANCELLED',
 }
+
+export enum SupplierClaimStatus {
+    OUTSTANDING = 'OUTSTANDING',
+    SETTLED = 'SETTLED',
+    WAIVED = 'WAIVED',
+}
+
+export enum SupplierClaimSettlement {
+    CREDIT_NOTE = 'CREDIT_NOTE',
+    REFUND = 'REFUND',
+    REPLACEMENT = 'REPLACEMENT',
+}

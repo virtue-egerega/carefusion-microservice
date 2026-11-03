@@ -1,7 +1,7 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-    ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsDate, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Max,
+    ArrayMaxSize, ArrayNotEmpty, ArrayUnique, IsArray, IsBoolean, IsDate, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Max,
     Min, MinLength, ValidateNested,
 } from 'class-validator';
 import { ServiceCategory } from '@shared/enums/billing/billing.enums';
@@ -24,6 +24,32 @@ export class CreateBillableCategoryDto {
 
 export class UpdateBillableCategoryDto extends PartialType(CreateBillableCategoryDto) {
     @ApiProperty({ enum: CatalogStatus, required: false, description: 'INACTIVE hides it from new items; its items can no longer be priced' })
+    @IsEnum(CatalogStatus) @IsOptional()
+    status?: CatalogStatus;
+}
+
+// ── Item units (PRD 15 §4.1) ─────────────────────────────────────────────────
+
+export class NewItemUnitDto {
+    @ApiProperty({ example: 'Strip', description: `Matched to a seeded or the hospital's own unit by name or plural, any case; else added as the hospital's own` })
+    @IsString() @MinLength(1)
+    name!: string;
+}
+
+export class CreateItemUnitDto {
+    @ApiProperty({ example: 'Strip' }) @IsString() @MinLength(1) name!: string;
+    @ApiProperty({ required: false, example: 'Strips', description: 'Defaults to the name' }) @IsString() @MinLength(1) @IsOptional() pluralName?: string;
+
+    @ApiProperty({ enum: ServiceCategory, isArray: true, example: [ServiceCategory.PHARMACY], description: 'The kinds of item it belongs to' })
+    @IsArray() @ArrayNotEmpty() @ArrayUnique() @IsEnum(ServiceCategory, { each: true })
+    kinds!: ServiceCategory[];
+
+    @ApiProperty({ description: 'Offered as a selling unit' }) @IsBoolean() usedForSelling!: boolean;
+    @ApiProperty({ description: 'Offered as a purchase unit' }) @IsBoolean() usedForPurchase!: boolean;
+}
+
+export class UpdateItemUnitDto extends PartialType(CreateItemUnitDto) {
+    @ApiProperty({ enum: CatalogStatus, required: false, description: 'INACTIVE: no longer offered; items already using it keep it' })
     @IsEnum(CatalogStatus) @IsOptional()
     status?: CatalogStatus;
 }
@@ -61,7 +87,9 @@ export class SelfPayPriceDto {
     percent?: number;
 
     @ApiProperty({ type: CostPriceDto, required: false, description: "MARKUP only: the item's first cost price" })
-    @ValidateNested() @Type(() => CostPriceDto) @IsOptional()
+    @ValidateNested() 
+    @Type(() => CostPriceDto) 
+    @IsOptional()
     cost?: CostPriceDto;
 }
 
@@ -85,10 +113,16 @@ export class CreateBillableItemDto {
     @IsOptional() 
     description?: string;
     
-    @ApiProperty({ example: 'test', description: 'What one quantity sold means: test, visit, day, bottle, card…' }) 
-    @IsString() 
-    @MinLength(1) 
-    sellingUnit!: string;
+    @ApiProperty({ required: false, description: 'What one quantity sold is: an item unit (GET /billables/item-units?use=SELLING&kind=…); or give `sellingUnit`' })
+    @IsUUID()
+    @IsOptional()
+    sellingUnitId?: string;
+
+    @ApiProperty({ type: NewItemUnitDto, required: false, description: 'A unit typed by name: found, or added as the hospitals own' })
+    @ValidateNested()
+    @Type(() => NewItemUnitDto)
+    @IsOptional()
+    sellingUnit?: NewItemUnitDto;
 
     @ApiProperty({ type: SelfPayPriceDto, description: 'The self-pay price, effective immediately (PRD 12 §4.2)' })
     @ValidateNested() @Type(() => SelfPayPriceDto)
@@ -108,7 +142,7 @@ export class UpdateBillableItemDto {
     @ApiProperty({ required: false }) @IsString() @MinLength(1) @IsOptional() code?: string;
     @ApiProperty({ required: false }) @IsString() @MinLength(2) @IsOptional() name?: string;
     @ApiProperty({ required: false }) @IsString() @IsOptional() description?: string;
-    @ApiProperty({ required: false, description: "Locked once the item has stock (PRD 15 §3.4)" }) @IsString() @MinLength(1) @IsOptional() sellingUnit?: string;
+    @ApiProperty({ required: false, description: "An item unit; locked once the item has stock (PRD 15 §3.4)" }) @IsUUID() @IsOptional() sellingUnitId?: string;
 
     @ApiProperty({ enum: CatalogStatus, required: false, description: "INACTIVE: can't be priced for new charges; never deleted" })
     @IsEnum(CatalogStatus) @IsOptional()

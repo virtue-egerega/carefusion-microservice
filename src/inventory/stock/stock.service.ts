@@ -48,7 +48,7 @@ export class StockService {
         const [product, balances] = await client.$transaction([
             client.stockItem.findFirst({
                 where:  { itemId, organizationId },
-                select: { sellableInHalves: true, shelfNumber: true, item: { select: { id: true, code: true, name: true, sellingUnit: true, status: true } } },
+                select: { sellableInHalves: true, shelfNumber: true, item: { select: { id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } }, status: true } } },
             }),
             client.stockBalance.findMany({
                 where:   { organizationId, itemId, sellingUnitQuantity: { gt: 0 }, ...scopeWhere(scope) },
@@ -127,7 +127,7 @@ export class StockService {
                 batch:        {
                     select: {
                         id: true, batchNumber: true, expiryDate: true, qualityStatus: true,
-                        stockItem: { select: { item: { select: { id: true, code: true, name: true, sellingUnit: true } } } },
+                        stockItem: { select: { item: { select: { id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } } } } } },
                         ...(withCost && { receiptItems: costedReceiptItems }),
                     },
                 },
@@ -137,7 +137,7 @@ export class StockService {
         // one entry per batch, with its quantity in each unit
         const byBatch = new Map<string, {
             batch: { id: string; batchNumber: string | null; expiryDate: Date | null; qualityStatus: $Enums.BatchQuality };
-            product: { id: string; code: string; name: string; sellingUnit: string };
+            product: { id: string; code: string; name: string; sellingUnit: { id: string; name: string; pluralName: string } };
             group: 'EXPIRED' | 'EXPIRING';
             sellingUnitQuantity: number;
             units: { pharmacyUnit: { id: string; name: string }; status: $Enums.StockStatus; sellingUnitQuantity: number }[];

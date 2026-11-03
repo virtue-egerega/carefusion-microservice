@@ -67,7 +67,9 @@ model Organization {
   manufacturers          Manufacturer[]
   pharmacyUnits          PharmacyUnit[]
   goodsReceipts          GoodsReceipt[]
+  supplierCreditClaims   SupplierCreditClaim[]
   storedFiles            StoredFile[]
+  itemUnits              ItemUnit[]
 
 }
 
@@ -99,6 +101,7 @@ model Branch {
   queueEntries   QueueEntry[]
   pharmacyUnits     PharmacyUnit[]
   goodsReceipts     GoodsReceipt[]
+  supplierCreditClaims SupplierCreditClaim[]
   stockTransactions StockTransaction[]
 
   @@index([organizationId])
@@ -849,7 +852,7 @@ model BillableItem {
   code           String
   name           String
   description    String?
-  sellingUnit    String           // what one quantity sold means: "test", "visit", "day", "bottle", "card"
+  sellingUnitId  String           // what one quantity sold is: an ItemUnit ("Test", "Visit", "Bottle"), 15 §4.1
   status         CatalogStatus    @default(ACTIVE)
   createdAt      DateTime         @default(now())
   createdBy      String
@@ -858,6 +861,7 @@ model BillableItem {
 
   organization   Organization     @relation(fields: [organizationId], references: [id])
   category       BillableCategory @relation(fields: [categoryId], references: [id])
+  sellingUnit    ItemUnit         @relation(fields: [sellingUnitId], references: [id])
   sellingPrices  ItemSellingPrice[]
   costPrices     ItemCostPrice[]
   clinicLinks    ClinicBillableItem[]
@@ -867,6 +871,30 @@ model BillableItem {
   @@unique([organizationId, code])
   @@unique([id, organizationId]) // target of ClinicBillableItem's composite FK
   @@index([organizationId, categoryId, status])
+  @@index([sellingUnitId])
+}
+
+// What an item is sold or bought in: "Tablet", "Card", "Carton", "Test", "Visit" (15 §4.1). Seeded by CareFusion
+// (organizationId null) or added by a hospital; `kinds` says which kinds of item it's offered for.
+model ItemUnit {
+  id              String            @id @default(uuid())
+  organizationId  String?           // null = seeded; set = added by that hospital
+  name            String            // "Carton"; one per owner whatever the case or spacing (index in the migration SQL)
+  pluralName      String            // "Cartons"
+  kinds           ServiceCategory[] // the kinds of item it belongs to
+  usedForSelling  Boolean           // offered as a selling unit
+  usedForPurchase Boolean           // offered as a purchase unit
+  status          CatalogStatus     @default(ACTIVE)
+  createdAt       DateTime          @default(now())
+  createdBy       String?           // null for seeded rows
+  updatedAt       DateTime          @updatedAt
+  updatedBy       String?
+
+  organization    Organization?     @relation(fields: [organizationId], references: [id])
+  billableItems   BillableItem[]
+  stockItems      StockItem[]
+
+  @@index([organizationId])
 }
 
 // The cost of one purchase unit as invoiced, and how many selling units it holds. The cost price of one selling
@@ -1059,7 +1087,7 @@ model StockItem {
   manufacturerId              String?          // the maker identifies the product, not the batch
   registrationNo              String?          // NAFDAC registration number
   shelfNumber                 String?          // where it sits in the pharmacy, if shelves are labelled: "B3"
-  purchaseUnitName            String           // what the product is bought in: "Carton", "Cup"
+  purchaseUnitId              String           // what the product is bought in: an ItemUnit ("Carton", "Cup"), 15 §4.1
   sellingUnitsPerPurchaseUnit Int              // selling units (BillableItem.sellingUnit) in one purchase unit; fixed once stocked
   sellableInHalves            Boolean          @default(false) // half a selling unit (half a card) may be issued
   batchTracked                Boolean          @default(true)  // batch number + expiry required on receipt
@@ -1072,6 +1100,7 @@ model StockItem {
 
   item                        BillableItem     @relation(fields: [itemId, organizationId], references: [id, organizationId])
   medicine                    Medicine?        @relation(fields: [medicineId], references: [id])
+  purchaseUnit                ItemUnit         @relation(fields: [purchaseUnitId], references: [id])
   manufacturer                Manufacturer?    @relation(fields: [manufacturerId], references: [id])
   batches                     StockBatch[]
   receiptItems                GoodsReceiptItem[]
@@ -1080,6 +1109,7 @@ model StockItem {
   @@index([organizationId])
   @@index([medicineId])
   @@index([manufacturerId])
+  @@index([purchaseUnitId])
 }
 
 model Supplier {
@@ -1100,6 +1130,7 @@ model Supplier {
 
   organization   Organization  @relation(fields: [organizationId], references: [id])
   receipts       GoodsReceipt[]
+  creditClaims   SupplierCreditClaim[]
 
   // unique name per org: lower(btrim(name)) index in the migration SQL (15 §5)
 }
@@ -1273,6 +1304,7 @@ model GoodsReceipt {
   transaction         StockTransaction? @relation(fields: [transactionId], references: [id])
   items               GoodsReceiptItem[]
   attachments         GoodsReceiptAttachment[]
+  replacedClaims      SupplierCreditClaim[] @relation("ReplacementGoodsReceipt") // claims this delivery made good
 
   @@unique([organizationId, number])
   @@index([organizationId, status, receivedAt])
@@ -1285,10 +1317,11 @@ model GoodsReceiptItem {
   stockItemId                 String           // the stocked product received (StockItem; its id is also its billable item's)
   purchaseUnitName            String           // copied from the product: "Carton"
   sellingUnitsPerPurchaseUnit Int              // copied from the product: 24
-  purchaseUnitsDelivered      Int
+  purchaseUnitsDelivered      Int              // what the invoice line charges for
   purchaseUnitsAccepted       Int              // only accepted purchase units enter stock
   rejectReason                String?          // required when fewer accepted than delivered
-  purchaseUnitCost            Decimal          @db.Decimal(14, 2) // cost of one purchase unit, as invoiced
+  invoiceLineTotal            Decimal          @db.Decimal(14, 2) // what was paid for the purchase units delivered, as entered: 100,000.00
+  purchaseUnitCost            Decimal          @db.Decimal(14, 2) // worked out: invoiceLineTotal ÷ purchaseUnitsDelivered, rounded up (15 D14): 33,333.34
   batchNumber                 String?
   manufacturedOn              DateTime?        @db.Date
   expiryDate                  DateTime?        @db.Date
@@ -1305,10 +1338,47 @@ model GoodsReceiptItem {
   putAwayPharmacyUnit         PharmacyUnit?    @relation(fields: [putAwayPharmacyUnitId], references: [id])
   batch                       StockBatch?      @relation(fields: [batchId], references: [id])
   itemCostPrice               ItemCostPrice?   @relation(fields: [itemCostPriceId], references: [id])
+  supplierCreditClaim         SupplierCreditClaim? // what the supplier owes for the purchase units rejected, once posted
 
   @@index([receiptId])
   @@index([stockItemId])
   @@index([batchId])
+}
+
+// What a supplier owes the hospital for goods paid for but not kept (15 §10.5): recorded when a receipt
+// with rejected purchase units is posted, OUTSTANDING until settled or waived.
+model SupplierCreditClaim {
+  id                        String                   @id @default(uuid())
+  organizationId            String
+  branchId                  String
+  number                    String                   // "SCC-000042" (SequenceCounter "scc:<orgId>"): quoted to the supplier
+  supplierId                String
+  goodsReceiptItemId        String                   @unique // the line the goods were rejected on
+  purchaseUnitsClaimed      Int                      // 7 cartons
+  purchaseUnitCost          Decimal                  @db.Decimal(14, 2) // copied from the line
+  amountOwed                Decimal                  @db.Decimal(14, 2) // purchaseUnitsClaimed × purchaseUnitCost, never above the line's invoiceLineTotal
+  reason                    String                   // the line's rejectReason
+  status                    SupplierClaimStatus      @default(OUTSTANDING)
+  settledAs                 SupplierClaimSettlement?
+  settlementReference       String?                  // the supplier's credit note or refund reference
+  replacementGoodsReceiptId String?                  // REPLACEMENT: the receipt the goods came back on
+  settledAt                 DateTime?
+  settledBy                 String?
+  waivedAt                  DateTime?
+  waivedBy                  String?
+  waiveReason               String?
+  createdAt                 DateTime                 @default(now()) // when the receipt was posted
+  createdBy                 String                   // who posted it
+
+  organization              Organization             @relation(fields: [organizationId], references: [id])
+  branch                    Branch                   @relation(fields: [branchId], references: [id])
+  supplier                  Supplier                 @relation(fields: [supplierId], references: [id])
+  goodsReceiptItem          GoodsReceiptItem         @relation(fields: [goodsReceiptItemId], references: [id])
+  replacementGoodsReceipt   GoodsReceipt?            @relation("ReplacementGoodsReceipt", fields: [replacementGoodsReceiptId], references: [id])
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status, createdAt])
+  @@index([supplierId, status])
 }
 
 // A supplier's invoice or delivery note attached to a goods receipt (15 §10.3): a link to a stored file.
@@ -2597,6 +2667,18 @@ enum StockTransactionType {
 enum ReceiptType {
   DELIVERY // from a supplier
   OPENING  // opening stock at go-live: no supplier
+}
+
+enum SupplierClaimStatus {
+  OUTSTANDING
+  SETTLED     // the supplier made it good
+  WAIVED      // the hospital wrote it off, with a reason
+}
+
+enum SupplierClaimSettlement {
+  CREDIT_NOTE // taken off what the hospital owes the supplier
+  REFUND      // paid back
+  REPLACEMENT // the goods were delivered again, on another goods receipt
 }
 
 enum ReceiptStatus {

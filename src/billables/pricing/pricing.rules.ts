@@ -6,6 +6,12 @@ type Money = Prisma.Decimal | number | string;
 /** Rounds a worked-out price to whole kobo, half-up. Done once, as the last step (D12). */
 export const toKobo = (value: Prisma.Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
+/**
+ * Rounds a worked-out cost up to whole kobo, never down (PRD 15 D14): ₦33,333.333… is ₦33,333.34. Cost, and the
+ * cost price payers are priced from, is never understated.
+ */
+export const roundUpToKobo = (value: Prisma.Decimal) => value.toDecimalPlaces(2, Prisma.Decimal.ROUND_UP);
+
 /** A line's amount: quantity × unit price, rounded once (13 D8). Quotes and charges both use it, so they agree. */
 export const lineAmount = (unitPrice: Prisma.Decimal, quantity: Money) => toKobo(unitPrice.mul(quantity));
 
@@ -21,7 +27,7 @@ export function markupPrice(purchaseUnitCost: Money, sellingUnitsPerPurchaseUnit
 type SelfPayLine = { basis: string; sellingUnitPrice: Prisma.Decimal | null; percent: Prisma.Decimal | null };
 type CostRow = { purchaseUnitCost: Prisma.Decimal; sellingUnitsPerPurchaseUnit: number };
 
-/** The cost price of one selling unit, unrounded: compared exactly, rounded only for display (12 §5.2). */
+/** The cost price of one selling unit, unrounded: compared exactly, rounded up only for display (12 §5.2, 15 D14). */
 export const sellingUnitCostPrice = (cost: { purchaseUnitCost: Money; sellingUnitsPerPurchaseUnit: number }) =>
     new Prisma.Decimal(cost.purchaseUnitCost).div(cost.sellingUnitsPerPurchaseUnit);
 
@@ -33,7 +39,7 @@ export function belowCostWarning(sellingUnitPrice: Money, cost: CostRow | undefi
     if (!cost) return null;
     const costPrice = sellingUnitCostPrice(cost);
     if (new Prisma.Decimal(sellingUnitPrice).gte(costPrice)) return null;
-    return `Selling price ₦${naira(sellingUnitPrice)} is below the cost price ₦${naira(toKobo(costPrice))} per ${sellingUnit}`;
+    return `Selling price ₦${naira(sellingUnitPrice)} is below the cost price ₦${naira(roundUpToKobo(costPrice))} per ${sellingUnit}`;
 }
 
 const naira = (value: Money) => new Prisma.Decimal(value).toNumber().toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

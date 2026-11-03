@@ -5,6 +5,7 @@ import { $Enums, Prisma } from '../../../generated/prisma/client';
 import { CreateBillableItemDto, CreatePriceLineDto, UpdateBillableItemDto } from '@shared/contracts/billables';
 import { belowCostWarning, inEffectAt, resolvePrice, selfPayAmount, selfPayAndPayerLines, visiblePrice } from '../pricing/pricing.rules';
 import { payerForPricing } from '../pricing/pricing.service';
+import { findItemUnit } from '../item-units/find-item-unit';
 import { PriceLineInput, clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, selfPayRefusal } from './items.rules';
 
 export type CategoryItemsQuery = {
@@ -40,6 +41,7 @@ function present<T extends { clinicLinks: ClinicLink[] }>(
 
 // at most one self-pay line and one cost are in effect at a time (exclusion constraints)
 const currentSelfPay = (at: Date) => ({
+    sellingUnit:   { select: { id: true, name: true, pluralName: true } },
     sellingPrices: { where: { payerId: null, ...inEffectAt(at) }, take: 1 },
     costPrices:    { where: inEffectAt(at), take: 1 },
     clinicLinks:   { select: { clinic: { select: { id: true, name: true } } }, orderBy: { clinic: { name: 'asc' as const } } },
@@ -116,18 +118,21 @@ export class BillableItemsService {
         const refusal = selfPayRefusal(dto.selfPay, permissions);
         if (refusal) throw refusal.forbidden ? new ForbiddenException(refusal.reason) : new BadRequestException(refusal.reason);
 
-        const { selfPay, reason, clinicIds, ...item } = dto;
+        const { selfPay, reason, clinicIds, sellingUnit, sellingUnitId, ...item } = dto;
         const client = this.databaseService.client;
 
         // the category must be this organisation's and active (§3.2), and the clinics active (§4.4);
         // an FK can't check either. Both reads go in one round trip.
         const [category, activeClinics] = await client.$transaction([
-            client.billableCategory.findFirst({ where: { id: item.categoryId, organizationId }, select: { status: true } }),
+            client.billableCategory.findFirst({ where: { id: item.categoryId, organizationId }, select: { status: true, kind: true } }),
             client.clinic.count({ where: { id: { in: clinicIds ?? [] }, isActive: true } }),
         ]);
         if (!category) throw new NotFoundException('Billable category not found');
         if (category.status !== $Enums.CatalogStatus.ACTIVE) throw new BadRequestException('This category is inactive');
         if (activeClinics !== (clinicIds?.length ?? 0)) throw new BadRequestException('One or more clinics are unknown or inactive');
+
+        // picked or typed, it must be a selling unit for the category's kind (PRD 15 §4.1)
+        const unit = await findItemUnit(this.databaseService, organizationId, { label: 'sellingUnit', id: sellingUnitId, byName: sellingUnit }, 'SELLING', category.kind, createdBy);
 
         const effectiveFrom = new Date();
         const markup = selfPay.basis === 'MARKUP';
@@ -136,6 +141,7 @@ export class BillableItemsService {
             () => client.billableItem.create({
                 data: {
                     ...item,
+                    sellingUnitId: unit.id,
                     organizationId,
                     createdBy,
                     sellingPrices: {
@@ -195,7 +201,7 @@ export class BillableItemsService {
                     tx.billableItem.findFirst({
                         where:  { id: itemId, organizationId },
                         select: {
-                            sellingUnit: true,
+                            sellingUnit: { select: { name: true } },
                             stockItem:   { select: { itemId: true } },
                             costPrices:  { where: inEffectAt(effectiveFrom), take: 1, select: { purchaseUnitCost: true, sellingUnitsPerPurchaseUnit: true } },
                         },
@@ -232,7 +238,7 @@ export class BillableItemsService {
                 });
 
                 const warning = !payerId && dto.basis === 'MANUAL' && item.stockItem
-                    ? belowCostWarning(dto.sellingUnitPrice!, item.costPrices[0], item.sellingUnit)
+                    ? belowCostWarning(dto.sellingUnitPrice!, item.costPrices[0], item.sellingUnit.name.toLowerCase())
                     : null;
                 return { id, message: 'Price line added', ...(warning && { warning }) };
             }),
@@ -373,6 +379,12 @@ export class BillableItemsService {
             if (target.status !== $Enums.CatalogStatus.ACTIVE) throw new BadRequestException('That category is inactive');
             targetKind = target.kind;
         }
+        if (dto.sellingUnitId) {
+            // it must be a selling unit for the kind the item will have (PRD 15 §4.1)
+            const current = await client.billableItem.findFirst({ where: { id: itemId, organizationId }, select: { category: { select: { kind: true } } } });
+            if (!current) throw new NotFoundException('Billable item not found');
+            await findItemUnit(this.databaseService, organizationId, { label: 'sellingUnit', id: dto.sellingUnitId }, 'SELLING', targetKind ?? current.category.kind, updatedBy);
+        }
 
         // links are written only if the item update matched, so a refused move changes nothing
         const count = await withConstraintErrors(
@@ -383,8 +395,8 @@ export class BillableItemsService {
                         id: itemId, organizationId,
                         ...(targetKind && { category: { kind: targetKind } }),
                         // stock is counted in the selling unit, so it's locked once a batch exists (PRD 15 §3.4)
-                        ...(fields.sellingUnit !== undefined && {
-                            OR: [{ sellingUnit: fields.sellingUnit }, { stockItem: { is: null } }, { stockItem: { batches: { none: {} } } }],
+                        ...(fields.sellingUnitId !== undefined && {
+                            OR: [{ sellingUnitId: fields.sellingUnitId }, { stockItem: { is: null } }, { stockItem: { batches: { none: {} } } }],
                         }),
                     },
                     data:  { ...fields, status: fields.status as $Enums.CatalogStatus | undefined, updatedBy },
@@ -408,12 +420,12 @@ export class BillableItemsService {
         if (!count) {
             const found = await client.billableItem.findFirst({
                 where:  { id: itemId, organizationId },
-                select: { sellingUnit: true, category: { select: { kind: true } }, stockItem: { select: { _count: { select: { batches: true } } } } },
+                select: { sellingUnitId: true, sellingUnit: { select: { name: true } }, category: { select: { kind: true } }, stockItem: { select: { _count: { select: { batches: true } } } } },
             });
             const { reason } = itemUpdateRefusal(
-                found && { kind: found.category.kind, sellingUnit: found.sellingUnit, hasStock: (found.stockItem?._count.batches ?? 0) > 0 },
+                found && { kind: found.category.kind, sellingUnitId: found.sellingUnitId, sellingUnitName: found.sellingUnit.name, hasStock: (found.stockItem?._count.batches ?? 0) > 0 },
                 targetKind,
-                fields.sellingUnit,
+                fields.sellingUnitId,
             );
             throw found ? new ConflictException(reason) : new NotFoundException(reason);
         }

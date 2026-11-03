@@ -28,50 +28,8 @@ export class SuppliersController {
         private readonly manufacturersService: ManufacturersService,
     ) {}
 
-    // ── suppliers ────────────────────────────────────────────────────────────
-
-    @ApiOperation({ summary: `Add a supplier`, description: `Returns \`{ id, message }\`. 409 if the name is taken.` })
-    @Authorize('pharmacy.supplier.manage')
-    @Post()
-    createSupplier(@Body() dto: CreateSupplierDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
-        return this.suppliersService.create(dto, orgId, user.sub);
-    }
-
-    @ApiOperation({ summary: `Suppliers by name, paginated`, description: `\`count\` is the total matching the filters; \`docs\` is the page.` })
-    @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
-    @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
-    @Authorize('pharmacy.stock.view')
-    @Get()
-    findSuppliers(
-        @OrganizationId() orgId: string,
-        @Query('search') search?: string,
-        @Query('status', new ParseEnumPipe(CatalogStatus, { optional: true })) status?: CatalogStatus,
-        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
-        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
-    ) {
-        return this.suppliersService.findAll(orgId, listQuery(search, status, limit, offset));
-    }
-
-    @ApiOperation({ summary: `One supplier`, description: `\`createdBy\` / \`updatedBy\` are the users, or null.` })
-    @Authorize('pharmacy.stock.view')
-    @Get(':id')
-    findSupplier(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
-        return this.suppliersService.findOne(id, orgId);
-    }
-
-    @ApiOperation({ summary: `Edit or deactivate a supplier` })
-    @Authorize('pharmacy.supplier.manage')
-    @Patch(':id')
-    updateSupplier(
-        @Param('id', ParseUUIDPipe) id: string,
-        @Body() dto: UpdateSupplierDto,
-        @OrganizationId() orgId: string,
-        @CurrentUser() user: AuthUser,
-    ) {
-        return this.suppliersService.update(id, dto, orgId, user.sub);
-    }
-
     // ── manufacturers ────────────────────────────────────────────────────────
+    // declared before the suppliers' `:id` routes, which would otherwise capture `manufacturers`
 
     @ApiOperation({ summary: `Add a manufacturer`, description: `Returns \`{ id, message }\`. 409 if the name is taken.` })
     @Authorize('pharmacy.supplier.manage')
@@ -115,5 +73,52 @@ export class SuppliersController {
         @CurrentUser() user: AuthUser,
     ) {
         return this.manufacturersService.update(id, dto, orgId, user.sub);
+    }
+
+    // ── suppliers ────────────────────────────────────────────────────────────
+
+    @ApiOperation({ summary: `Add a supplier`, description: `Returns \`{ id, message }\`. 409 if the name is taken.` })
+    @Authorize('pharmacy.supplier.manage')
+    @Post()
+    createSupplier(@Body() dto: CreateSupplierDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
+        return this.suppliersService.create(dto, orgId, user.sub);
+    }
+
+    @ApiOperation({ summary: `Suppliers by name, paginated`, description: `\`count\` is the total matching the filters; \`docs\` is the page.` })
+    @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
+    @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
+    @Authorize('pharmacy.stock.view')
+    @Get()
+    findSuppliers(
+        @OrganizationId() orgId: string,
+        @Query('search') search?: string,
+        @Query('status', new ParseEnumPipe(CatalogStatus, { optional: true })) status?: CatalogStatus,
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
+    ) {
+        return this.suppliersService.findAll(orgId, listQuery(search, status, limit, offset));
+    }
+
+    @ApiOperation({
+        summary: `One supplier`,
+        description: `\`createdBy\` / \`updatedBy\` are the users, or null. With \`pharmacy.supplier.claim.manage\`, also what the ` +
+        `supplier still owes for goods paid for and handed back: \`amountOutstanding\` and \`outstandingClaimCount\`.`,
+    })
+    @Authorize('pharmacy.stock.view')
+    @Get(':id')
+    findSupplier(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
+        return this.suppliersService.findOne(id, orgId, user.permissions);
+    }
+
+    @ApiOperation({ summary: `Edit or deactivate a supplier` })
+    @Authorize('pharmacy.supplier.manage')
+    @Patch(':id')
+    updateSupplier(
+        @Param('id', ParseUUIDPipe) id: string,
+        @Body() dto: UpdateSupplierDto,
+        @OrganizationId() orgId: string,
+        @CurrentUser() user: AuthUser,
+    ) {
+        return this.suppliersService.update(id, dto, orgId, user.sub);
     }
 }

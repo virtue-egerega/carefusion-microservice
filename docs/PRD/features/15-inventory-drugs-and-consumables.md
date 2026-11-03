@@ -1,6 +1,6 @@
 # Feature PRD — Inventory: Drugs & Consumables
 
-Status: Draft · Last updated: 2026-11-02
+Status: Draft · Last updated: 2026-11-03
 Depends on: `02-hospital-onboarding.md` (`Organization`, `Branch`), `05-access-control-clinical-scoping.md`
 (`Permission`, `DutyProfile`), `12-billables-and-price-catalog.md` (`BillableItem`, `ItemCostPrice`,
 `ServiceCategory`).
@@ -49,11 +49,13 @@ confirmation (§24).
 | D5 | **Stock is held in pharmacy units: a branch's store and its dispensaries.** Every branch is created with its Main Pharmacy Store. A unit has no storage condition (that's the product's); a product may carry a `shelfNumber`. Shelves and fridges as counted units can be added later without breaking anything. *(2026-11-02)* | 7 |
 | D6 | **Balances are keyed by location + batch + status.** Status is `AVAILABLE`, `QUARANTINE` or `DAMAGED` (`IN_TRANSIT` arrives with transfers). Batch-wide quality (`RELEASED`, `ON_HOLD`, `RECALLED`) sits on the batch; expiry is computed from the date, never flagged by a job. | 8 |
 | D7 | **Movements are the only writer of balances.** Movements are append-only; a database trigger applies each one to its balance, and `CHECK (sellingUnitQuantity >= 0)` rejects any overdraw. | 9 |
-| D8 | **Receiving records what actually arrived**: purchase units delivered vs accepted per product, each naming its batch. Only accepted purchase units enter stock (× the product's selling units per purchase unit), optionally into quarantine. The supplier's invoice is kept as photos on the receipt. | 10 |
+| D8 | **Receiving records what actually arrived**: purchase units delivered vs accepted per product, each naming its batch. Only accepted purchase units enter stock (× the product's selling units per purchase unit), optionally into quarantine. The supplier's invoice is kept as photos on the receipt. Each line stores what was paid for it (`invoiceLineTotal`, as entered) **and** the cost of one purchase unit we work out from it. *(2026-11-03)* | 10 |
 | D9 | **One selling price per selling unit, set by the hospital, warned against cost.** The item's selling price is per selling unit, not per batch. Posting a receipt rolls the item's `ItemCostPrice` forward when the cost per selling unit changed (on by default, off per line *(proposed)*); batch cost is kept for valuation. Setting a selling price below the cost price per selling unit, or a receipt that pushes the cost price above the selling price, returns a warning, never a block. *(2026-11-02)* | 11 |
 | D10 | **The pharmacy names the batch; the system never picks one.** Every line of stock leaving a unit (issue, transfer, write-off) carries its `batchId`: what was physically taken out. FEFO (first expiry, first out) is only the order usable batches are offered in, soonest expiry first, so staff know what to take out first. *(2026-11-02, replaces automatic FEFO)* | 12 |
 | D11 | **Moves never change the total.** A transfer between locations or branches is dispatch then receive, with the quantity `IN_TRANSIT` in between. | 13 |
 | D12 | **Quantity-changing corrections are maker-checker.** *(proposed)* Adjustments, write-offs and count variances need an approver other than the requester. Value thresholds come later. | 14 |
+| D14 | **Worked-out costs round up, never down.** Money is 2 decimal places. Every cost we divide out (the cost of one purchase unit, the cost price per selling unit, a batch's value) is rounded **up** to the kobo, so cost, and the cost price payers are priced from, is never understated. Purchase units may add up to a few kobo more than the invoice line (3 × ₦33,333.34 = ₦100,000.02 against ₦100,000.00 paid); that is accepted. *(2026-11-03)* | 9.3, 10.1, 11 |
+| D15 | **What a supplier owes is recorded.** Rejected purchase units were paid for: posting a receipt records a `SupplierCreditClaim` for each line with rejections, `OUTSTANDING` until settled by credit note, refund or replacement goods, or waived with a reason. *(2026-11-03)* | 10.5 |
 | D13 | **Inventory is its own module** (`src/inventory/`), importing Billables; neither Billables nor Billing imports it. The existing `src/pharmacy/` stub is left for Dispensing. Permissions and routes are named for the pharmacy, which manages all drugs and consumables in a hospital: `pharmacy.*` keys, `/api/pharmacy` paths *(2026-10-25)*. | 19 |
 
 ## 2. What Problem This Solves
@@ -186,7 +188,7 @@ model StockItem {
   manufacturerId              String?          // the maker identifies the product, not the batch (§5)
   registrationNo              String?          // NAFDAC registration number
   shelfNumber                 String?          // where it sits in the pharmacy, if the hospital labels shelves: "B3"
-  purchaseUnitName            String           // "Carton", "Cup": what the product is bought in (§4)
+  purchaseUnitId              String           // what the product is bought in: an ItemUnit ("Carton", "Cup"), §4.1
   sellingUnitsPerPurchaseUnit Int              // 24 bottles in the carton; fixed once the product has stock
   sellableInHalves            Boolean          @default(false) // true: half a selling unit (half a card) may be issued
   batchTracked                Boolean          @default(true)  // batch number + expiry required on receipt
@@ -228,12 +230,13 @@ ALTER TABLE "StockItem" ADD CONSTRAINT stock_item_selling_units_per_purchase_uni
 `BillableItem` (category, code, name, `sellingUnit`) and its `StockItem` (medicine, brand, maker,
 NAFDAC number, shelf number, purchase unit, selling units per purchase unit, halves, storage).
 
-- **The pharmacist categorises the product here.** `categoryId` picks one of the hospital's billable
-  categories ("Antibiotics", "Analgesics"), or `category: { name }` creates it on the spot, matched by
-  name first (§5's matching), so it's picked from the list next time. A created category gets kind
-  `PHARMACY` for a product that names a medicine and `CONSUMABLE` for one that doesn't; a picked one
-  must already have that kind. The category is the product's place on the price list and the charge
-  category on the bill (`12` §4); therapeutic uses (§3.1) stay on the medicine, for finding it.
+- **The pharmacist picks the product's billable category here** (`GET /billables/categories?kind=PHARMACY`):
+  a coarse price-list group such as "Drugs", "Baby food" or "Sanitary pads", all of kind `PHARMACY`
+  because the pharmacy sells them. `categoryId` picks one, or `category: { name, kind? }` creates it on
+  the spot, matched by name first (§5's matching), with kind `PHARMACY` unless `CONSUMABLE` is given.
+  The category is the product's place on the price list and the charge category on the bill (`12` §4).
+  **It is not a drug category.** What a drug is for is its medicine's therapeutic uses (§3.1), which is
+  what doctors search by; the billable category has no part in that. *(2026-11-03)*
 - **The manufacturer** is `manufacturerId`, or `manufacturer: { name, country? }` matched or created
   the same way (§5).
 - **`shelfNumber`** is optional free text ("B3", "Fridge 2, top"), for hospitals that label shelves.
@@ -252,8 +255,9 @@ An item already in the catalogue (a consumable added through Billables) is made 
 
 ### 3.4 Rules
 
-- **Opt-in, any kind.** Any item can be stocked; in practice `PHARMACY` and `CONSUMABLE`. A
-  `PHARMACY`-kind stocked item **must** name a medicine; other kinds can't. Moving an item between
+- **Opt-in, any kind.** Any item can be stocked; in practice `PHARMACY` and `CONSUMABLE`. **Naming a
+  medicine is what makes a product a drug**, and it's optional: the pharmacy also stocks sanitary pads
+  and baby food, `PHARMACY`-kind with no medicine. Only a `PHARMACY`-kind item can name one. Moving an item between
   categories is same-kind only (`12` §4.2), so this can't drift.
 - **The medicine must be a seeded one or the caller's own.** The service checks this; a foreign key
   can't, since seeded rows have no organisation.
@@ -279,8 +283,8 @@ Every stocked product answers these questions once, when it's added:
 
 | Question | Column | Amoxil syrup (carton of 24) | Amoxil syrup (carton of 12) | Emzor PCM 500mg |
 |---|---|---|---|---|
-| What is one quantity sold? | `BillableItem.sellingUnit` | bottle | bottle | card |
-| What is it bought in? | `StockItem.purchaseUnitName` | Carton | Carton | Carton |
+| What is one quantity sold? | `BillableItem.sellingUnitId` (§4.1) | Bottle | Bottle | Card |
+| What is it bought in? | `StockItem.purchaseUnitId` (§4.1) | Carton | Carton | Carton |
 | How many selling units in one purchase unit? | `StockItem.sellingUnitsPerPurchaseUnit` | 24 | 12 | 10 |
 | Can half a selling unit be issued? | `StockItem.sellableInHalves` | no | no | yes |
 
@@ -298,8 +302,52 @@ Every stocked product answers these questions once, when it's added:
   another table). Half a card, one card, one and a half cards, or the whole carton (10 cards) are all
   quantities of the one selling unit; 0.8 of a card is always rejected.
 - **The cost price of one selling unit** is `purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit`: a
-  carton at ₦50,000.00 holding 24 bottles costs **₦2,083.33** a bottle. It is worked out, never stored
+  carton at ₦50,000.00 holding 24 bottles costs **₦2,083.34** a bottle. It is worked out, never stored
   (§11, `12` §5.2).
+
+### 4.1 Item units *(2026-11-02)*
+
+Selling and purchase units are picked from a list, never typed, so "card", "Card" and "strip" don't
+become three units. `ItemUnit` is that list: seeded by CareFusion, extendable by each hospital.
+
+```prisma
+model ItemUnit {
+  id              String            @id @default(uuid())
+  organizationId  String?           // null = seeded by CareFusion; set = added by that hospital
+  name            String            // "Carton", "Card", "Test"
+  pluralName      String            // "Cartons": "50 Cartons"
+  kinds           ServiceCategory[] // the kinds of item it belongs to: who is offered it
+  usedForSelling  Boolean           // offered as a selling unit
+  usedForPurchase Boolean           // offered as a purchase unit
+  status          CatalogStatus     @default(ACTIVE)
+  createdAt       DateTime          @default(now())
+  createdBy       String?           // null for seeded rows
+  updatedAt       DateTime          @updatedAt
+  updatedBy       String?
+}
+```
+
+- **Shown by kind.** Each unit says which kinds of item it belongs to, so the pharmacy is offered
+  Tablet, Card and Carton, the laboratory Test, the wards Day: `GET /billables/item-units?kind=PHARMACY&use=SELLING`.
+- **One table for both uses.** A Bottle or a Vial can be bought singly and sold singly; the two flags
+  decide which picker offers it.
+- **Half is a quantity, not a unit.** Half a card is 0.5 of the unit Card, allowed where the product is
+  `sellableInHalves` (§4).
+- **Seeded** (insert-only, `organizationId` null), e.g. Tablet, Capsule, Card, Bottle, Vial, Ampoule,
+  Sachet, Tube, Millilitre (PHARMACY); Piece, Pair, Pack, Roll, Kit (PHARMACY, CONSUMABLE); Carton, Box,
+  Case, Bag, Dozen, Cup (purchase); Visit, Test, Scan, Procedure, Session, Day, Night, Hour (services).
+  Hospitals can't edit seeded units.
+- **Extendable.** A hospital adds a missing unit (`POST /billables/item-units`), or types one where a unit
+  is picked (`sellingUnit: { name }`, `purchaseUnit: { name }`): it's matched to a seeded or own unit
+  ignoring case and spacing, or created for that hospital only. A unit found that isn't offered for
+  that use or kind is refused, never silently changed; the hospital edits its own unit to widen it.
+- **What points at it:** `BillableItem.sellingUnitId` (a selling unit of the item's category kind) and
+  `StockItem.purchaseUnitId` (a purchase unit). `GoodsReceiptItem.purchaseUnitName` stays text: the copy
+  taken at receipt time, so a receipt reads as it was entered even if the unit is later renamed.
+
+```sql
+CREATE UNIQUE INDEX "ItemUnit_name" ON "ItemUnit" ("organizationId", lower(btrim("name"))) NULLS NOT DISTINCT;
+```
 
 ## 5. Suppliers and Manufacturers
 
@@ -675,9 +723,10 @@ What this buys:
 Movements store no money. A batch's **cost price per selling unit** is worked out from its receipt
 items: `Σ(purchaseUnitCost × purchaseUnitsAccepted) ÷ Σ(purchaseUnitsAccepted ×
 sellingUnitsPerPurchaseUnit)`, a weighted average when one lot arrived in several deliveries at
-different prices. Value of any quantity = selling units × that cost, **rounded half-up to 2 places
-once**, at the end of the sum (`12` D12): 120 bottles from cartons at ₦50,000.00 / 24 are worth
-₦250,000.00, not 120 × ₦2,083.33 = ₦249,999.60. Opening stock carries its own cost the same way. This
+different prices. Value of any quantity = selling units × that cost, **rounded up to 2 places
+once**, at the end of the sum (D14): 120 bottles from cartons at ₦50,000.00 / 24 are worth
+₦250,000.00, not 120 × ₦2,083.34 = ₦250,000.80. The cost price per selling unit shown on its own is
+rounded up the same way (₦2,083.333… → ₦2,083.34). Opening stock carries its own cost the same way. This
 gives stock valuation and, once Dispensing exists, cost of goods issued, from the same rows.
 
 ## 10. Receiving
@@ -685,7 +734,8 @@ gives stock valuation and, once Dispensing exists, cost of goods issued, from th
 A supplier delivers goods with an invoice. The **`GoodsReceipt`** is that delivery, recorded once:
 supplier, invoice number and date, when it arrived, the store it was received into, and photos of
 the invoice. Each product on it is a **`GoodsReceiptItem`**: how many purchase units came and were
-accepted, the cost of one purchase unit, the batch number and expiry. Posting the receipt is the
+accepted, what the invoice line says was paid for them, the batch number and expiry. Purchase units the
+hospital turns away become a claim on the supplier (§10.5). Posting the receipt is the
 one event that puts the stock in.
 
 ### 10.1 `GoodsReceipt`, `GoodsReceiptItem`, `GoodsReceiptAttachment`
@@ -737,10 +787,11 @@ model GoodsReceiptItem {
   stockItemId                 String                             // the stocked product received (StockItem)
   purchaseUnitName            String                             // copied from the product on save: "Carton"
   sellingUnitsPerPurchaseUnit Int                                // copied from the product on save: 24
-  purchaseUnitsDelivered      Int
+  purchaseUnitsDelivered      Int                                // what the invoice line charges for
   purchaseUnitsAccepted       Int                                // only accepted purchase units enter stock
   rejectReason                String?                            // required when fewer accepted than delivered
-  purchaseUnitCost            Decimal       @db.Decimal(14, 2)   // cost of one purchase unit, as invoiced
+  invoiceLineTotal            Decimal       @db.Decimal(14, 2)   // what was paid for the purchase units delivered, as entered: ₦100,000.00
+  purchaseUnitCost            Decimal       @db.Decimal(14, 2)   // worked out: invoiceLineTotal ÷ purchaseUnitsDelivered, rounded up (D14): ₦33,333.34
   batchNumber                 String?
   manufacturedOn              DateTime?     @db.Date
   expiryDate                  DateTime?     @db.Date
@@ -796,21 +847,44 @@ ALTER TABLE "GoodsReceipt" ADD CONSTRAINT goods_receipt_supplier
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_selling_units_per_purchase_unit_positive
   CHECK ("sellingUnitsPerPurchaseUnit" > 0);
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_purchase_units_valid
-  CHECK ("purchaseUnitsDelivered" >= 0 AND "purchaseUnitsAccepted" >= 0
+  CHECK ("purchaseUnitsDelivered" >= 1 AND "purchaseUnitsAccepted" >= 0
          AND "purchaseUnitsAccepted" <= "purchaseUnitsDelivered");
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_reject_reason
   CHECK ("purchaseUnitsAccepted" = "purchaseUnitsDelivered" OR "rejectReason" IS NOT NULL);
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_purchase_unit_cost_non_negative CHECK ("purchaseUnitCost" >= 0);
+ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_invoice_line_total_non_negative CHECK ("invoiceLineTotal" >= 0);
+-- the cost of one purchase unit is the line total divided out and rounded up: never less, and under a kobo more
+ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_purchase_unit_cost_from_line_total
+  CHECK ("purchaseUnitCost" * "purchaseUnitsDelivered" >= "invoiceLineTotal"
+         AND ("purchaseUnitCost" - 0.01) * "purchaseUnitsDelivered" < "invoiceLineTotal");
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_receive_as CHECK ("receiveAs" IN ('AVAILABLE', 'QUARANTINE'));
 ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
   CHECK ("updateCost" OR "keepCostReason" IS NOT NULL);
 ```
 
+**Where the cost of one purchase unit comes from.** Staff enter what is printed on the invoice line:
+how many purchase units were delivered and what the line cost in total. We work out the rest, and the
+screen shows the same arithmetic live as they type:
+
+| | Worked out as | ₦2,500,000.00 for 50 cartons of 24 | ₦100,000.00 for 3 cartons of 24 |
+|---|---|---|---|
+| `purchaseUnitCost` | `invoiceLineTotal ÷ purchaseUnitsDelivered`, rounded up | ₦50,000.00 | ₦33,333.34 |
+| Cost price per selling unit | `purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit`, rounded up | ₦2,083.34 | ₦1,388.89 |
+
+- The divisor is **delivered**, not accepted: the invoice charges for everything that came. What was
+  turned away is owed back (§10.5).
+- Rounding is always **up** (D14). The frontend previews the same arithmetic, rounding up too, but
+  **sends only `invoiceLineTotal`**: nothing we work out is ever taken from the caller, and the item's
+  response carries the stored `purchaseUnitCost`. Changing the line total or the number delivered on a
+  draft works it out again.
+- **Opening stock** has no invoice: its `invoiceLineTotal` is what those purchase units are worth in
+  total, and the cost of one is worked out the same way.
+
 ### 10.2 Flow
 
 1. **Draft.** Staff enter the delivery as it appears on the invoice and in the boxes: the supplier
    (found by name or created, §5), invoice number, and per product the purchase units delivered and
-   accepted, the cost of one purchase unit, batch number and expiry. **The product is picked or added
+   accepted, what the invoice line says was paid (§10.1), batch number and expiry. **The product is picked or added
    on the item itself**: `stockItemId` for one already on the system, or `newProduct` (the fields of
    `POST /pharmacy/items`) to create its billable item and stock item in the same write. Going live
    never needs products set up first; the next delivery picks the product that now exists. The product's purchase unit and selling units per
@@ -828,6 +902,7 @@ ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
      sellingUnitsPerPurchaseUnit` movement per item at its location and `receiveAs` status; the
      trigger updates the balances;
    - rolls `ItemCostPrice` forward where due (§11) and sets `itemCostPriceId`;
+   - records a `SupplierCreditClaim` for every item with rejected purchase units (§10.5);
    - stamps `postedAt/postedBy` and the `transactionId`;
    - returns `{ id, message, priceWarnings }`, where `priceWarnings` lists the products on the
      receipt whose cost price per selling unit is now above their self-pay selling price, or that
@@ -844,15 +919,17 @@ ALTER TABLE "GoodsReceiptItem" ADD CONSTRAINT gri_keep_cost_reason
 - **expiry is after `receivedAt`**: expired goods can't be accepted (reject them on the item);
 - item location is active and in the receipt's branch;
 - supplier active (for `DELIVERY`);
+- an `OPENING` receipt rejects nothing (`purchaseUnitsAccepted` = `purchaseUnitsDelivered`): there's
+  no supplier to owe it (also checked when the item is saved);
 - items for the same lot agree on expiry, and agree with the existing batch row.
 
 **Only accepted stock enters inventory.** `purchaseUnitsDelivered` vs `purchaseUnitsAccepted` with a
 `rejectReason` records short-dated, broken or wrong cartons handed back to the driver; the difference
-never touches a balance. Shortfalls against an order (slice 3) are the PO's concern: the receipt
+never touches a balance, and becomes a claim on the supplier when the receipt is posted (§10.5). Shortfalls against an order (slice 3) are the PO's concern: the receipt
 records what came.
 
-**Opening stock** is a receipt of type `OPENING`: no supplier, but a cost per purchase unit so the
-stock can be valued and priced against cost from day one. Typically one per location at go-live; a
+**Opening stock** is a receipt of type `OPENING`: no supplier, but a line total per product (what
+those purchase units are worth, §10.1) so the stock can be valued and priced against cost from day one. Typically one per location at go-live; a
 bulk import (CSV) builds on the same endpoint (§23). Opened purchase units at go-live, see §24.
 
 ### 10.3 Invoice photos
@@ -880,14 +957,113 @@ invoice) and works the rest out from its items, never storing them, so they can'
 
 | Total | Worked out as |
 |---|---|
-| `deliveredValue` | Σ purchase units delivered × cost of one: what the invoice lines add up to |
-| `acceptedValue` | Σ purchase units accepted × cost of one: what entered stock |
-| `rejectedValue` | delivered − accepted: what was handed back to the driver |
+| `deliveredValue` | Σ `invoiceLineTotal`: what the invoice lines add up to |
+| `acceptedValue` | Σ purchase units accepted × `purchaseUnitCost`: what entered stock |
+| `owedBySupplier` | Σ each line's amount owed (§10.5): what was paid for and handed back to the driver |
 | `invoiceDifference` | `supplierInvoiceTotal` − `deliveredValue`: 0 when the lines match the invoice |
 
-They come back as `totals` on the receipt detail and the list, for whoever can see receipt costs
+Because the cost of one purchase unit is rounded up, `acceptedValue + owedBySupplier` can be a few kobo
+above `deliveredValue` (D14). Each line in the detail carries the same figures: `invoiceLineTotal`,
+`purchaseUnitCost`, `acceptedValue` and `amountOwed`.
+
+They come back as `totals` on the receipt detail (not the list, which would have to load every item), for whoever can see receipt costs
 (§17). A difference doesn't stop posting (invoices carry VAT, delivery charges or discounts the lines
 don't), but the screen shows it before the pharmacist posts.
+
+### 10.5 Supplier credit claims *(2026-11-03)*
+
+Cartons handed back to the driver were still charged on the invoice. Unless that is recorded, the
+hospital has paid for goods it doesn't have and nobody is chasing the money. Posting a receipt records
+what the supplier owes for each line with rejected purchase units.
+
+```prisma
+// What a supplier owes the hospital for goods paid for but not kept.
+model SupplierCreditClaim {
+  id                   String             @id @default(uuid())
+  organizationId       String
+  branchId             String
+  number               String                                  // "SCC-000042" (SequenceCounter "scc:<orgId>"): quoted to the supplier
+  supplierId           String
+  goodsReceiptItemId   String             @unique              // the line the goods were rejected on (slice 3 adds supplier returns as a second source)
+  purchaseUnitsClaimed Int                                     // 7 cartons
+  purchaseUnitCost     Decimal            @db.Decimal(14, 2)   // copied from the line
+  amountOwed           Decimal            @db.Decimal(14, 2)   // purchaseUnitsClaimed × purchaseUnitCost, never above the line's invoiceLineTotal
+  reason               String                                  // the line's rejectReason
+  status               SupplierClaimStatus @default(OUTSTANDING)
+  settledAs            SupplierClaimSettlement?
+  settlementReference  String?                                 // the supplier's credit note or refund reference
+  replacementGoodsReceiptId String?                            // REPLACEMENT: the receipt the replacement goods came in on
+  settledAt            DateTime?
+  settledBy            String?
+  waivedAt             DateTime?
+  waivedBy             String?
+  waiveReason          String?
+  createdAt            DateTime           @default(now())       // when the receipt was posted
+  createdBy            String                                  // who posted it
+
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  branch               Branch             @relation(fields: [branchId], references: [id])
+  supplier             Supplier           @relation(fields: [supplierId], references: [id])
+  goodsReceiptItem     GoodsReceiptItem   @relation(fields: [goodsReceiptItemId], references: [id])
+  replacementGoodsReceipt GoodsReceipt?   @relation("ReplacementGoodsReceipt", fields: [replacementGoodsReceiptId], references: [id])
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status, createdAt])
+  @@index([supplierId, status])
+}
+
+enum SupplierClaimStatus {
+  OUTSTANDING
+  SETTLED     // the supplier made it good
+  WAIVED      // the hospital wrote it off, with a reason
+}
+
+enum SupplierClaimSettlement {
+  CREDIT_NOTE // taken off what the hospital owes the supplier
+  REFUND      // paid back
+  REPLACEMENT // the goods were delivered again, on another goods receipt
+}
+```
+
+```sql
+ALTER TABLE "SupplierCreditClaim" ADD CONSTRAINT supplier_claim_units_positive CHECK ("purchaseUnitsClaimed" > 0);
+ALTER TABLE "SupplierCreditClaim" ADD CONSTRAINT supplier_claim_amount_non_negative CHECK ("amountOwed" >= 0);
+ALTER TABLE "SupplierCreditClaim" ADD CONSTRAINT supplier_claim_settled
+  CHECK (("status" = 'SETTLED') = ("settledAs" IS NOT NULL AND "settledAt" IS NOT NULL));
+ALTER TABLE "SupplierCreditClaim" ADD CONSTRAINT supplier_claim_waived
+  CHECK (("status" = 'WAIVED') = ("waiveReason" IS NOT NULL AND "waivedAt" IS NOT NULL));
+ALTER TABLE "SupplierCreditClaim" ADD CONSTRAINT supplier_claim_replacement
+  CHECK ("settledAs" IS DISTINCT FROM 'REPLACEMENT' OR "replacementGoodsReceiptId" IS NOT NULL);
+```
+
+**The amount owed** is `purchaseUnitsClaimed × purchaseUnitCost`, worked out once on posting and
+stored, since the claim is what the hospital quotes to the supplier. The one exception: it never
+exceeds what was paid for the line. When every carton on a line is turned away, the claim is the
+`invoiceLineTotal` itself (3 rejected at ₦33,333.34 claims ₦100,000.00, not ₦100,000.02); the hospital
+never claims back more than it paid.
+
+| Line | Delivered | Accepted | `invoiceLineTotal` | `purchaseUnitCost` | Into stock | `amountOwed` |
+|---|---|---|---|---|---|---|
+| Gauze | 10 | 3 | ₦10.00 | ₦1.00 | ₦3.00 | ₦7.00 |
+| Amoxil | 3 | 2 | ₦100,000.00 | ₦33,333.34 | ₦66,666.68 | ₦33,333.34 |
+| Amoxil | 3 | 0 | ₦100,000.00 | ₦33,333.34 | — | ₦100,000.00 |
+
+**Rules:**
+
+- Only posting creates a claim, in the same transaction, one per line with
+  `purchaseUnitsAccepted < purchaseUnitsDelivered`. A draft owes nothing; a cancelled draft never posted.
+- A claim is `OUTSTANDING` until it is **settled** (`settledAs`, `settlementReference?`, and for
+  `REPLACEMENT` the posted `DELIVERY` receipt from the same supplier that brought the goods back) or
+  **waived** (`waiveReason`). Both are final, and v1 settles the whole amount at once (part
+  settlements, see §24).
+- The amounts are cost figures: shown with cost visibility (§17), and to whoever holds the new
+  `pharmacy.supplier.claim.manage`.
+- Supplier payables (what the hospital owes suppliers) stay out of scope (§23); a claim is only what
+  the supplier owes the hospital.
+- **Gap, deferred to the quarantine check (§24):** only rejection at the door creates a claim. Stock
+  accepted into `QUARANTINE` that later fails its check was paid for and is owed back just the same,
+  but has no claim path yet. It is handled when the check that releases or fails quarantined stock is
+  built, through a supplier return that takes the stock out and records the same kind of claim.
 
 ## 11. Cost Price and Selling Price
 
@@ -895,8 +1071,8 @@ Four separate figures, never merged:
 
 | Figure | Where | Amoxil syrup, carton of 24 |
 |---|---|---|
-| What this lot cost | `GoodsReceiptItem.purchaseUnitCost` (per batch, §9.3) | ₦50,000.00 a carton |
-| Cost price in effect, per selling unit | `ItemCostPrice` (`purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit`, worked out) | ₦2,083.33 a bottle |
+| What this lot cost | `GoodsReceiptItem.invoiceLineTotal` and `purchaseUnitCost` (per batch, §9.3, §10.1) | ₦2,500,000.00 for 50, ₦50,000.00 a carton |
+| Cost price in effect, per selling unit | `ItemCostPrice` (`purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit`, worked out, rounded up) | ₦2,083.34 a bottle |
 | Selling price, per selling unit | `ItemSellingPrice.sellingUnitPrice` (`12` §6) | ₦2,500.00 a bottle |
 | What the patient finally pays | charge and allocation (`13`) | 3 × ₦2,500.00 = ₦7,500.00 |
 
@@ -914,7 +1090,7 @@ programme), so it's never blocked, but it's never silent either:
 
 - **When a self-pay price is set** for a stocked item (`POST /billables/items/:id/prices`, or the
   price on `POST /pharmacy/items`) and `sellingUnitPrice` is below the cost price per selling unit in
-  effect, the response carries `warning: "Selling price ₦2,000.00 is below the cost price ₦2,083.33
+  effect, the response carries `warning: "Selling price ₦2,000.00 is below the cost price ₦2,083.34
   per bottle"`. The line is still created; the UI offers to raise it.
 - **When a receipt is posted** and the rolled cost price per selling unit is now above the item's
   self-pay selling price, the item is listed in the post response's `priceWarnings`
@@ -930,7 +1106,8 @@ the receipt with `updateCost` items:
 - if the item's cost per selling unit (`purchaseUnitCost ÷ sellingUnitsPerPurchaseUnit`) **equals**
   the current one, nothing changes (no churn on repeat buys at the same price);
 - otherwise the current row is ended now and a new row starts now with the item's
-  `purchaseUnitCost` and `sellingUnitsPerPurchaseUnit`, `source` = the GRN number and supplier
+  `purchaseUnitCost` (the rounded-up figure from its invoice line, §10.1) and
+  `sellingUnitsPerPurchaseUnit`, `source` = the GRN number and supplier
   invoice, `reason` = "Goods receipt GRN-000123". `MARKUP` lines reprice from that moment, as `12`
   §5.3 intends; `MANUAL` prices don't move, which is what the warning above is for.
 - Several `updateCost` items for the same product on one receipt must carry the same cost; otherwise
@@ -1259,7 +1436,8 @@ model StockLevel {
 | `pharmacy.unit.manage` | Manage Pharmacy Units | Create, edit, deactivate stores and dispensaries |
 | `pharmacy.supplier.manage` | Manage Suppliers & Manufacturers | Suppliers and manufacturers |
 | `pharmacy.receipt.create` | Record Goods Receipt | Create, edit and cancel draft receipts (incl. opening stock); add a new product from a receipt item; attach invoice photos |
-| `pharmacy.receipt.post` | Post Goods Receipt | Post a receipt into stock (rolls cost, §11) |
+| `pharmacy.receipt.post` | Post Goods Receipt | Post a receipt into stock (rolls cost, §11; records supplier credit claims, §10.5) |
+| `pharmacy.supplier.claim.manage` | Manage Supplier Claims | See what suppliers owe, settle or waive a claim (§10.5) |
 | `pharmacy.stock.release` | Release Quarantine | `QUARANTINE` → `AVAILABLE` |
 | `pharmacy.stock.status` | Change Stock Status | Quarantine, mark damaged |
 | `pharmacy.batch.quality` | Hold / Recall Batch | Batch quality status |
@@ -1302,24 +1480,32 @@ actor from the token; lists return `{ count, docs }` with `limit` (20) / `offset
 | `/medicines/stats` | GET | `pharmacy.stock.view` | Catalogue figures for the medicines page: `total` (active), `inactive`, `userAdded`, `stocked` (named by one of the hospital's products), `controlled`, and how many different `dosageForms`, `routes`, `legalCategories` and `therapeuticUses` the active medicines cover |
 | `/medicines/:id/merge` | POST | `pharmacy.medicine.manage` | Merge the hospital's own medicine into its `seededMatch`: products move to the seeded medicine, the copy becomes `INACTIVE`. 400 if nothing seeded matches; 403 for a seeded medicine. Returns `{ id, message }` (the seeded medicine's id) |
 | `/medicines/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
-| `/items` | POST | `pharmacy.item.manage` (+ `billable.price.create` when a price is given) | Add a product (§3.3): `categoryId` or `category: { name }`, `code`, `name`, `sellingUnit`, `description?`, `medicineId` (required for `PHARMACY`), `brandName?`, `manufacturerId` or `manufacturer: { name, country? }` (optional), `registrationNo?`, `shelfNumber?`, `purchaseUnitName`, `sellingUnitsPerPurchaseUnit`, `sellableInHalves?`, `batchTracked?`, `quarantineOnReceipt?`, `storageCondition?`, `sellingUnitPrice?` + `reason` (first self-pay `MANUAL` line). Returns `{ id, message, warning? }` |
+| `/items` | POST | `pharmacy.item.manage` (+ `billable.price.create` when a price is given) | Add a product (§3.3): `categoryId` or `category: { name, kind? }`, `code`, `name`, `sellingUnitId` or `sellingUnit: { name }`, `description?`, `medicineId?` (makes it a drug; `PHARMACY` only), `brandName?`, `manufacturerId` or `manufacturer: { name, country? }` (optional), `registrationNo?`, `shelfNumber?`, `purchaseUnitId` or `purchaseUnit: { name }`, `sellingUnitsPerPurchaseUnit`, `sellableInHalves?`, `batchTracked?`, `quarantineOnReceipt?`, `storageCondition?`, `sellingUnitPrice?` + `reason` (first self-pay `MANUAL` line). Returns `{ id, message, warning? }` |
 | `/items` | GET | `pharmacy.stock.view` | Stocked items with category, medicine, strength, brand, selling unit, purchase unit, stock totals in selling units (§8.2) for `pharmacyUnitId?` / `branchId?`, and (cost view) cost price and selling price per selling unit; filter `kind`, `categoryId`, `medicineId`, `search` (code, name, brand, generic name), `lowStock`, `belowCost` (cost view), `status` |
 | `/items/:itemId` | PUT | `pharmacy.item.manage` | Make an existing catalogue item stocked / update settings: the stock fields of `POST /items`. `purchaseUnitName`, `sellingUnitsPerPurchaseUnit` and `sellableInHalves` are refused (400) once the product has a movement |
 | `/items/:itemId` | GET | `pharmacy.stock.view` | Settings, medicine, selling and purchase units, levels, totals, (cost view) cost price and selling price per selling unit |
 | `/items/:itemId/stock` | GET | `pharmacy.stock.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) value |
 | `/items/:itemId/levels` | PUT / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Set / list reorder levels per location |
+| `/billables/item-units` | GET / POST | `billable.view` / `billable.item.create` | §4.1: seeded and own units by name (`kind`, `use` SELLING / PURCHASE, `search`, `status`), each with `source`; add one of the hospital's own (`name`, `pluralName?`, `kinds`, `usedForSelling`, `usedForPurchase`), 409 if it's already a unit |
+| `/billables/item-units/:id` | PATCH | `billable.item.update` | Edit or deactivate one of the hospital's own units; seeded ones can't change |
 | `/units` | POST / GET | `pharmacy.unit.manage` / `pharmacy.stock.view` | Create / list for `branchId?` |
 | `/units/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.unit.manage` | Detail with stock summary / edit, deactivate |
 | `/suppliers`, `/manufacturers` | POST / GET | `pharmacy.supplier.manage` / `pharmacy.stock.view` | Create ahead of time (usually created from receipts and products, §5) / list for the pickers (`search`, `status`) |
-| `/suppliers/:id`, `/manufacturers/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.supplier.manage` | Detail / edit, deactivate |
-| `/goods-receipts` | POST / GET | `pharmacy.receipt.create` / `pharmacy.stock.view` | Draft the header: `type`, `supplierId` or `supplier: { name, phone?, email? }` (`DELIVERY`), `pharmacyUnitId?` (default: the caller's branch store, §7.1), `supplierInvoiceNo?`, `supplierInvoiceDate?`, `supplierInvoiceTotal?`, `deliveryNote?`, `receivedAt`, `notes?`, `attachmentFileIds?` (ids from `POST /files`, one or more); returns `{ id, number, message }` / list (filter `status`, `supplierId`, `type`, `from`, `to`) |
-| `/goods-receipts/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.receipt.create` | Detail with items, batches (once posted) and photos; purchase unit costs only with `billable.cost.view` or `pharmacy.receipt.*` / edit a draft's header |
-| `/goods-receipts/:id/items` | POST | `pharmacy.receipt.create` (+ `billable.price.create` for a price in `newProduct`) | Add one product to a draft: `stockItemId`, or `newProduct` to create it (§10.2), `purchaseUnitsDelivered`, `purchaseUnitsAccepted`, `rejectReason?`, `purchaseUnitCost`, `batchNumber?`, `expiryDate?`, `manufacturedOn?`, `putAwayPharmacyUnitId?`, `receiveAs?`, `updateCost?`, `keepCostReason?`. The purchase unit and its selling units are copied from the product. Returns `{ id, stockItemId, message }` |
-| `/goods-receipts/:id/items/:itemId` | PATCH / DELETE | `pharmacy.receipt.create` | Change / remove one item of a draft |
+| `/suppliers/:id`, `/manufacturers/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.supplier.manage` | Detail (a supplier's with `amountOutstanding` and outstanding claim count, with `pharmacy.supplier.claim.manage`) / edit, deactivate |
+| `/goods-receipts` | POST / GET | `pharmacy.receipt.create` / `pharmacy.stock.view` | Draft the header: `type`, `supplierId` or `supplier: { name, phone?, email? }` (`DELIVERY`), `pharmacyUnitId?` (default: the caller's branch store, §7.1), `supplierInvoiceNo?`, `supplierInvoiceDate?`, `supplierInvoiceTotal?`, `deliveryNote?`, `receivedAt`, `notes?`, `attachmentFileIds?` (ids from `POST /files`, one or more); returns `{ id, number, message }` / list, newest arrivals first (filter `status`, `supplierId`, `type`, `from`, `to`), each with `number`, `supplier`, `supplierInvoiceNo`, `pharmacyUnit`, `goodsReceiptItemCount`, `attachmentCount`, `closestExpiryDate` (soonest across its items), `createdBy` and `postedBy` (who drafted and who posted, i.e. approved, it: `{ id, firstName, lastName }`) and, with cost visibility, `supplierInvoiceTotal`; the worked-out totals are on the detail only |
+| `/goods-receipts/metrics` | GET | `pharmacy.stock.view` | `{ total, byStatus: { DRAFT, POSTED, CANCELLED }, byType: { DELIVERY, OPENING } }`, zero where none; filter `supplierId`, `pharmacyUnitId`, `branchId`, `from`, `to`. Supplier returns are counted when slice 3 adds them |
+| `/goods-receipts/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.receipt.create` | Detail with items, batches (once posted), photos, totals, and every person on it (`createdBy`, `updatedBy`, `postedBy`, `cancelledBy`, attachments' `attachedBy`) as `{ id, firstName, lastName }`; purchase unit costs only with `billable.cost.view` or `pharmacy.receipt.*` / edit a draft's header |
+| `/goods-receipts/:id/items` | GET / POST | `pharmacy.stock.view` / `pharmacy.receipt.create` (+ `billable.price.create` for a price in `newProduct`) | GET: `{ count, docs }`, the receipt's items in the order entered (`limit` 20 / `offset`), each with product, put-away unit, batch once posted and `sellingUnitsAccepted`; `invoiceLineTotal`, `purchaseUnitCost`, `acceptedValue` and `amountOwed` with cost visibility. POST: Add one product to a draft: `stockItemId`, or `newProduct` to create it (§10.2), `purchaseUnitsDelivered`, `purchaseUnitsAccepted`, `rejectReason?`, `invoiceLineTotal` (the cost of one purchase unit is worked out from it, §10.1), `batchNumber?`, `expiryDate?`, `manufacturedOn?`, `putAwayPharmacyUnitId?`, `receiveAs?`, `updateCost?`, `keepCostReason?`. The purchase unit and its selling units are copied from the product. Returns `{ id, stockItemId, message }` |
+| `/goods-receipts/:id/items/:itemId` | GET / PATCH / DELETE | `pharmacy.stock.view` / `pharmacy.receipt.create` | One item (product, receipt, put-away unit, batch once posted, `sellingUnitsAccepted`; cost and `acceptedValue` with cost visibility) / change / remove one item of a draft |
 | `/goods-receipts/:id/post` | POST | `pharmacy.receipt.post` | Post (§10.2); 400 lists every failing item. Returns `{ id, message, priceWarnings }` (§11) |
 | `/goods-receipts/:id/attachments` | POST | `pharmacy.receipt.create` | Attach stored files: `attachmentFileIds` (ids from `POST /files`, one or more), `description?`; draft or posted (§10.3) |
 | `/goods-receipts/:id/attachments/:attachmentId` | DELETE | `pharmacy.receipt.create` | Detach a file, draft only (the stored file stays) |
 | `/goods-receipts/:id/cancel` | POST | `pharmacy.receipt.create` | Cancel a draft (`reason`) |
+| `/supplier-credit-claims` | GET | `pharmacy.supplier.claim.manage` | What suppliers owe (§10.5): `{ count, docs }`, oldest outstanding first (filter `supplierId`, `status`, `branchId`, `from`, `to`), each with `number`, `supplier`, goods receipt number and product, `purchaseUnitsClaimed`, `amountOwed`, `status` |
+| `/supplier-credit-claims/metrics` | GET | `pharmacy.supplier.claim.manage` | `{ byStatus: { OUTSTANDING, SETTLED, WAIVED }, amountOutstanding }`; filter `supplierId`, `branchId` |
+| `/supplier-credit-claims/:id` | GET | `pharmacy.supplier.claim.manage` | Detail: the line it came from, the receipt, and every person on it (`createdBy`, `settledBy`, `waivedBy`) as `{ id, firstName, lastName }` |
+| `/supplier-credit-claims/:id/settle` | POST | `pharmacy.supplier.claim.manage` | `settledAs`, `settlementReference?`, `replacementGoodsReceiptId` (for `REPLACEMENT`) |
+| `/supplier-credit-claims/:id/waive` | POST | `pharmacy.supplier.claim.manage` | `reason` |
 | `/batches` | GET | `pharmacy.stock.view` | Search by `itemId`, `batchNumber`, `qualityStatus`, expiry range |
 | `/batches/:id` | GET | `pharmacy.stock.view` | Batch with balances, receipt items, movements, cost (cost view) |
 | `/batches/:id/quality` | POST | `pharmacy.batch.quality` | `status`, `reason`, `recallReference?` |
@@ -1353,7 +1539,7 @@ will import Inventory; nothing imports in the other direction. DTOs in
 
 | Current | Becomes |
 |---|---|
-| — | `Medicine`, `TherapeuticUse`, `MedicineTherapeuticUse` (seeded), `StockItem`, `Supplier`, `Manufacturer`, `StockBatch`, `PharmacyUnit`, `StockBalance`, `StockTransaction`, `StockMovement`, `GoodsReceipt`, `GoodsReceiptItem`, `GoodsReceiptAttachment` (slice 1); `StockTransfer(Line)`, `StockAdjustment(Line)`, `StockCount(Line)`, `StockLevel` (slice 2); enums as above |
+| — | `Medicine`, `TherapeuticUse`, `MedicineTherapeuticUse` (seeded), `StockItem`, `Supplier`, `Manufacturer`, `StockBatch`, `PharmacyUnit`, `StockBalance`, `StockTransaction`, `StockMovement`, `GoodsReceipt`, `GoodsReceiptItem`, `GoodsReceiptAttachment`, `SupplierCreditClaim` (slice 1); `StockTransfer(Line)`, `StockAdjustment(Line)`, `StockCount(Line)`, `StockLevel` (slice 2); enums as above |
 | `BillableItem` | `unit` renamed **`sellingUnit`**. Gains `stockItem` relation. **`sellingUnit` can't change once the item has a movement** (rule added to `PATCH /billables/items/:id`). Created without a self-pay line only through `POST /pharmacy/items` (§3.3) |
 | `ItemCost` → **`ItemCostPrice`** | Renamed, with `packCost` → **`purchaseUnitCost`** and `unitsPerPack` → **`sellingUnitsPerPurchaseUnit`** (`12` §5). Gains `receiptItems` relation (`GoodsReceiptItem.itemCostPriceId`) |
 | `ItemPrice` → **`ItemSellingPrice`** | Renamed, with `amount` → **`sellingUnitPrice`** (`12` §6). `POST /billables/items/:id/prices` returns `warning` for a stocked item's self-pay price below its cost price per selling unit (§11) |
@@ -1363,20 +1549,21 @@ will import Inventory; nothing imports in the other direction. DTOs in
 | `Organization` | Gains `nearExpiryDays Int @default(90)` and relations `medicines`, `suppliers`, `manufacturers`, `pharmacyUnits`, `goodsReceipts` |
 | `Branch` | Gains `pharmacyUnits`, `goodsReceipts`, `stockTransactions` relations. Onboarding and `POST /organizations/:id/branches` create the branch's Main Pharmacy Store with it (§7.1) |
 | `prisma/seed.ts` | Seeds medicines and their therapeutic uses from `prisma/data/medicines/medicines-*.json`, insert-only (`organizationId` null, `createdBy` null), and a Main Pharmacy Store for any branch without a store (§7.1) |
-| `SequenceCounter` | New scopes `grn:<orgId>`, `trf:<orgId>`, `adj:<orgId>`, `cnt:<orgId>` |
+| `SequenceCounter` | New scopes `grn:<orgId>`, `scc:<orgId>`, `trf:<orgId>`, `adj:<orgId>`, `cnt:<orgId>` |
 | `permissions.catalog.ts` | §17 keys; seeded profiles as in §17 |
 | Migration | Prisma tables + appended SQL from §3.1, §3.2, §6, §8.1, §9.2, §10.1, and, in slice 2, §13, §14.1, §15 |
 
 ## 20. Slices
 
 1. **Stock in.** Seeded drugs (plus hospital-added ones), products with their selling and purchase units, suppliers, manufacturers, locations, receipts
-   (delivery and opening) with batches and the cost roll, the ledger with its triggers, status
+   (delivery and opening) with batches, the cost roll and supplier credit claims, the ledger with its triggers, status
    changes (quarantine release), batch quality, and the stock / batch / movement / expiry / valuation
    views. The FEFO order and the `issue` method with their specs (no endpoint yet).
 2. **Stock control.** Transfers, adjustments and write-offs, stocktake, reorder levels
    and low stock.
 3. **Procurement.** Purchase orders (draft → approved → sent → partly/fully received → closed),
-   receipts against PO lines, reorder suggestions, supplier returns, recall report across issues.
+   receipts against PO lines, reorder suggestions, supplier returns (stock already on the shelf,
+   each recorded as a supplier credit claim, §10.5), recall report across issues.
 4. **Dispensing PRD** consumes §12.3.
 
 ## 21. Worked Example
@@ -1392,9 +1579,9 @@ kind `PHARMACY`. Locations at the main branch: Main Store `MS`, OPD Dispensary `
 | Event | Ledger | Stock afterwards | Cost price / selling price |
 |---|---|---|---|
 | Both products added, no selling price | — | — | Listed as *no selling price* |
-| GRN-000101 from Alpha Pharma, invoice photographed: `-24` 50 cartons delivered and accepted, lot `A123` exp 2027-06-30, ₦50,000.00/carton; `-12` 1 carton, lot `C789` exp 2027-04-30, ₦26,400.00/carton → `MS` | `RECEIPT` +1,200 `A123`, +12 `C789` at `MS` AVAILABLE | `MS`: 1,200 + 12 = **1,212 bottles** of the medicine | `ItemCostPrice` starts: `-24` ₦2,083.33/bottle, `-12` ₦2,200.00/bottle. `priceWarnings`: both have no selling price |
-| Manager sets `-24` self-pay ₦2,000.00 | — | — | `warning`: below cost price ₦2,083.33. Raised to ₦2,500.00; `-12` set at ₦2,500.00 too |
-| GRN-000108: `-24` 10 cartons, lot `B456` exp 2027-03-31, ₦62,400.00/carton | `RECEIPT` +240 `B456` `MS` | `MS`: `-24` 1,440 · `-12` 12 | Cost price rolled at posting to ₦2,600.00/bottle. `priceWarnings`: `-24` now sells below cost (₦2,500.00). Manager raises it to ₦3,000.00. `A123` still valued at ₦2,083.33/bottle |
+| GRN-000101 from Alpha Pharma, invoice photographed: `-24` 50 cartons delivered and accepted, lot `A123` exp 2027-06-30, line total ₦2,500,000.00 (₦50,000.00/carton); `-12` 1 carton, lot `C789` exp 2027-04-30, ₦26,400.00/carton → `MS` | `RECEIPT` +1,200 `A123`, +12 `C789` at `MS` AVAILABLE | `MS`: 1,200 + 12 = **1,212 bottles** of the medicine | `ItemCostPrice` starts: `-24` ₦2,083.34/bottle, `-12` ₦2,200.00/bottle. `priceWarnings`: both have no selling price |
+| Manager sets `-24` self-pay ₦2,000.00 | — | — | `warning`: below cost price ₦2,083.34. Raised to ₦2,500.00; `-12` set at ₦2,500.00 too |
+| GRN-000108: `-24` 10 cartons, lot `B456` exp 2027-03-31, ₦62,400.00/carton | `RECEIPT` +240 `B456` `MS` | `MS`: `-24` 1,440 · `-12` 12 | Cost price rolled at posting to ₦2,600.00/bottle. `priceWarnings`: `-24` now sells below cost (₦2,500.00). Manager raises it to ₦3,000.00. `A123` still valued at ₦2,083.34/bottle |
 | Transfer TRF-000045 `MS` → `OPD`, 300 bottles of `-24`: the store takes out `B456` (offered first, earlier expiry) 240 + `A123` 60 | `TRANSFER_DISPATCH`: `B456` 240 + `A123` 60 | `MS`: `-24` 1,140 · `OPD` in transit 300 | Total unchanged |
 | OPD receives all 300 | `TRANSFER_RECEIVE` IN_TRANSIT → AVAILABLE | `OPD`: `-24` 300 | — |
 | NAFDAC recalls lot `A123` | No movement; batch `RECALLED` | `A123` at `MS` (1,140) and `OPD` (60) ineligible at once | — |
@@ -1465,3 +1652,10 @@ of a card is a 400. Amoxil above isn't sellable in halves, so half a bottle is a
    its bytes on the server's disk for now (`FILE_STORAGE_ROOT`, default a `files` folder beside the
    project), served by `GET /files/:id/content`. No Cloudinary. How files are stored (backups, an
    S3-compatible server, sync) is to be redefined; only `FilesService` changes, the ids and links stay.
+10. **Part settlement of supplier claims** (§10.5): v1 settles a claim whole. A supplier that credits
+   part now and part later would need settlement rows under the claim.
+11. **Claims for quarantined stock that fails its check** (§10.5, recorded 2026-11-03): stock accepted
+   into `QUARANTINE` and later found unfit has no supplier credit claim, because posting only claims
+   what was rejected at the door. To be designed with the quarantine check (release or fail), likely as
+   a supplier return (`SUPPLIER_RETURN` movement out of the batch + a claim at the batch's cost),
+   brought forward from slice 3.

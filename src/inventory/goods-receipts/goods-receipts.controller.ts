@@ -30,10 +30,40 @@ export class GoodsReceiptsController {
         return this.goodsReceiptsService.create(dto, orgId, user.branchId, user.sub);
     }
 
+    // declared before `goods-receipts/:id`, which would otherwise capture `metrics`
+    @ApiOperation({
+        summary: `Goods receipt counts: total, per status and per type`,
+        description: `\`{ total, byStatus: { DRAFT, POSTED, CANCELLED }, byType: { DELIVERY, OPENING } }\`, zero where there are none. ` +
+        `DRAFT receipts are waiting to be posted. Same filters as the list, plus \`pharmacyUnitId\` and \`branchId\`.`,
+    })
+    @ApiQuery({ name: 'supplierId', required: false })
+    @ApiQuery({ name: 'pharmacyUnitId', required: false })
+    @ApiQuery({ name: 'branchId', required: false })
+    @ApiQuery({ name: 'from', required: false, description: 'Received on or after (ISO date)' })
+    @ApiQuery({ name: 'to', required: false, description: 'Received before (ISO date)' })
+    @Authorize('pharmacy.stock.view')
+    @Get('goods-receipts/metrics')
+    metrics(
+        @OrganizationId() orgId: string,
+        @Query('supplierId', new ParseUUIDPipe({ optional: true })) supplierId?: string,
+        @Query('pharmacyUnitId', new ParseUUIDPipe({ optional: true })) pharmacyUnitId?: string,
+        @Query('branchId', new ParseUUIDPipe({ optional: true })) branchId?: string,
+        @Query('from') from?: string,
+        @Query('to') to?: string,
+    ) {
+        return this.goodsReceiptsService.metrics(orgId, {
+            supplierId, pharmacyUnitId, branchId,
+            from: from ? new Date(from) : undefined,
+            to:   to ? new Date(to) : undefined,
+        });
+    }
+
     @ApiOperation({
         summary: `Goods receipts, newest arrivals first`,
-        description: `\`count\` is the total matching the filters; \`docs\` is the page. Each has \`totals\` (delivered, accepted and ` +
-        `rejected value, and the difference from the invoice's printed total) for whoever can see receipt costs.`,
+        description: `\`count\` is the total matching the filters; \`docs\` is the page. Each has its \`supplier\`, \`supplierInvoiceNo\`, ` +
+        `\`goodsReceiptItemCount\`, \`attachmentCount\`, \`closestExpiryDate\` (the soonest expiry across its items), \`createdBy\` and ` +
+        `\`postedBy\` (who drafted and who posted, i.e. approved, it: \`{ id, firstName, lastName }\`), and \`supplierInvoiceTotal\` ` +
+        `for whoever can see receipt costs. The worked-out totals are on the receipt's detail.`,
     })
     @ApiQuery({ name: 'status', enum: ReceiptStatus, required: false })
     @ApiQuery({ name: 'type', enum: ReceiptType, required: false })
@@ -64,7 +94,11 @@ export class GoodsReceiptsController {
         }, user.permissions);
     }
 
-    @ApiOperation({ summary: `A goods receipt with its items, invoice photos and totals` })
+    @ApiOperation({
+        summary: `A goods receipt with its items, invoice photos and totals`,
+        description: `Every person on it is \`{ id, firstName, lastName }\` (null when unset): \`createdBy\`, \`updatedBy\`, \`postedBy\` ` +
+        `(who approved it), \`cancelledBy\`, and each attachment's \`attachedBy\`.`,
+    })
     @Authorize('pharmacy.stock.view')
     @Get('goods-receipts/:id')
     findOne(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
@@ -86,45 +120,15 @@ export class GoodsReceiptsController {
         return this.goodsReceiptsService.cancel(id, dto.reason, orgId, user.sub);
     }
 
-    // ── items ────────────────────────────────────────────────────────────────
-
-    @ApiOperation({
-        summary: `Add a product to a draft goods receipt, as on the invoice`,
-        description: `Pick a stocked product on the system by \`stockItemId\`, or add a new one with \`newProduct\` (created with the item; ` +
-        `a first selling price in it needs billable.price.create). The purchase unit and selling units per purchase unit are ` +
-        `copied from the product. Returns \`{ id, stockItemId, message }\`.`,
-    })
-    @Authorize('pharmacy.receipt.create')
-    @Post('goods-receipts/:id/items')
-    addItem(@Param('id', ParseUUIDPipe) id: string, @Body() dto: GoodsReceiptItemDto, @OrganizationId() orgId: string, @CurrentUser() user: AuthUser) {
-        return this.goodsReceiptsService.addItem(id, dto, orgId, user.sub, user.permissions);
-    }
-
-    @ApiOperation({ summary: `Change an item of a draft receipt` })
-    @Authorize('pharmacy.receipt.create')
-    @Patch('goods-receipts/:id/items/:itemId')
-    updateItem(
-        @Param('id', ParseUUIDPipe) id: string,
-        @Param('itemId', ParseUUIDPipe) itemId: string,
-        @Body() dto: UpdateGoodsReceiptItemDto,
-        @OrganizationId() orgId: string,
-    ) {
-        return this.goodsReceiptsService.updateItem(id, itemId, dto, orgId);
-    }
-
-    @ApiOperation({ summary: `Remove an item from a draft receipt` })
-    @Authorize('pharmacy.receipt.create')
-    @Delete('goods-receipts/:id/items/:itemId')
-    removeItem(@Param('id', ParseUUIDPipe) id: string, @Param('itemId', ParseUUIDPipe) itemId: string, @OrganizationId() orgId: string) {
-        return this.goodsReceiptsService.removeItem(id, itemId, orgId);
-    }
+    
 
     // ── posting ──────────────────────────────────────────────────────────────
 
     @ApiOperation({
         summary: `Post a receipt into stock (PRD 15 §10.2)`,
         description: `Creates the batches, adds accepted purchase units × selling units per purchase unit to stock and rolls cost prices ` +
-        `forward. 400 lists every problem. Returns \`{ id, message, priceWarnings }\`: products now selling below their cost price per ` +
+        `forward. Each item with rejected purchase units becomes a supplier credit claim: what the supplier owes for goods paid for ` +
+        `and handed back. 400 lists every problem. Returns \`{ id, message, priceWarnings }\`: products now selling below their cost price per ` +
         `selling unit, or with no selling price yet.`,
     })
     @Authorize('pharmacy.receipt.post')

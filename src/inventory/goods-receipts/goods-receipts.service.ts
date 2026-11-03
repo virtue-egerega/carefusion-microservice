@@ -7,11 +7,13 @@ import {
     AttachGoodsReceiptFilesDto, CreateGoodsReceiptDto, GoodsReceiptItemDto, UpdateGoodsReceiptDto, UpdateGoodsReceiptItemDto,
 } from '@shared/contracts/inventory';
 import { inEffectAt } from '../../billables/pricing/pricing.rules';
+import { Actor, loadActors } from '../../billables/actors';
 import { findOrCreateSupplier } from '../find-or-create';
 import { StockItemsService } from '../items/stock-items.service';
 import {
-    costRolls, goodsReceiptTotals, postingProblems, priceWarning, goodsReceiptItemProductRefusal, goodsReceiptItemRefusal, goodsReceiptNumber, goodsReceiptSupplierRefusal, sellingUnitsAdded,
+    acceptedValue, amountOwed, costRolls, goodsReceiptTotals, postingProblems, priceWarning, goodsReceiptItemProductRefusal, goodsReceiptItemRefusal, goodsReceiptNumber, goodsReceiptSupplierRefusal, sellingUnitsAdded,
 } from './goods-receipts.rules';
+import { supplierCreditClaimNumber } from '../supplier-credit-claims/supplier-credit-claims.rules';
 
 const NOT_FOUND = 'Goods receipt not found';
 
@@ -31,7 +33,12 @@ const asDate = (value?: string) => value ? new Date(value) : undefined;
 const canSeeReceiptCosts = (permissions: string[]) =>
     ['billable.cost.view', 'pharmacy.receipt.create', 'pharmacy.receipt.post'].some(p => permissions.includes(p));
 
-const totalsItemSelect = { select: { purchaseUnitsDelivered: true, purchaseUnitsAccepted: true, purchaseUnitCost: true } };
+/** A staff member as receipts show them, from the users loadActors found; null if unset or unknown. */
+const staffOf = (actors: Map<string, Actor>) => (userId: string | null) => {
+    const actor = userId ? actors.get(userId) : undefined;
+    return actor ? { id: actor.id, firstName: actor.firstName, lastName: actor.lastName } : null;
+};
+
 
 /** Why a receipt that matched no draft row couldn't be changed: missing (404) or no longer a draft (409). */
 const notDraft = (found: { status: string } | null) => found
@@ -98,8 +105,10 @@ export class GoodsReceiptsService {
     }
 
     /**
-     * Newest arrivals first, with the supplier, pharmacy unit, how many items each has and, for whoever can
-     * see receipt costs, its totals (§10.4).
+     * Newest arrivals first, each with what the pharmacy needs at a glance: supplier, invoice number, pharmacy
+     * unit, how many items and attachments, the closest expiry across its items, who drafted it and who
+     * posted (approved) it, and, for whoever can see receipt costs, the invoice's printed total. The worked-out
+     * totals (§10.4) are on the detail only: they need every item.
      */
     async findAll(organizationId: string, query: GoodsReceiptsQuery, permissions: string[]) {
         const client = this.databaseService.client;
@@ -123,13 +132,31 @@ export class GoodsReceiptsService {
                     supplier:     { select: { id: true, name: true } },
                     pharmacyUnit: { select: { id: true, name: true } },
                     _count:       { select: { items: true, attachments: true } },
-                    items:        totalsItemSelect,
                 },
             }),
         ]);
-        const docs = receipts.map(({ items, supplierInvoiceTotal, ...receipt }) => ({
+
+        // for the page only: who drafted and posted (approved) each receipt, and the soonest expiry across its
+        // items (short-dated deliveries at a glance), worked out by the database, not by loading the items
+        const [actors, expiries] = await Promise.all([
+            loadActors(this.databaseService, receipts.flatMap(r => [r.createdBy, r.postedBy])),
+            client.goodsReceiptItem.groupBy({
+                by:    ['receiptId'],
+                where: { receiptId: { in: receipts.map(r => r.id) }, expiryDate: { not: null } },
+                _min:  { expiryDate: true },
+            }),
+        ]);
+        const staff = staffOf(actors);
+        const closestExpiry = new Map(expiries.map(e => [e.receiptId, e._min.expiryDate]));
+
+        const docs = receipts.map(({ _count, supplierInvoiceTotal, ...receipt }) => ({
             ...receipt,
-            ...(canSeeCost && { totals: goodsReceiptTotals(items, supplierInvoiceTotal) }),
+            ...(canSeeCost && { supplierInvoiceTotal }),
+            createdBy:             staff(receipt.createdBy),
+            postedBy:              staff(receipt.postedBy),
+            goodsReceiptItemCount: _count.items,
+            attachmentCount:       _count.attachments,
+            closestExpiryDate:     closestExpiry.get(receipt.id) ?? null,
         }));
         return { count, docs };
     }
@@ -147,9 +174,10 @@ export class GoodsReceiptsService {
                 items:       {
                     orderBy: { createdAt: 'asc' },
                     include: {
-                        stockItem: { select: { shelfNumber: true, item: { select: { id: true, code: true, name: true, sellingUnit: true } } } },
+                        stockItem: { select: { shelfNumber: true, item: { select: { id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } } } } } },
                         putAwayPharmacyUnit: { select: { id: true, name: true } },
                         batch:     { select: { id: true, batchNumber: true, expiryDate: true } },
+                        supplierCreditClaim: { select: { id: true, number: true, status: true } },
                     },
                 },
                 attachments: {
@@ -160,10 +188,26 @@ export class GoodsReceiptsService {
         });
         if (!receipt) throw new NotFoundException(NOT_FOUND);
 
-        const { supplierInvoiceTotal, ...shown } = receipt;
+        // every person on the receipt as staff rather than user ids, in one query
+        const staff = staffOf(await loadActors(this.databaseService, [
+            receipt.createdBy, receipt.updatedBy, receipt.postedBy, receipt.cancelledBy, ...receipt.attachments.map(a => a.attachedBy),
+        ]));
+        const { supplierInvoiceTotal, ...rest } = receipt;
+        const shown = {
+            ...rest,
+            createdBy:   staff(receipt.createdBy),
+            updatedBy:   staff(receipt.updatedBy),
+            postedBy:    staff(receipt.postedBy),
+            cancelledBy: staff(receipt.cancelledBy),
+            attachments: receipt.attachments.map(a => ({ ...a, attachedBy: staff(a.attachedBy) })),
+        };
         return canSeeReceiptCosts(permissions)
-            ? { ...shown, totals: goodsReceiptTotals(receipt.items, supplierInvoiceTotal) }
-            : { ...shown, items: receipt.items.map(({ purchaseUnitCost, ...item }) => item) };
+            ? {
+                ...shown,
+                items:  receipt.items.map(item => ({ ...item, acceptedValue: acceptedValue(item), amountOwed: amountOwed(item) })),
+                totals: goodsReceiptTotals(receipt.items, supplierInvoiceTotal),
+            }
+            : { ...shown, items: receipt.items.map(({ purchaseUnitCost, invoiceLineTotal, ...item }) => item) };
     }
 
     /** Edits a draft's header; a supplier given by name is found or created (§5). */
@@ -210,109 +254,33 @@ export class GoodsReceiptsService {
         return { message: 'Receipt cancelled' };
     }
 
-    // ── items (§10.1) ────────────────────────────────────────────────────────
-
     /**
-     * Adds one product to a draft, as on the invoice (§10.2): an existing stocked product by `stockItemId`, or a
-     * new one created from `newProduct` in the same transaction, so going live never needs products set
-     * up first. Its purchase unit and selling units per purchase unit are copied from the product, never
-     * typed; `receiveAs` defaults from the product.
+     * Counts for the goods receipts page: the total, how many are in each status (drafts are waiting to be
+     * posted) and of each type, for the same filters as the list. Every status and type is present, zero
+     * when there are none. One grouped query.
      */
-    async addItem(receiptId: string, dto: GoodsReceiptItemDto, organizationId: string, userId: string, permissions: string[]) {
-        const refusal = goodsReceiptItemProductRefusal(dto) ?? goodsReceiptItemRefusal(dto);
-        if (refusal) throw new BadRequestException(refusal);
-
-        return this.databaseService.transaction(async () => {
-            const tx = this.databaseService.client;
-            const receipt = await tx.goodsReceipt.findFirst({ where: { id: receiptId, organizationId }, select: { status: true } });
-            if (!receipt || receipt.status !== $Enums.ReceiptStatus.DRAFT) throw notDraft(receipt);
-
-            // a new product is created with the item; adding it is part of receiving, so receipt.create covers it
-            const stockItemId = dto.newProduct
-                ? (await this.stockItemsService.create(dto.newProduct, organizationId, userId, permissions)).id
-                : dto.stockItemId!;
-            const product = await tx.stockItem.findFirst({
-                where:  { itemId: stockItemId, organizationId },
-                select: { purchaseUnitName: true, sellingUnitsPerPurchaseUnit: true, quarantineOnReceipt: true },
-            });
-            if (!product) throw new NotFoundException('Stocked product not found');
-
-            const { id } = await tx.goodsReceiptItem.create({
-                data: {
-                    ...this.itemFields(dto),
-                    receiptId,
-                    stockItemId,
-                    purchaseUnitName:            product.purchaseUnitName,
-                    sellingUnitsPerPurchaseUnit: product.sellingUnitsPerPurchaseUnit,
-                    purchaseUnitsDelivered:      dto.purchaseUnitsDelivered,
-                    purchaseUnitsAccepted:       dto.purchaseUnitsAccepted,
-                    purchaseUnitCost:            dto.purchaseUnitCost,
-                    receiveAs:                   dto.receiveAs ?? (product.quarantineOnReceipt ? $Enums.StockStatus.QUARANTINE : $Enums.StockStatus.AVAILABLE),
-                },
-                select: { id: true },
-            });
-            return { id, stockItemId, message: dto.newProduct ? 'Product added and item added' : 'Item added' };
-        });
-    }
-
-    /** Changes one item of a draft. A different product copies that product's units afresh. */
-    async updateItem(receiptId: string, receiptItemId: string, dto: UpdateGoodsReceiptItemDto, organizationId: string) {
-        const client = this.databaseService.client;
-        const current = await client.goodsReceiptItem.findFirst({
-            where:  { id: receiptItemId, receiptId, receipt: { organizationId } },
-            select: {
-                stockItemId: true, purchaseUnitsDelivered: true, purchaseUnitsAccepted: true, rejectReason: true, updateCost: true, keepCostReason: true,
-                receipt: { select: { status: true } },
+    async metrics(organizationId: string, query: Pick<GoodsReceiptsQuery, 'supplierId' | 'from' | 'to'> & { pharmacyUnitId?: string; branchId?: string }) {
+        const groups = await this.databaseService.client.goodsReceipt.groupBy({
+            by:     ['status', 'type'],
+            where:  {
+                organizationId,
+                ...(query.supplierId && { supplierId: query.supplierId }),
+                ...(query.pharmacyUnitId && { pharmacyUnitId: query.pharmacyUnitId }),
+                ...(query.branchId && { branchId: query.branchId }),
+                ...((query.from || query.to) && { receivedAt: { ...(query.from && { gte: query.from }), ...(query.to && { lt: query.to }) } }),
             },
+            _count: { _all: true },
         });
-        if (!current) throw new NotFoundException('Receipt item not found');
-        if (current.receipt.status !== $Enums.ReceiptStatus.DRAFT) throw notDraft(current.receipt);
 
-        const refusal = goodsReceiptItemRefusal({ ...current, ...dto });
-        if (refusal) throw new BadRequestException(refusal);
-
-        let units: { purchaseUnitName: string; sellingUnitsPerPurchaseUnit: number } | undefined;
-        if (dto.stockItemId && dto.stockItemId !== current.stockItemId) {
-            const product = await client.stockItem.findFirst({
-                where:  { itemId: dto.stockItemId, organizationId },
-                select: { purchaseUnitName: true, sellingUnitsPerPurchaseUnit: true },
-            });
-            if (!product) throw new NotFoundException('Stocked product not found');
-            units = product;
+        const byStatus = Object.fromEntries(Object.values($Enums.ReceiptStatus).map(status => [status, 0])) as Record<$Enums.ReceiptStatus, number>;
+        const byType = Object.fromEntries(Object.values($Enums.ReceiptType).map(type => [type, 0])) as Record<$Enums.ReceiptType, number>;
+        for (const group of groups) {
+            byStatus[group.status] += group._count._all;
+            byType[group.type] += group._count._all;
         }
-
-        const { count } = await client.goodsReceiptItem.updateMany({
-            where: { id: receiptItemId, receipt: { status: $Enums.ReceiptStatus.DRAFT } },
-            data:  {
-                ...this.itemFields(dto),
-                ...(dto.stockItemId && { stockItemId: dto.stockItemId }),
-                ...units,
-                purchaseUnitsDelivered: dto.purchaseUnitsDelivered,
-                purchaseUnitsAccepted:  dto.purchaseUnitsAccepted,
-                purchaseUnitCost:       dto.purchaseUnitCost,
-                receiveAs:              dto.receiveAs,
-            },
-        });
-        // the receipt was posted or cancelled since it was read
-        if (!count) throw notDraft(await client.goodsReceipt.findFirst({ where: { id: receiptId, organizationId }, select: { status: true } }));
-        return { message: 'Item updated' };
+        return { total: groups.reduce((sum, g) => sum + g._count._all, 0), byStatus, byType };
     }
 
-    /** Removes one item from a draft. */
-    async removeItem(receiptId: string, receiptItemId: string, organizationId: string) {
-        const client = this.databaseService.client;
-        const { count } = await client.goodsReceiptItem.deleteMany({
-            where: { id: receiptItemId, receiptId, receipt: { organizationId, status: $Enums.ReceiptStatus.DRAFT } },
-        });
-        if (!count) {
-            const found = await client.goodsReceiptItem.findFirst({
-                where:  { id: receiptItemId, receiptId, receipt: { organizationId } },
-                select: { receipt: { select: { status: true } } },
-            });
-            throw found ? notDraft(found.receipt) : new NotFoundException('Receipt item not found');
-        }
-        return { message: 'Item removed' };
-    }
 
     // ── posting (§10.2, §11) ─────────────────────────────────────────────────
 
@@ -320,7 +288,8 @@ export class GoodsReceiptsService {
      * Puts the receipt into stock, in one transaction: claims the draft (so it's posted once), checks every
      * item and reports all problems in one 400, finds or creates each lot's batch, writes one RECEIPT (or
      * OPENING) transaction with a movement per accepted item (the trigger updates the balances), rolls
-     * cost prices forward (§11) and records batch and cost price on the items. Returns `priceWarnings`:
+     * cost prices forward (§11), records what the supplier owes for rejected purchase units (§10.5) and records
+     * batch and cost price on the items. Returns `priceWarnings`:
      * products now selling below their cost price per selling unit, or with no selling price yet.
      */
     async post(receiptId: string, organizationId: string, postedBy: string) {
@@ -340,7 +309,7 @@ export class GoodsReceiptsService {
             const receipt = await tx.goodsReceipt.findUniqueOrThrow({
                 where:  { id: receiptId },
                 select: {
-                    number: true, type: true, branchId: true, pharmacyUnitId: true, receivedAt: true, supplierInvoiceNo: true,
+                    number: true, type: true, branchId: true, pharmacyUnitId: true, receivedAt: true, supplierId: true, supplierInvoiceNo: true,
                     supplier: { select: { status: true } },
                     items:    {
                         orderBy: { createdAt: 'asc' },
@@ -348,7 +317,7 @@ export class GoodsReceiptsService {
                             stockItem: {
                                 select: {
                                     batchTracked: true, sellingUnitsPerPurchaseUnit: true,
-                                    item: { select: { name: true, status: true, sellingUnit: true } },
+                                    item: { select: { name: true, status: true, sellingUnit: { select: { id: true, name: true, pluralName: true } } } },
                                 },
                             },
                         },
@@ -482,16 +451,42 @@ export class GoodsReceiptsService {
             }
             await tx.goodsReceipt.update({ where: { id: receiptId }, data: { transactionId } });
 
+            // the rejected purchase units were paid for: the supplier owes them back (§10.5). Opening stock rejects nothing
+            const rejected = receipt.supplierId ? items.filter(i => i.purchaseUnitsAccepted < i.purchaseUnitsDelivered) : [];
+            if (rejected.length) {
+                // one counter bump numbers them all; the row stays locked until this commits
+                const [counter] = await tx.$queryRaw<{ lastNumber: number }[]>`
+                    INSERT INTO "SequenceCounter" ("scope", "lastNumber") VALUES (${`scc:${organizationId}`}, ${rejected.length})
+                    ON CONFLICT ("scope") DO UPDATE SET "lastNumber" = "SequenceCounter"."lastNumber" + ${rejected.length}
+                    RETURNING "lastNumber"`;
+                const first = counter.lastNumber - rejected.length + 1;
+                await tx.supplierCreditClaim.createMany({
+                    data: rejected.map((i, n) => ({
+                        organizationId,
+                        branchId:             receipt.branchId,
+                        number:               supplierCreditClaimNumber(first + n),
+                        supplierId:           receipt.supplierId!,
+                        goodsReceiptItemId:   i.id,
+                        purchaseUnitsClaimed: i.purchaseUnitsDelivered - i.purchaseUnitsAccepted,
+                        purchaseUnitCost:     i.purchaseUnitCost,
+                        amountOwed:           amountOwed(i),
+                        reason:               i.rejectReason!,
+                        createdBy:            postedBy,
+                    })),
+                });
+            }
+
             const priceWarnings = products.flatMap(p => {
                 const item = items.find(i => i.itemId === p.id)!;
                 const warning = priceWarning(
-                    { itemId: p.id, name: item.stockItem.item.name, sellingUnit: item.stockItem.item.sellingUnit },
+                    { itemId: p.id, name: item.stockItem.item.name, sellingUnit: item.stockItem.item.sellingUnit.name.toLowerCase() },
                     rolls.get(p.id) ?? p.costPrices[0],
                     p.sellingPrices[0],
                 );
                 return warning ? [warning] : [];
             });
-            return { id: receiptId, message: `Receipt posted: ${accepted.length} item(s) into stock`, priceWarnings };
+            const owed = rejected.length ? `; the supplier owes for ${rejected.length} item(s)` : '';
+            return { id: receiptId, message: `Receipt posted: ${accepted.length} item(s) into stock${owed}`, priceWarnings };
         });
     }
 
@@ -533,18 +528,6 @@ export class GoodsReceiptsService {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
-    /** The optional fields of an item as entered, with its dates parsed. */
-    private itemFields(dto: UpdateGoodsReceiptItemDto) {
-        return {
-            rejectReason:   dto.rejectReason,
-            batchNumber:    dto.batchNumber?.trim(),
-            expiryDate:     asDate(dto.expiryDate),
-            manufacturedOn: asDate(dto.manufacturedOn),
-            putAwayPharmacyUnitId: dto.putAwayPharmacyUnitId,
-            updateCost:     dto.updateCost,
-            keepCostReason: dto.keepCostReason,
-        };
-    }
 
     /** The pharmacy unit given (active, the organisation's), or the caller's branch store when there's exactly one (§7.1). */
     private async receivingPharmacyUnit(organizationId: string, pharmacyUnitId: string | undefined, branchId: string | null) {

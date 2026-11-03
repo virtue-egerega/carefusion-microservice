@@ -54,6 +54,7 @@ import { FilesModule } from './files/files.module';
         ClinicsModule,
         MedicineManagementModule,
         FilesModule,
+        
     ],
     controllers: [AppController],
     providers: [AppService],

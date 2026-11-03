@@ -14,6 +14,10 @@ import { StockService } from './stock/stock.service';
 import { StockIssueService } from './stock/stock-issue.service';
 import { BatchesController } from './batches/batches.controller';
 import { BatchesService } from './batches/batches.service';
+import { GoodsReceiptItemsController } from './goods-receipt-items/goods-receipt-items.controller';
+import { GoodsReceiptItemsService } from './goods-receipt-items/goods-receipt-items.service';
+import { SupplierCreditClaimsController } from './supplier-credit-claims/supplier-credit-claims.controller';
+import { SupplierCreditClaimsService } from './supplier-credit-claims/supplier-credit-claims.service';
 
 /**
  * The hospital's stock of drugs and consumables (PRD 15). Dispensing will import this to take stock
@@ -21,11 +25,12 @@ import { BatchesService } from './batches/batches.service';
  */
 @Module({
     imports:     [FilesModule],
-    controllers: [StockItemsController, PharmacyUnitsController, SuppliersController, GoodsReceiptsController, StockController, BatchesController],
+    controllers: [StockItemsController, GoodsReceiptItemsController, PharmacyUnitsController, SuppliersController, GoodsReceiptsController, StockController, BatchesController, SupplierCreditClaimsController],
     providers:   [
         StockItemsService, PharmacyUnitsService, SuppliersService, ManufacturersService, GoodsReceiptsService, StockService, BatchesService,
-        StockIssueService,
+        StockIssueService,GoodsReceiptItemsService, SupplierCreditClaimsService,
     ],
+
     // the issue contract (§12.3), for Dispensing
     exports:     [StockIssueService],
 })

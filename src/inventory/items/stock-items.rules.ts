@@ -12,11 +12,11 @@ export type StockItemCheck = {
 };
 
 /**
- * Why stocking an item (or changing its stock settings) is refused, or null (§3.3). A PHARMACY item
- * must name its medicine, other kinds can't, and a medicine or manufacturer being set must exist and be active.
+ * Why stocking an item (or changing its stock settings) is refused, or null (§3.4). Naming a medicine is
+ * what makes a product a drug: optional, because the pharmacy also sells sanitary pads and baby food, and
+ * only a PHARMACY item can. A medicine or manufacturer being set must exist and be active.
  */
 export function stockItemRefusal({ kind, medicineId, medicine, manufacturer }: StockItemCheck): Refusal | null {
-    if (kind === 'PHARMACY' && !medicineId) return { reason: 'A PHARMACY item must name its medicine' };
     if (kind !== 'PHARMACY' && medicineId) return { reason: `Only PHARMACY items name a medicine; this item is ${kind}` };
 
     if (medicine === null) return { reason: 'Medicine not found', notFound: true };
@@ -55,7 +55,7 @@ export function productRefusal(product: ProductInput, permissions: string[]): Re
     return null;
 }
 
-export type ProductUnits = { purchaseUnitName: string; sellingUnitsPerPurchaseUnit: number; sellableInHalves: boolean };
+export type ProductUnits = { purchaseUnitId: string; sellingUnitsPerPurchaseUnit: number; sellableInHalves: boolean };
 
 /**
  * Why a change to a product's units is refused, or null (§3.4). They're required when an item is first
@@ -66,8 +66,8 @@ export function unitsChangeRefusal(
     change: Partial<ProductUnits>,
 ): Refusal | null {
     if (!current) {
-        return change.purchaseUnitName === undefined || change.sellingUnitsPerPurchaseUnit === undefined
-            ? { reason: 'A newly stocked item needs its purchaseUnitName and sellingUnitsPerPurchaseUnit' }
+        return change.purchaseUnitId === undefined || change.sellingUnitsPerPurchaseUnit === undefined
+            ? { reason: 'A newly stocked item needs its purchaseUnitId and sellingUnitsPerPurchaseUnit' }
             : null;
     }
     if (!current.hasStock) return null;

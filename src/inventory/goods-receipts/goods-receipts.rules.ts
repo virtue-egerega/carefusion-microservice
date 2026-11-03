@@ -1,6 +1,6 @@
 // Pure rules for PRD 15 §10–§11 (no DB access) — unit-tested in goods-receipts.rules.spec.ts.
 import { Prisma } from '../../../generated/prisma/client';
-import { sellingUnitCostPrice, toKobo } from '../../billables/pricing/pricing.rules';
+import { roundUpToKobo, sellingUnitCostPrice } from '../../billables/pricing/pricing.rules';
 
 /** "GRN-000123": the receipt number from its counter (SequenceCounter "grn:<orgId>"). */
 export const goodsReceiptNumber = (n: number) => `GRN-${String(n).padStart(6, '0')}`;
@@ -25,6 +25,7 @@ export function goodsReceiptItemProductRefusal(item: { stockItemId?: string; new
 }
 
 export type GoodsReceiptItemInput = {
+    receiptType?:            string;          // the receipt's: an OPENING receipt rejects nothing
     purchaseUnitsDelivered?: number;
     purchaseUnitsAccepted?:  number;
     rejectReason?:           string | null;
@@ -39,10 +40,36 @@ export type GoodsReceiptItemInput = {
 export function goodsReceiptItemRefusal(item: GoodsReceiptItemInput): string | null {
     const delivered = item.purchaseUnitsDelivered ?? 0;
     const accepted = item.purchaseUnitsAccepted ?? 0;
+    if (delivered < 1) return 'At least one purchase unit must have been delivered';
     if (accepted > delivered) return 'More purchase units accepted than delivered';
+    if (accepted < delivered && item.receiptType === 'OPENING') return "Opening stock can't reject purchase units: there's no supplier to owe them";
     if (accepted < delivered && !item.rejectReason) return 'Say why some purchase units were rejected (rejectReason)';
     if (item.updateCost === false && !item.keepCostReason) return "Say why this delivery shouldn't update the cost price (keepCostReason)";
     return null;
+}
+
+type Money = Prisma.Decimal | number | string;
+
+/**
+ * The cost of one purchase unit from what the invoice line says was paid (§10.1): the line total ÷ the purchase
+ * units delivered (the invoice charges for all of them), rounded up to the kobo (D14). ₦100,000.00 for 3 cartons
+ * is ₦33,333.34 a carton.
+ */
+export const purchaseUnitCostFromLineTotal = (invoiceLineTotal: Money, purchaseUnitsDelivered: number) =>
+    roundUpToKobo(new Prisma.Decimal(invoiceLineTotal).div(purchaseUnitsDelivered));
+
+type LineCost = { purchaseUnitsDelivered: number; purchaseUnitsAccepted: number; purchaseUnitCost: Money; invoiceLineTotal: Money };
+
+/** The value of what a line put into stock: purchase units accepted × the cost of one (§10.4). */
+export const acceptedValue = (item: LineCost) => new Prisma.Decimal(item.purchaseUnitCost).mul(item.purchaseUnitsAccepted);
+
+/**
+ * What the supplier owes for a line's rejected purchase units (§10.5): rejected × the cost of one, never more than
+ * was paid for the line, so turning every carton away claims the line total itself. Zero when nothing was rejected.
+ */
+export function amountOwed(item: LineCost): Prisma.Decimal {
+    const owed = new Prisma.Decimal(item.purchaseUnitCost).mul(item.purchaseUnitsDelivered - item.purchaseUnitsAccepted);
+    return Prisma.Decimal.min(owed, item.invoiceLineTotal);
 }
 
 /** Selling units a receipt item adds to stock: only accepted purchase units count (§10.2). */
@@ -144,7 +171,7 @@ export function priceWarning(
 ): PriceWarning | null {
     if (!cost) return null;
     const costPrice = sellingUnitCostPrice(cost);
-    const warning = { ...product, sellingUnitCostPrice: toKobo(costPrice) };
+    const warning = { ...product, sellingUnitCostPrice: roundUpToKobo(costPrice) };
     if (!selfPay) return { ...warning, sellingUnitPrice: null };
     if (selfPay.basis === 'MANUAL' && selfPay.sellingUnitPrice && selfPay.sellingUnitPrice.lt(costPrice)) {
         return { ...warning, sellingUnitPrice: selfPay.sellingUnitPrice };
@@ -152,27 +179,21 @@ export function priceWarning(
     return null;
 }
 
-type Money = Prisma.Decimal | number | string;
-
 /**
- * A goods receipt's totals (§10.4), worked out from its items, never stored: what the invoice lines add up
- * to (delivered), what entered stock (accepted), what was handed back (rejected), and how far the lines
- * are from the invoice's printed total, so a typo shows before posting. Each line is purchase units × the
- * cost of one, already whole kobo.
+ * A goods receipt's totals (§10.4), worked out from its items, never stored: what the invoice lines add up to
+ * (delivered), what entered stock (accepted), what the supplier owes for what was handed back, and how far the
+ * lines are from the invoice's printed total, so a typo shows before posting. With costs rounded up, accepted +
+ * owed can be a few kobo above delivered (D14).
  */
-export function goodsReceiptTotals(
-    items: { purchaseUnitsDelivered: number; purchaseUnitsAccepted: number; purchaseUnitCost: Money }[],
-    supplierInvoiceTotal: Money | null,
-) {
+export function goodsReceiptTotals(items: LineCost[], supplierInvoiceTotal: Money | null) {
     const zero = new Prisma.Decimal(0);
-    const deliveredValue = items.reduce((sum, i) => sum.plus(new Prisma.Decimal(i.purchaseUnitCost).mul(i.purchaseUnitsDelivered)), zero);
-    const acceptedValue = items.reduce((sum, i) => sum.plus(new Prisma.Decimal(i.purchaseUnitCost).mul(i.purchaseUnitsAccepted)), zero);
+    const deliveredValue = items.reduce((sum, i) => sum.plus(i.invoiceLineTotal), zero);
     const invoiceTotal = supplierInvoiceTotal === null ? null : new Prisma.Decimal(supplierInvoiceTotal);
     return {
         supplierInvoiceTotal: invoiceTotal,
         deliveredValue,
-        acceptedValue,
-        rejectedValue:        deliveredValue.minus(acceptedValue),
+        acceptedValue:        items.reduce((sum, i) => sum.plus(acceptedValue(i)), zero),
+        owedBySupplier:       items.reduce((sum, i) => sum.plus(amountOwed(i)), zero),
         invoiceDifference:    invoiceTotal && invoiceTotal.minus(deliveredValue),   // 0 when the lines match the invoice
     };
 }
