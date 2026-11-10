@@ -1,11 +1,15 @@
 import {
-    Body, Controller, DefaultValuePipe, Get, HttpCode, Param, ParseEnumPipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query,
+    BadRequestException, Body, Controller, DefaultValuePipe, Get, HttpCode, Param, ParseEnumPipe, ParseIntPipe, ParseUUIDPipe, Patch, Post, Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { isUUID } from 'class-validator';
 import { Authorize, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
 import type { AuthUser } from '../../auth/permissions.guard';
 import { CreateBillableItemDto, CreatePriceLineDto, QuoteDto, UpdateBillableItemDto } from '@shared/contracts/billables';
-import { CatalogStatus } from '@shared/enums/billables/billables.enums';
+import { CatalogStatus, PriceBasis } from '@shared/enums/billables/billables.enums';
+import type { PriceLineState } from './items.rules';
+
+const PRICE_LINE_STATES = { CURRENT: 'CURRENT', SCHEDULED: 'SCHEDULED', ENDED: 'ENDED', CANCELLED: 'CANCELLED' } as const;
 import { ServiceCategory } from '@shared/enums/billing/billing.enums';
 import { $Enums } from '../../../generated/prisma/client';
 import { BillableItemsService } from './billable-items.service';
@@ -44,6 +48,50 @@ export class BillableItemsController {
         @CurrentUser() user: AuthUser,
     ) {
         return this.itemsService.addPriceLine(id, dto, orgId, user.sub);
+    }
+
+    @ApiOperation({
+        summary: `An item's price history: every self-pay and payer line, newest start first (PRD 12 §6.3)`,
+        description: `\`count\` is the total matching the filters; \`docs\` is the page. Each line has its payer (null = self-pay), ` +
+        `agreement, dates and \`state\` now: CURRENT, SCHEDULED, ENDED or CANCELLED. A MARKUP line's \`percent\` is only returned ` +
+        `to holders of billable.cost.view.`,
+    })
+    @ApiQuery({ name: 'payerId', required: false, description: "A payer's lines, or `self` for self-pay only" })
+    @ApiQuery({ name: 'basis', enum: PriceBasis, required: false })
+    @ApiQuery({ name: 'state', enum: ['CURRENT', 'SCHEDULED', 'ENDED', 'CANCELLED'], required: false })
+    @ApiQuery({ name: 'from', required: false, description: 'ISO date: lines taking effect on or after' })
+    @ApiQuery({ name: 'to', required: false, description: 'ISO date: lines taking effect before' })
+    @ApiQuery({ name: 'search', required: false, description: 'Part of the reason, any case' })
+    @Authorize('billable.view')
+    @Get('items/:id/prices')
+    priceHistory(
+        @Param('id', ParseUUIDPipe) id: string,
+        @OrganizationId() orgId: string,
+        @CurrentUser() user: AuthUser,
+        @Query('payerId') payerId?: string,
+        @Query('basis', new ParseEnumPipe(PriceBasis, { optional: true })) basis?: PriceBasis,
+        @Query('state', new ParseEnumPipe(PRICE_LINE_STATES, { optional: true })) state?: PriceLineState,
+        @Query('from') from?: string,
+        @Query('to') to?: string,
+        @Query('search') search?: string,
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
+    ) {
+        if (payerId && payerId !== 'self' && !isUUID(payerId)) throw new BadRequestException('payerId must be a payer id or `self`');
+        const fromDate = from ? new Date(from) : undefined;
+        const toDate = to ? new Date(to) : undefined;
+        if ([fromDate, toDate].some(d => d && isNaN(d.getTime()))) throw new BadRequestException('from and to must be ISO dates');
+
+        return this.itemsService.priceHistory(id, orgId, {
+            payerId,
+            basis:  basis as $Enums.PriceBasis | undefined,
+            state,
+            from:   fromDate,
+            to:     toDate,
+            search: search?.trim() || undefined,
+            limit,
+            offset,
+        }, user.permissions);
     }
 
     @ApiOperation({

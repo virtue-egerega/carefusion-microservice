@@ -39,7 +39,7 @@ export class MedicineManagementController {
     @ApiQuery({ name: 'legalCategory', enum: LegalCategory, required: false })
     @ApiQuery({ name: 'status', enum: CatalogStatus, required: false })
     @ApiQuery({ name: 'source', enum: MedicineSource, required: false })
-    @Authorize('pharmacy.stock.view')
+    @Authorize('pharmacy.medicine.view')
     @Get()
     findAll(
         @OrganizationId() orgId: string,
@@ -74,7 +74,7 @@ export class MedicineManagementController {
         description: '`total` active, `inactive`, `userAdded`, `stocked` (named by one of the hospital\'s products), `controlled`, and how many '
             + 'different `dosageForms`, `routes`, `legalCategories` and `therapeuticUses` the active medicines cover.',
     })
-    @Authorize('pharmacy.stock.view')
+    @Authorize('pharmacy.medicine.view')
     @Get('stats')
     stats(@OrganizationId() orgId: string) {
         return this.medicinesService.stats(orgId);
@@ -92,7 +92,7 @@ export class MedicineManagementController {
     }
 
     @ApiOperation({ summary: "A medicine with its therapeutic uses and the hospital's products of it" })
-    @Authorize('pharmacy.stock.view')
+    @Authorize('pharmacy.medicine.view')
     @Get(':id')
     findOne(@Param('id', ParseUUIDPipe) id: string, @OrganizationId() orgId: string) {
         return this.medicinesService.findOne(id, orgId);
@@ -115,7 +115,7 @@ export class MedicineManagementController {
 
     @ApiOperation({ summary: 'Every therapeutic use, by name', description: '`{ count, docs }`, each `{ id, code, name }`. Not paginated.' })
     @ApiQuery({ name: 'search', required: false, description: 'Part of the name, any case' })
-    @Authorize('pharmacy.stock.view')
+    @Authorize('pharmacy.medicine.view')
     @Get('therapeutic-uses')
     findUses(@Query('search') search?: string) {
         return this.medicinesService.findUses(search?.trim() || undefined);

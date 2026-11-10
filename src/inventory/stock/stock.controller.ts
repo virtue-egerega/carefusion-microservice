@@ -1,11 +1,11 @@
 import {
-    Body, Controller, DefaultValuePipe, Get, Param, ParseEnumPipe, ParseIntPipe, ParseUUIDPipe, Post, Query,
+    Body, Controller, DefaultValuePipe, Get, Param, ParseBoolPipe, ParseEnumPipe, ParseIntPipe, ParseUUIDPipe, Post, Query,
 } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Authorize, CurrentUser, OrganizationId } from '../../auth/auth.decorators';
 import type { AuthUser } from '../../auth/permissions.guard';
 import { StatusChangeDto } from '@shared/contracts/inventory';
-import { StockTransactionType } from '@shared/enums/inventory/inventory.enums';
+import { StockStatus, StockTransactionType } from '@shared/enums/inventory/inventory.enums';
 import { $Enums } from '../../../generated/prisma/client';
 import { StockService } from './stock.service';
 
@@ -18,10 +18,15 @@ export class StockController {
     @ApiOperation({
         summary: `One product's stock by pharmacy unit, batch and status`,
         description: `Usable rows first, soonest expiry first (FEFO): the batch to take out first. Unusable rows say why ` +
-        `(quarantine, damaged, on hold, recalled, expired). \`totals\` in selling units. \`value\` only with billable.cost.view.`,
+        `(quarantine, damaged, on hold, recalled, expired). \`count\` is the total matching the filters; \`docs\` is the page. ` +
+        `\`sellingUnitCostPrice\` (the batch's cost price per selling unit, from the receipts that brought it in) ` +
+        `and \`value\` only with billable.cost.view. Totals per status are on GET /pharmacy/items/:itemId.`,
     })
     @ApiQuery({ name: 'pharmacyUnitId', required: false })
     @ApiQuery({ name: 'branchId', required: false })
+    @ApiQuery({ name: 'status', enum: StockStatus, required: false })
+    @ApiQuery({ name: 'usable', required: false, type: Boolean, description: 'true: only usable rows; false: only unusable ones' })
+    @ApiQuery({ name: 'search', required: false, description: 'Part of the batch number, any case' })
     @Authorize('pharmacy.stock.view')
     @Get('items/:itemId/stock')
     itemStock(
@@ -30,8 +35,19 @@ export class StockController {
         @CurrentUser() user: AuthUser,
         @Query('pharmacyUnitId', new ParseUUIDPipe({ optional: true })) pharmacyUnitId?: string,
         @Query('branchId', new ParseUUIDPipe({ optional: true })) branchId?: string,
+        @Query('status', new ParseEnumPipe(StockStatus, { optional: true })) status?: StockStatus,
+        @Query('usable', new ParseBoolPipe({ optional: true })) usable?: boolean,
+        @Query('search') search?: string,
+        @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit = 20,
+        @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset = 0,
     ) {
-        return this.stockService.itemStock(itemId, orgId, { pharmacyUnitId, branchId }, user.permissions);
+        return this.stockService.itemStock(itemId, orgId, {
+            pharmacyUnitId, branchId,
+            status: status as $Enums.StockStatus | undefined,
+            usable,
+            search: search?.trim() || undefined,
+            limit, offset,
+        }, user.permissions);
     }
 
     @ApiOperation({

@@ -3,9 +3,18 @@ import { DatabaseService } from '../../database/database.service';
 import { $Enums } from '../../../generated/prisma/client';
 import { StatusChangeDto } from '@shared/contracts/inventory';
 import { withStockChecks } from './stock-errors';
+import { roundUpToKobo } from '../../billables/pricing/pricing.rules';
 import { batchCostPrice, expiryGroup, fefoOrder, quantityRefusal, statusChangeRefusal, stockValue, unusableReason } from './stock.rules';
 
 export type StockScope = { pharmacyUnitId?: string; branchId?: string };
+
+export type ItemStockQuery = StockScope & {
+    status?: $Enums.StockStatus;
+    usable?: boolean;   // only usable rows (true) or only unusable ones (false)
+    search?: string;    // part of the batch number, any case
+    limit:   number;
+    offset:  number;
+};
 
 export type MovementsQuery = StockScope & {
     itemId?:  string;
@@ -38,9 +47,11 @@ export class StockService {
 
     /**
      * One product's stock by pharmacy unit × batch × status: whether each row is usable (and why not),
-     * usable rows first in FEFO order, totals, and values with billable.cost.view.
+     * usable rows first in FEFO order, and each batch's cost price per selling unit and value with
+     * billable.cost.view. `{ count, docs }`, paged after ordering: usability is worked out per row, so
+     * the item's rows are read whole (a product has a handful) and filtered on `usable` in memory.
      */
-    async itemStock(itemId: string, organizationId: string, scope: StockScope, permissions: string[]) {
+    async itemStock(itemId: string, organizationId: string, query: ItemStockQuery, permissions: string[]) {
         const client = this.databaseService.client;
         const today = new Date();
         const withCost = canSeeCost(permissions);
@@ -48,10 +59,14 @@ export class StockService {
         const [product, balances] = await client.$transaction([
             client.stockItem.findFirst({
                 where:  { itemId, organizationId },
-                select: { sellableInHalves: true, shelfNumber: true, item: { select: { id: true, code: true, name: true, sellingUnit: { select: { id: true, name: true, pluralName: true } }, status: true } } },
+                select: { item: { select: { status: true } } },
             }),
             client.stockBalance.findMany({
-                where:   { organizationId, itemId, sellingUnitQuantity: { gt: 0 }, ...scopeWhere(scope) },
+                where:   {
+                    organizationId, itemId, sellingUnitQuantity: { gt: 0 }, ...scopeWhere(query),
+                    ...(query.status && { status: query.status }),
+                    ...(query.search && { batch: { batchNumber: { contains: query.search, mode: 'insensitive' as const } } }),
+                },
                 include: {
                     pharmacyUnit: { select: { id: true, name: true, type: true, status: true } },
                     batch:        {
@@ -74,6 +89,7 @@ export class StockService {
                 itemActive:    product.item.status === $Enums.CatalogStatus.ACTIVE,
             }, today);
             const { receiptItems, ...batch } = b.batch as typeof b.batch & { receiptItems?: Parameters<typeof batchCostPrice>[0] };
+            const costPrice = withCost ? batchCostPrice(receiptItems ?? []) : null;
             return {
                 batchId:             b.batchId,
                 expiryDate:          b.batch.expiryDate,
@@ -84,25 +100,17 @@ export class StockService {
                 sellingUnitQuantity: Number(b.sellingUnitQuantity),
                 usable:              !reason,
                 unusableReason:      reason,
-                ...(withCost && { value: stockValue(b.sellingUnitQuantity, batchCostPrice(receiptItems ?? [])) }),
+                // shown rounded up (D14); the value is worked out from the exact cost (§9.3)
+                ...(withCost && { sellingUnitCostPrice: costPrice && roundUpToKobo(costPrice), value: stockValue(b.sellingUnitQuantity, costPrice) }),
             };
         });
-        const usable = fefoOrder(rows.filter(r => r.usable));
-        const unusable = rows.filter(r => !r.usable);
-        const sum = (list: typeof rows) => list.reduce((total, r) => total + r.sellingUnitQuantity, 0);
+        // usable first, soonest expiry first: what to take out first
+        const ordered = [...fefoOrder(rows.filter(r => r.usable)), ...rows.filter(r => !r.usable)]
+            .filter(r => query.usable === undefined || r.usable === query.usable);
 
         return {
-            product: { ...product.item, sellableInHalves: product.sellableInHalves, shelfNumber: product.shelfNumber },
-            totals:  {
-                onHand:     sum(rows),
-                usable:     sum(usable),
-                quarantine: sum(rows.filter(r => r.status === $Enums.StockStatus.QUARANTINE)),
-                damaged:    sum(rows.filter(r => r.status === $Enums.StockStatus.DAMAGED)),
-                expired:    sum(unusable.filter(r => r.unusableReason === 'the batch is expired')),
-                onHoldOrRecalled: sum(unusable.filter(r => r.batch.qualityStatus !== $Enums.BatchQuality.RELEASED)),
-            },
-            // usable first, soonest expiry first: what to take out first
-            docs: [...usable, ...unusable].map(({ batchId, expiryDate, firstReceivedAt, ...row }) => row),
+            count: ordered.length,
+            docs:  ordered.slice(query.offset, query.offset + query.limit).map(({ batchId, expiryDate, firstReceivedAt, ...row }) => row),
         };
     }
 

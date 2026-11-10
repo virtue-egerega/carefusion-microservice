@@ -87,7 +87,8 @@ export const PERMISSION_CATALOG: PermissionEntry[] = [
     { key: 'billable.discount.cancel',  name: 'Withdraw Payer Discount',   description: "Withdraw a payer discount that hasn't taken effect" },
 
     // Pharmacy: drugs & consumables in stock (PRD 15 §17) — one key per job; cost figures still need billable.cost.view
-    { key: 'pharmacy.stock.view',       name: 'Pharmacy: View Stock',                  description: 'Medicines, stocked products, pharmacy units, suppliers, manufacturers, batches, stock and receipts' },
+    { key: 'pharmacy.medicine.view',    name: 'Pharmacy: View Medicines',              description: 'The medicine list and therapeutic uses: what each medicine is, not how much is held' },
+    { key: 'pharmacy.stock.view',       name: 'Pharmacy: View Stock',                  description: 'Stocked products, pharmacy units, suppliers, manufacturers, batches, stock and receipts' },
     { key: 'pharmacy.medicine.manage',  name: 'Pharmacy: Manage Hospital Medicines',   description: "Add or edit the hospital's own medicines (never seeded ones)" },
     { key: 'pharmacy.item.manage',      name: 'Pharmacy: Manage Stock Items',          description: 'Stock settings, medicine link, brand and maker, and packs' },
     { key: 'pharmacy.unit.manage',      name: 'Pharmacy: Manage Pharmacy Units',       description: 'Create, edit and deactivate the stores and dispensaries that hold stock' },
@@ -182,7 +183,7 @@ const CASHIER_PERMISSIONS = [
 // Pharmacy stock (PRD 15 §17): a technician records receipts, a pharmacist posts them into stock and
 // releases quarantine, so posting and releasing are always a second person's check
 const PHARMACY_TECHNICIAN_PERMISSIONS = [
-    'pharmacy.stock.view', 'pharmacy.receipt.create', 'pharmacy.stock.status', 'billable.view',
+    'pharmacy.medicine.view', 'pharmacy.stock.view', 'pharmacy.receipt.create', 'pharmacy.stock.status', 'billable.view',
 ];
 
 const PHARMACIST_PERMISSIONS = [
@@ -209,7 +210,7 @@ export const SYSTEM_DUTY_PROFILES: SystemDutyProfile[] = [
             'appointment.create', 'appointment.manage',
             'billing.view', 'finance.report.view',
             'billable.view',
-            'pharmacy.stock.view',
+            'pharmacy.medicine.view', 'pharmacy.stock.view',
         ],
     },
     {

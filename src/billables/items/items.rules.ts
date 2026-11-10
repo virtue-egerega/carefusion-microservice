@@ -111,3 +111,16 @@ export function priceLineRefusal(line: PriceLineInput): string | null {
             return null;
     }
 }
+
+export type PriceLineState = 'CURRENT' | 'SCHEDULED' | 'ENDED' | 'CANCELLED';
+
+/**
+ * Where a dated line stands at `at` (D11): withdrawn before it took effect, not started yet, over
+ * (`effectiveTo` is exclusive), or in effect now.
+ */
+export function priceLineState(line: { effectiveFrom: Date; effectiveTo: Date | null; cancelledAt: Date | null }, at: Date): PriceLineState {
+    if (line.cancelledAt) return 'CANCELLED';
+    if (line.effectiveFrom > at) return 'SCHEDULED';
+    if (line.effectiveTo && line.effectiveTo <= at) return 'ENDED';
+    return 'CURRENT';
+}

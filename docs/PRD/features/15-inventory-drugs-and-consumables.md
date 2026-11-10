@@ -1430,7 +1430,8 @@ model StockLevel {
 
 | Key | Name | Grants |
 |---|---|---|
-| `pharmacy.stock.view` | Pharmacy: View Stock | Stocked items, locations, suppliers, manufacturers, drugs, batches, balances, movements, receipts, transfers, adjustments, counts, expiry and low-stock views |
+| `pharmacy.medicine.view` | Pharmacy: View Medicines | The medicine list and therapeutic uses: what each medicine is, not how much is held. Separate from stock so doctors, midwives and nurses can hold it *(2026-11-09)* |
+| `pharmacy.stock.view` | Pharmacy: View Stock | Stocked items, locations, suppliers, manufacturers, batches, balances, movements, receipts, transfers, adjustments, counts, expiry and low-stock views |
 | `pharmacy.medicine.manage` | Manage Hospital Medicines | Add or edit the hospital's own medicines (never seeded ones) |
 | `pharmacy.item.manage` | Manage Stock Items | Add products (item + stock settings, optional first selling price), medicine link, brand and maker, selling and purchase units, reorder levels |
 | `pharmacy.unit.manage` | Manage Pharmacy Units | Create, edit, deactivate stores and dispensaries |
@@ -1457,10 +1458,10 @@ adds back a missing system permission, so tenants extend them rather than trim t
 
 | Profile | Role | Gains |
 |---|---|---|
-| Pharmacy Technician | `PHARMACY_TECHNICIAN` | `pharmacy.stock.view`, `receipt.create`, `stock.status`, `billable.view` |
+| Pharmacy Technician | `PHARMACY_TECHNICIAN` | `pharmacy.medicine.view`, `pharmacy.stock.view`, `receipt.create`, `stock.status`, `billable.view` |
 | Pharmacist | `PHARMACIST` | the technician's, plus `receipt.post`, `stock.release`, `batch.quality`, `medicine.manage`, `item.manage` |
 | Pharmacy Manager | `MANAGER` | every `pharmacy.*` key, `billable.view`, `billable.cost.view` |
-| Hospital Administrator | `SUPERADMIN` | gains `pharmacy.stock.view` |
+| Hospital Administrator | `SUPERADMIN` | gains `pharmacy.medicine.view`, `pharmacy.stock.view` |
 
 A technician records a receipt and a pharmacist posts it, so posting (which moves cost prices) and
 releasing quarantine are always a second person's check. Slice 2 adds its keys to these profiles, and
@@ -1474,17 +1475,17 @@ actor from the token; lists return `{ count, docs }` with `limit` (20) / `offset
 
 | Endpoint | Method | Permission | Purpose |
 |---|---|---|---|
-| `/medicines` | GET | `pharmacy.stock.view` | `{ count, docs }`: seeded medicines plus the caller's own, each with `source` (`SYSTEM` / `USER_ADDED`) and its uses; filter `search` (name, alias, ingredient; partial), `therapeuticUse` (code), `dosageForm`, `route`, `bodySystem`, `legalCategory`, `status`, `source` |
-| `/therapeutic-uses` | GET | `pharmacy.stock.view` | `{ count, docs }`: every use with its medicine count, for the filter and the add-medicine form |
+| `/medicines` | GET | `pharmacy.medicine.view` | `{ count, docs }`: seeded medicines plus the caller's own, each with `source` (`SYSTEM` / `USER_ADDED`) and its uses; filter `search` (name, alias, ingredient; partial), `therapeuticUse` (code), `dosageForm`, `route`, `bodySystem`, `legalCategory`, `status`, `source` |
+| `/therapeutic-uses` | GET | `pharmacy.medicine.view` | `{ count, docs }`: every use with its medicine count, for the filter and the add-medicine form |
 | `/medicines` | POST | `pharmacy.medicine.manage` | Add a hospital medicine: `genericName`, `strength?`, `dosageForm`, `route`, `presentation?`, `ingredients?`, `aliases?`, `therapeuticUses?` (codes), `bodySystems?`, `legalCategory?`, `controlled?`, `description?`; 409 if it matches a seeded or own medicine |
-| `/medicines/stats` | GET | `pharmacy.stock.view` | Catalogue figures for the medicines page: `total` (active), `inactive`, `userAdded`, `stocked` (named by one of the hospital's products), `controlled`, and how many different `dosageForms`, `routes`, `legalCategories` and `therapeuticUses` the active medicines cover |
+| `/medicines/stats` | GET | `pharmacy.medicine.view` | Catalogue figures for the medicines page: `total` (active), `inactive`, `userAdded`, `stocked` (named by one of the hospital's products), `controlled`, and how many different `dosageForms`, `routes`, `legalCategories` and `therapeuticUses` the active medicines cover |
 | `/medicines/:id/merge` | POST | `pharmacy.medicine.manage` | Merge the hospital's own medicine into its `seededMatch`: products move to the seeded medicine, the copy becomes `INACTIVE`. 400 if nothing seeded matches; 403 for a seeded medicine. Returns `{ id, message }` (the seeded medicine's id) |
-| `/medicines/:id` | GET / PATCH | `pharmacy.stock.view` / `pharmacy.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
+| `/medicines/:id` | GET / PATCH | `pharmacy.medicine.view` / `pharmacy.medicine.manage` | Detail with its uses and the hospital's products / edit own medicine (seeded rows: 403) |
 | `/items` | POST | `pharmacy.item.manage` (+ `billable.price.create` when a price is given) | Add a product (§3.3): `categoryId` or `category: { name, kind? }`, `code`, `name`, `sellingUnitId` or `sellingUnit: { name }`, `description?`, `medicineId?` (makes it a drug; `PHARMACY` only), `brandName?`, `manufacturerId` or `manufacturer: { name, country? }` (optional), `registrationNo?`, `shelfNumber?`, `purchaseUnitId` or `purchaseUnit: { name }`, `sellingUnitsPerPurchaseUnit`, `sellableInHalves?`, `batchTracked?`, `quarantineOnReceipt?`, `storageCondition?`, `sellingUnitPrice?` + `reason` (first self-pay `MANUAL` line). Returns `{ id, message, warning? }` |
 | `/items` | GET | `pharmacy.stock.view` | Stocked items with category, medicine, strength, brand, selling unit, purchase unit, stock totals in selling units (§8.2) for `pharmacyUnitId?` / `branchId?`, and (cost view) cost price and selling price per selling unit; filter `kind`, `categoryId`, `medicineId`, `search` (code, name, brand, generic name), `lowStock`, `belowCost` (cost view), `status` |
 | `/items/:itemId` | PUT | `pharmacy.item.manage` | Make an existing catalogue item stocked / update settings: the stock fields of `POST /items`. `purchaseUnitName`, `sellingUnitsPerPurchaseUnit` and `sellableInHalves` are refused (400) once the product has a movement |
 | `/items/:itemId` | GET | `pharmacy.stock.view` | Settings, medicine, selling and purchase units, levels, totals, (cost view) cost price and selling price per selling unit |
-| `/items/:itemId/stock` | GET | `pharmacy.stock.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) value |
+| `/items/:itemId/stock` | GET | `pharmacy.stock.view` | Balances by batch × location × status, with eligibility, expiry and (cost view) the batch's cost price per selling unit (§9.3) and value |
 | `/items/:itemId/levels` | PUT / GET | `pharmacy.item.manage` / `pharmacy.stock.view` | Set / list reorder levels per location |
 | `/billables/item-units` | GET / POST | `billable.view` / `billable.item.create` | §4.1: seeded and own units by name (`kind`, `use` SELLING / PURCHASE, `search`, `status`), each with `source`; add one of the hospital's own (`name`, `pluralName?`, `kinds`, `usedForSelling`, `usedForPurchase`), 409 if it's already a unit |
 | `/billables/item-units/:id` | PATCH | `billable.item.update` | Edit or deactivate one of the hospital's own units; seeded ones can't change |

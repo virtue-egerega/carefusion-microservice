@@ -1,4 +1,4 @@
-import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, selfPayRefusal } from './items.rules';
+import { clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, priceLineState, selfPayRefusal } from './items.rules';
 
 const COST = { purchaseUnitCost: 1234.5, sellingUnitsPerPurchaseUnit: 100 };
 const WITH_COST = ['billable.cost.create'];
@@ -141,5 +141,38 @@ describe('priceLineRefusal', () => {
 
     it('refuses a price on a MARKUP line', () => {
         expect(priceLineRefusal({ basis: 'MARKUP', percent: 30, sellingUnitPrice: 16 })).toMatch(/takes no selling unit price/);
+    });
+});
+
+describe('priceLineState', () => {
+    const at = new Date('2026-11-04T12:00:00Z');
+    const line = (effectiveFrom: string, effectiveTo: string | null = null, cancelledAt: string | null = null) => ({
+        effectiveFrom: new Date(effectiveFrom),
+        effectiveTo:   effectiveTo ? new Date(effectiveTo) : null,
+        cancelledAt:   cancelledAt ? new Date(cancelledAt) : null,
+    });
+
+    it('is CURRENT when it has started and has no end', () => {
+        expect(priceLineState(line('2026-10-01T00:00:00Z'), at)).toBe('CURRENT');
+    });
+
+    it('is CURRENT when it ends later', () => {
+        expect(priceLineState(line('2026-10-01T00:00:00Z', '2026-12-01T00:00:00Z'), at)).toBe('CURRENT');
+    });
+
+    it('is CURRENT from the moment it starts (effectiveFrom is inclusive)', () => {
+        expect(priceLineState(line('2026-11-04T12:00:00Z'), at)).toBe('CURRENT');
+    });
+
+    it('is ENDED from the moment it ends (effectiveTo is exclusive)', () => {
+        expect(priceLineState(line('2026-10-01T00:00:00Z', '2026-11-04T12:00:00Z'), at)).toBe('ENDED');
+    });
+
+    it('is SCHEDULED when it starts later', () => {
+        expect(priceLineState(line('2026-12-01T00:00:00Z'), at)).toBe('SCHEDULED');
+    });
+
+    it('is CANCELLED once withdrawn, whatever its dates', () => {
+        expect(priceLineState(line('2026-12-01T00:00:00Z', null, '2026-11-01T00:00:00Z'), at)).toBe('CANCELLED');
     });
 });

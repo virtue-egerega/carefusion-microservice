@@ -26,6 +26,7 @@ import { QueueManagementModule } from'./queue-management/queue-management.module
 import { TriageModule } from './triage/triage.module';
 import { MedicineManagementModule } from './medicine-management/medicine-management.module';
 import { FilesModule } from './files/files.module';
+import { PrescriptionsModule } from './prescriptions/prescriptions.module';
 
 @Module({
     imports: [
@@ -54,6 +55,7 @@ import { FilesModule } from './files/files.module';
         ClinicsModule,
         MedicineManagementModule,
         FilesModule,
+        PrescriptionsModule,
         
     ],
     controllers: [AppController],

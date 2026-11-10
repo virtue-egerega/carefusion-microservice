@@ -6,7 +6,10 @@ import { CreateBillableItemDto, CreatePriceLineDto, UpdateBillableItemDto } from
 import { belowCostWarning, inEffectAt, resolvePrice, selfPayAmount, selfPayAndPayerLines, visiblePrice } from '../pricing/pricing.rules';
 import { payerForPricing } from '../pricing/pricing.service';
 import { findItemUnit } from '../item-units/find-item-unit';
-import { PriceLineInput, clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, selfPayRefusal } from './items.rules';
+import {
+    PriceLineInput, PriceLineState, clinicChangeRefusal, clinicPage, itemUpdateRefusal, priceLineRefusal, priceLineState, selfPayRefusal,
+} from './items.rules';
+import { subscribe } from 'node:diagnostics_channel';
 
 export type CategoryItemsQuery = {
     status?: $Enums.CatalogStatus;
@@ -46,6 +49,27 @@ const currentSelfPay = (at: Date) => ({
     costPrices:    { where: inEffectAt(at), take: 1 },
     clinicLinks:   { select: { clinic: { select: { id: true, name: true } } }, orderBy: { clinic: { name: 'asc' as const } } },
 });
+
+export type PriceHistoryQuery = {
+    payerId?: string | 'self';   // 'self': self-pay lines only
+    basis?:   $Enums.PriceBasis;
+    state?:   PriceLineState;
+    from?:    Date;              // lines taking effect on or after
+    to?:      Date;              // lines taking effect before
+    search?:  string;            // part of the reason, any case
+    limit:    number;
+    offset:   number;
+};
+
+/** The lines in a state at `at`, as a filter: the same reading as priceLineState. */
+const inState = (state: PriceLineState, at: Date): Prisma.ItemSellingPriceWhereInput => {
+    switch (state) {
+        case 'CANCELLED': return { cancelledAt: { not: null } };
+        case 'SCHEDULED': return { cancelledAt: null, effectiveFrom: { gt: at } };
+        case 'ENDED':     return { cancelledAt: null, effectiveTo: { lte: at } };
+        case 'CURRENT':   return inEffectAt(at);
+    }
+};
 
 export type ItemsQuery = CategoryItemsQuery & {
     categoryId?: string;
@@ -245,6 +269,60 @@ export class BillableItemsService {
             // the agreement FK is composite with the payer, so a wrong agreement fails it
             { notFound: "Payer agreement not found for this payer" },
         );
+    }
+
+    /**
+     * An item's price line history (PRD 12 §6.3, D11): every self-pay and payer line, newest start first,
+     * each with its state now. A MARKUP line's percent reveals the margin, so it's only shown with
+     * billable.cost.view (§10). The item is read in the same transaction, only to tell "no such item" (404)
+     * from "no lines".
+     */
+
+    
+    async priceHistory(itemId: string, organizationId: string, query: PriceHistoryQuery, permissions: string[]) {
+        const client = this.databaseService.client;
+        const now = new Date();
+        const canSeeCost = permissions.includes('billable.cost.view');
+        // AND, so the filters' own ORs (state, dates) never overwrite each other
+        const where: Prisma.ItemSellingPriceWhereInput = {
+            itemId,
+            item: { organizationId },
+            AND: [
+                ...(query.payerId ? [{ payerId: query.payerId === 'self' ? null : query.payerId }] : []),
+                ...(query.basis ? [{ basis: query.basis }] : []),
+                ...(query.state ? [inState(query.state, now)] : []),
+                ...(query.from ? [{ effectiveFrom: { gte: query.from } }] : []),
+                ...(query.to ? [{ effectiveFrom: { lt: query.to } }] : []),
+                ...(query.search ? [{ reason: { contains: query.search, mode: 'insensitive' as const } }] : []),
+            ],
+        };
+
+        const [item, count, lines] = await client.$transaction([
+            client.billableItem.findFirst({ where: { id: itemId, organizationId }, select: { id: true } }),
+            client.itemSellingPrice.count({ where }),
+            client.itemSellingPrice.findMany({
+                where,
+                take:    query.limit,
+                skip:    query.offset,
+                orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+                select:  {
+                    id: true, basis: true, sellingUnitPrice: true, percent: true, effectiveFrom: true, effectiveTo: true,
+                    reason: true, createdAt: true, endedAt: true, endReason: true, cancelledAt: true,
+                    payer:     { select: { id: true, name: true } },
+                    agreement: { select: { id: true, reference: true, title: true } },
+                },
+            }),
+        ]);
+        if (!item) throw new NotFoundException('Billable item not found');
+
+        return {
+            count,
+            docs: lines.map(({ percent, ...line }) => ({
+                ...line,
+                ...((line.basis !== $Enums.PriceBasis.MARKUP || canSeeCost) && { percent }),
+                state: priceLineState(line, now),
+            })),
+        };
     }
 
     /**

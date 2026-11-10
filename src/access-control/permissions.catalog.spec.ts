@@ -34,10 +34,15 @@ describe('SYSTEM_DUTY_PROFILES', () => {
             expect(permissions).toEqual(expect.arrayContaining([...pharmacy, 'billable.cost.view']));
         });
 
-        it('lets the hospital administrator see stock but not change it', () => {
+        it('lets the hospital administrator see medicines and stock but not change them', () => {
             const { permissions } = profile('Hospital Administrator');
-            expect(permissions).toContain('pharmacy.stock.view');
-            expect(permissions.filter(key => key.startsWith('pharmacy.') && key !== 'pharmacy.stock.view')).toEqual([]);
+            const views = ['pharmacy.medicine.view', 'pharmacy.stock.view'];
+            expect(permissions).toEqual(expect.arrayContaining(views));
+            expect(permissions.filter(key => key.startsWith('pharmacy.') && !views.includes(key))).toEqual([]);
+        });
+
+        it('lets a technician see the medicine list, which is separate from stock', () => {
+            expect(profile('Pharmacy Technician').permissions).toContain('pharmacy.medicine.view');
         });
     });
 });
